@@ -39,6 +39,7 @@ interface Holiday {
   name: string;
   isHoliday: boolean;
   date: string;
+  isAlternative?: boolean;
   [key: string]: any;
 }
 
@@ -185,7 +186,10 @@ const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
           </Text>
           
           {holiday && (
-            <Text style={styles.holidayName} numberOfLines={1} ellipsizeMode="tail">
+            <Text style={[
+              styles.holidayName, 
+              holiday.isAlternative && styles.alternativeHolidayName
+            ]} numberOfLines={1} ellipsizeMode="tail">
               {holiday.name}
             </Text>
           )}
@@ -333,6 +337,10 @@ const styles = StyleSheet.create({
     color: '#ff3b30',
     marginBottom: 2,
     textAlign: 'center'
+  },
+  alternativeHolidayName: {
+    color: '#ff6a4a',
+    fontStyle: 'italic'
   },
   eventContainer: {
     flex: 1,

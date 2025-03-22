@@ -15,15 +15,22 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../../context/AuthContext';
-import { Group, getUserGroups, createGroup } from '../../../services/groupService';
+import { Group, getUserGroups, createGroup, inviteToGroup } from '../../../services/groupService';
+import { useFocusEffect } from '@react-navigation/native'; // 새로 추가
 
 // 그룹 항목 컴포넌트
 interface GroupItemProps {
   group: Group;
   onPress: (group: Group) => void;
+  onInvite?: (group: Group) => void;
 }
 
-const GroupItem = ({ group, onPress }: GroupItemProps) => {
+const GroupItem = ({ group, onPress, onInvite }: GroupItemProps) => {
+  // role 속성이 문자열인지 확인하고 소유자인지 체크
+  const isOwner = typeof group.role === 'string' && group.role.toLowerCase() === 'owner';
+  
+  console.log(`[GroupItem] Group: ${group.name}, Role: ${group.role}, isOwner: ${isOwner}`);
+  
   return (
     <TouchableOpacity style={styles.groupItem} onPress={() => onPress(group)}>
       <View style={styles.groupInfo}>
@@ -33,10 +40,22 @@ const GroupItem = ({ group, onPress }: GroupItemProps) => {
           <Text style={styles.groupMetaText}>
             {group.memberCount || '?'}명의 멤버
           </Text>
-          {group.role === 'owner' && (
+          {isOwner && (
             <View style={styles.ownerBadge}>
               <Text style={styles.ownerBadgeText}>관리자</Text>
             </View>
+          )}
+          
+          {isOwner && onInvite && (
+            <TouchableOpacity 
+              style={styles.quickInviteButton}
+              onPress={(e) => {
+                e.stopPropagation(); // 그룹 클릭 이벤트 방지
+                onInvite(group);
+              }}
+            >
+              <Text style={styles.quickInviteText}>초대하기</Text>
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -148,6 +167,12 @@ export default function GroupListScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
+  
+  // 초대 관련 상태 추가
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
 
   // 그룹 데이터 로드
   const loadGroups = async () => {
@@ -156,11 +181,21 @@ export default function GroupListScreen() {
       
       if (!user || !user.uid) return;
       
+      console.log('[loadGroups] 그룹 데이터 로드 시작');
       const result = await getUserGroups(user.uid);
       
       if (result.success && Array.isArray(result.groups)) {
-        setGroups(result.groups as Group[]);
+        // 그룹 데이터 디버깅
+        const groups = result.groups as Group[];
+        console.log('Loaded groups:', groups.map(g => ({
+          id: g.id, 
+          name: g.name,
+          role: g.role
+        })));
+        
+        setGroups(groups);
       } else {
+        console.error('그룹 로드 실패:', result.error);
         Alert.alert('오류', '그룹 목록을 불러오는 중 오류가 발생했습니다.');
       }
     } catch (error) {
@@ -179,6 +214,18 @@ export default function GroupListScreen() {
     }
   }, [user]);
 
+  // 화면이 포커스될 때마다 데이터 새로고침 (추가된 부분)
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user) {
+        console.log('그룹 목록 화면 포커스 - 데이터 새로고침');
+        setRefreshing(true);
+        loadGroups();
+      }
+      return () => {};
+    }, [user])
+  );
+
   // 새로고침 핸들러
   const handleRefresh = () => {
     setRefreshing(true);
@@ -188,6 +235,58 @@ export default function GroupListScreen() {
   // 그룹 선택 핸들러
   const handleGroupPress = (group: Group) => {
     router.push(`/groups/${group.id}`);
+  };
+  
+  // 그룹 초대 핸들러
+  const handleInvitePress = (group: Group) => {
+    setSelectedGroup(group);
+    setInviteModalVisible(true);
+  };
+  
+  // 초대 제출 핸들러
+  const handleInvite = async (email: string) => {
+    console.log(`[handleInvite] 초대 시도. 이메일: ${email}, 선택된 그룹:`, selectedGroup);
+    
+    if (!selectedGroup) {
+      console.error('[handleInvite] 선택된 그룹 없음');
+      Alert.alert('오류', '그룹 정보가 없습니다.');
+      return;
+    }
+    
+    // 이메일 유효성 검사
+    if (!email || !email.trim()) {
+      Alert.alert('오류', '이메일을 입력해주세요.');
+      return;
+    }
+    
+    if (!/\S+@\S+\.\S+/.test(email)) {
+      Alert.alert('오류', '유효한 이메일 형식이 아닙니다.');
+      return;
+    }
+    
+    try {
+      setInviting(true);
+      
+      console.log(`[handleInvite] inviteToGroup 호출: groupId=${selectedGroup.id}, email=${email}`);
+      const result = await inviteToGroup(selectedGroup.id, email);
+      
+      console.log('[handleInvite] 초대 결과:', result);
+      
+      if (result.success) {
+        setInviteModalVisible(false);
+        setInviteEmail(''); // 초대 후 이메일 초기화
+        Alert.alert('성공', `${email} 님을 그룹에 초대했습니다.`);
+        // 그룹 목록 새로고침
+        handleRefresh();
+      } else {
+        Alert.alert('초대 실패', result.error || '사용자 초대 중 오류가 발생했습니다.');
+      }
+    } catch (error) {
+      console.error('[handleInvite] 초대 중 오류:', error);
+      Alert.alert('오류', '사용자 초대 중 오류가 발생했습니다.');
+    } finally {
+      setInviting(false);
+    }
   };
 
   // 그룹 생성 핸들러
@@ -218,54 +317,118 @@ export default function GroupListScreen() {
     }
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>내 그룹</Text>
+return (
+  <SafeAreaView style={styles.container}>
+    <View style={styles.header}>
+      <Text style={styles.headerTitle}>내 그룹</Text>
+    </View>
+    
+    {loading && !refreshing ? (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3c66af" />
       </View>
-      
-      {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3c66af" />
-        </View>
-      ) : (
-        <>
-          <FlatList
-            data={groups}
-            renderItem={({ item }) => (
-              <GroupItem group={item} onPress={handleGroupPress} />
-            )}
-            keyExtractor={(item) => item.id || ''}
-            contentContainerStyle={styles.listContent}
-            refreshControl={
-              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Text style={styles.emptyText}>
-                  아직 속한 그룹이 없습니다.{'\n'}새 그룹을 생성해보세요.
-                </Text>
+    ) : (
+      <View style={{ flex: 1 }}>
+        <FlatList
+          data={groups}
+          renderItem={({ item }) => (
+            <GroupItem 
+              group={item} 
+              onPress={handleGroupPress} 
+              onInvite={handleInvitePress} 
+            />
+          )}
+          keyExtractor={(item) => item.id || ''}
+          contentContainerStyle={[styles.listContent, { paddingBottom: 100 }]} // 더 넓은 여백
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                아직 속한 그룹이 없습니다.{'\n'}새 그룹을 생성해보세요.
+              </Text>
+            </View>
+          }
+        />
+        
+        <TouchableOpacity
+          style={[styles.createButton, { zIndex: 100 }]} // zIndex 추가
+          onPress={() => {
+            console.log("그룹 생성 버튼 클릭됨");
+            setCreateModalVisible(true);
+          }}
+        >
+          <Text style={styles.createButtonText}>+ 새 그룹 생성</Text>
+        </TouchableOpacity>
+        
+        <CreateGroupModal
+          visible={createModalVisible}
+          onClose={() => setCreateModalVisible(false)}
+          onSubmit={handleCreateGroup}
+          loading={creatingGroup}
+        />
+        
+        {/* 멤버 초대 모달 */}
+        <Modal
+          visible={inviteModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => {
+            setInviteModalVisible(false);
+            setInviteEmail('');
+          }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>
+                {selectedGroup?.name} 그룹에 멤버 초대
+              </Text>
+              
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>초대할 사용자 이메일</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="이메일 주소"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={inviteEmail}
+                  onChangeText={setInviteEmail}
+                  onSubmitEditing={() => handleInvite(inviteEmail)}
+                />
               </View>
-            }
-          />
-          
-          <TouchableOpacity
-            style={styles.createButton}
-            onPress={() => setCreateModalVisible(true)}
-          >
-            <Text style={styles.createButtonText}>+ 새 그룹 생성</Text>
-          </TouchableOpacity>
-          
-          <CreateGroupModal
-            visible={createModalVisible}
-            onClose={() => setCreateModalVisible(false)}
-            onSubmit={handleCreateGroup}
-            loading={creatingGroup}
-          />
-        </>
-      )}
-    </SafeAreaView>
-  );
+              
+              <View style={styles.modalActions}>
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.cancelButton]} 
+                  onPress={() => {
+                    setInviteModalVisible(false);
+                    setInviteEmail('');
+                  }}
+                  disabled={inviting}
+                >
+                  <Text style={styles.cancelButtonText}>취소</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.modalButton, styles.submitButton, inviting && styles.disabledButton]} 
+                  onPress={() => handleInvite(inviteEmail)}
+                  disabled={inviting}
+                >
+                  {inviting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.submitButtonText}>초대</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </View>
+    )}
+  </SafeAreaView>
+);
 }
 
 const styles = StyleSheet.create({
@@ -340,6 +503,18 @@ const styles = StyleSheet.create({
     color: '#3c66af',
     fontWeight: '500'
   },
+  quickInviteButton: {
+    backgroundColor: '#3c66af',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    marginLeft: 8
+  },
+  quickInviteText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '500'
+  },
   arrowContainer: {
     justifyContent: 'center'
   },
@@ -359,7 +534,7 @@ const styles = StyleSheet.create({
   },
   createButton: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 80,
     left: 20,
     right: 20,
     backgroundColor: '#3c66af',

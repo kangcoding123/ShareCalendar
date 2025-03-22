@@ -2,7 +2,13 @@
 import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
-import { loginUser, logoutUser, registerUser } from '../services/authService';
+import { 
+  loginUser, 
+  logoutUser, 
+  registerUser, 
+  autoLoginWithSavedCredentials,
+  getSavedUserInfo
+} from '../services/authService';
 
 // 사용자 타입 정의
 interface User {
@@ -41,28 +47,72 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+    
+    // 인증 상태 초기화
+    const initAuth = async () => {
+      try {
+        // 저장된 사용자 정보 확인
+        const savedUser = await getSavedUserInfo();
+        
+        if (savedUser && isMounted) {
+          setUser(savedUser);
+          
+          // 저장된 자격 증명으로 자동 로그인 시도 (세션 갱신용)
+          autoLoginWithSavedCredentials().catch(error => 
+            console.log('자동 로그인 갱신 실패:', error)
+          );
+        }
+      } catch (error) {
+        console.error('인증 초기화 오류:', error);
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    // 인증 초기화 실행
+    initAuth();
+
+    // Firebase 인증 상태 변경 이벤트 구독
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (!isMounted) return;
+      
       if (firebaseUser) {
-        setUser({
+        // Firebase에 인증된 사용자가 있으면 상태 업데이트
+        const userData: User = {
           uid: firebaseUser.uid,
           email: firebaseUser.email,
-          displayName: firebaseUser.displayName || 'User'
-        });
+          displayName: firebaseUser.displayName
+        };
+        
+        setUser(userData);
       } else {
+        // Firebase에서 로그아웃 상태면 로컬 상태도 초기화
         setUser(null);
       }
+      
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
-    return await loginUser(email, password);
+    const result = await loginUser(email, password);
+    return result;
   };
 
   const logout = async () => {
-    return await logoutUser();
+    const result = await logoutUser();
+    if (result.success) {
+      setUser(null);
+    }
+    return result;
   };
 
   const register = async (email: string, password: string, displayName: string) => {

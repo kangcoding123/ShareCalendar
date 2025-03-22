@@ -75,7 +75,7 @@ export default function LoginScreen() {
       >
         <ScrollView contentContainerStyle={styles.scrollContainer}>
           <View style={styles.headerContainer}>
-            <Text style={styles.title}>공유 캘린더</Text>
+            <Text style={styles.title}>WE:IN</Text>
             <Text style={styles.subtitle}>로그인하여 일정을 관리하세요</Text>
           </View>
           

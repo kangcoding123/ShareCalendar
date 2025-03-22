@@ -10,7 +10,8 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  ScrollView
+  ScrollView,
+  RefreshControl
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -22,8 +23,21 @@ import {
   getGroupMembers, 
   updateGroup, 
   deleteGroup, 
-  inviteToGroup 
+  inviteToGroup,
+  setUserGroupColor
 } from '../../../services/groupService';
+
+// 색상 선택 옵션
+const COLOR_OPTIONS = [
+  { name: '파란색', value: '#3b82f6' },
+  { name: '초록색', value: '#10b981' },
+  { name: '빨간색', value: '#ef4444' },
+  { name: '보라색', value: '#8b5cf6' },
+  { name: '주황색', value: '#f97316' },
+  { name: '분홍색', value: '#ec4899' },
+  { name: '청록색', value: '#14b8a6' },
+  { name: '노란색', value: '#f59e0b' },
+];
 
 // 멤버 항목 컴포넌트
 interface MemberItemProps {
@@ -65,6 +79,14 @@ interface InviteModalProps {
 const InviteModal = ({ visible, onClose, onSubmit, loading }: InviteModalProps) => {
   const [email, setEmail] = useState('');
   const [errors, setErrors] = useState<{ email?: string }>({});
+
+  // 모달이 닫힐 때 입력 필드 초기화
+  useEffect(() => {
+    if (!visible) {
+      setEmail('');
+      setErrors({});
+    }
+  }, [visible]);
 
   const validate = () => {
     const newErrors: { email?: string } = {};
@@ -252,12 +274,52 @@ export default function GroupDetailScreen() {
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // 색상 선택 관련 상태
+  const [selectedColor, setSelectedColor] = useState<string>('#4CAF50'); // 기본 색상
+  const [savingColor, setSavingColor] = useState(false);
 
-  const isOwner = group?.role === 'owner';
-
+  // 관리자 권한 확인 (소유자인 경우) - 타입 체크 및 대소문자 구분 없이 확인
+  const isOwner = typeof group?.role === 'string' && 
+                 group.role.toLowerCase() === 'owner';
+  
+  // 색상 변경 핸들러
+  const handleColorChange = async (color: string) => {
+    if (!user || !groupId) return;
+    
+    try {
+      setSavingColor(true);
+      setSelectedColor(color);
+      
+      console.log(`그룹 색상 변경: ${color}`);
+      const result = await setUserGroupColor(user.uid, groupId, color);
+      
+      if (result.success) {
+        if (group) {
+          // 로컬 상태 업데이트
+          setGroup({ ...group, color });
+          console.log(`그룹 색상 변경 성공: ${color}`);
+        }
+      } else {
+        Alert.alert('오류', '색상 변경 중 오류가 발생했습니다.');
+        // 실패 시 원래 색상으로 복원
+        setSelectedColor(group?.color || '#4CAF50');
+      }
+    } catch (error) {
+      console.error('색상 변경 오류:', error);
+      Alert.alert('오류', '색상 변경 중 오류가 발생했습니다.');
+    } finally {
+      setSavingColor(false);
+    }
+  };
+  
   // 그룹 및 멤버 데이터 로드
   const loadGroupData = async () => {
     try {
+      if (refreshing) return; // 이미 로딩 중이면 중복 방지
+      
+      console.log('[loadGroupData] 그룹 데이터 로드 시작. 그룹 ID:', groupId);
       setLoading(true);
       
       if (!groupId) return;
@@ -265,26 +327,61 @@ export default function GroupDetailScreen() {
       // 그룹 정보 가져오기
       const groupResult = await getGroupById(groupId);
       if (groupResult.success && groupResult.group) {
-        setGroup(groupResult.group as Group);
+        const groupData = groupResult.group as Group;
+        console.log('[loadGroupData] 그룹 정보 로드 성공:', groupData.name);
+        
+        // 추가: 그룹 멤버 목록에서 사용자의 역할 가져오기
+        const membersResult = await getGroupMembers(groupId);
+        
+        if (membersResult.success && membersResult.members) {
+          const members = membersResult.members as GroupMember[];
+          console.log('[loadGroupData] 멤버 수:', members.length);
+          setMembers(members);
+          
+          // 멤버 이메일 정보 로그
+          console.log('[loadGroupData] 멤버 이메일 목록:', 
+            members.map(m => ({ name: m.displayName, email: m.email })));
+          
+          // 현재 사용자의 역할과 색상 찾기
+          const currentUserMember = members.find(m => m.userId === user?.uid);
+          
+          if (currentUserMember) {
+            // 그룹 데이터에 역할 추가
+            const updatedGroup = {
+              ...groupData,
+              role: currentUserMember.role,
+              color: currentUserMember.color || '#4CAF50'
+            };
+            console.log('[loadGroupData] 역할 설정됨:', updatedGroup.role);
+            console.log('[loadGroupData] 색상 설정됨:', updatedGroup.color);
+            
+            setGroup(updatedGroup);
+            // 색상 상태 업데이트
+            setSelectedColor(currentUserMember.color || '#4CAF50');
+          } else {
+            // 멤버 목록에 사용자가 없으면 기본 그룹 데이터 사용
+            console.log('[loadGroupData] 사용자의 멤버 정보 없음, 기본 데이터 사용');
+            setGroup(groupData);
+          }
+        } else {
+          // 멤버 조회 실패 시 기본 그룹 데이터 사용
+          console.error('[loadGroupData] 멤버 목록 로드 실패:', membersResult.error);
+          setGroup(groupData);
+          Alert.alert('오류', '멤버 목록을 불러오는 중 오류가 발생했습니다.');
+        }
       } else {
+        console.error('[loadGroupData] 그룹 정보 로드 실패:', groupResult.error);
         Alert.alert('오류', '그룹 정보를 불러오는 중 오류가 발생했습니다.');
         router.back();
         return;
       }
-      
-      // 멤버 목록 가져오기
-      const membersResult = await getGroupMembers(groupId);
-      if (membersResult.success && membersResult.members) {
-        setMembers(membersResult.members as GroupMember[]);
-      } else {
-        Alert.alert('오류', '멤버 목록을 불러오는 중 오류가 발생했습니다.');
-      }
     } catch (error) {
-      console.error('그룹 데이터 로드 중 오류:', error);
+      console.error('[loadGroupData] 그룹 데이터 로드 중 오류:', error);
       Alert.alert('오류', '그룹 정보를 불러오는 중 오류가 발생했습니다.');
       router.back();
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -295,24 +392,38 @@ export default function GroupDetailScreen() {
     }
   }, [user, groupId]);
 
-  // 초대 처리
+  // 초대 처리 - 여기가 수정된 부분
   const handleInvite = async (email: string) => {
     try {
+      console.log(`[handleInvite] 사용자 초대 시작: ${email}`);
       setInviting(true);
       
-      if (!groupId) return;
+      if (!groupId) {
+        console.error('[handleInvite] 그룹 ID가 없음');
+        return;
+      }
       
       const result = await inviteToGroup(groupId, email);
       
       if (result.success) {
+        console.log(`[handleInvite] 초대 성공: ${email}`);
         setInviteModalVisible(false);
+        
+        // 성공 알림 표시
         Alert.alert('성공', '초대가 완료되었습니다.');
-        loadGroupData();
+        
+        // 약간의 지연 후 데이터 새로고침
+        setRefreshing(true);
+        setTimeout(() => {
+          console.log('[handleInvite] 데이터 새로고침 시작');
+          loadGroupData();
+        }, 500);
       } else {
+        console.error(`[handleInvite] 초대 실패:`, result.error);
         Alert.alert('초대 실패', result.error || '사용자 초대 중 오류가 발생했습니다.');
       }
     } catch (error) {
-      console.error('초대 중 오류:', error);
+      console.error('[handleInvite] 초대 중 오류:', error);
       Alert.alert('오류', '사용자 초대 중 오류가 발생했습니다.');
     } finally {
       setInviting(false);
@@ -359,15 +470,30 @@ export default function GroupDetailScreen() {
             try {
               setDeleting(true);
               
-              if (!groupId) return;
+              if (!groupId) {
+                console.error('그룹 ID가 없습니다.');
+                setDeleting(false);
+                return;
+              }
               
+              console.log('그룹 삭제 시작:', groupId);
               const result = await deleteGroup(groupId);
               
               if (result.success) {
+                console.log('그룹 삭제 성공');
+                setDeleting(false); // 여기에 추가: 성공 시에도 로딩 상태 해제
+                
                 Alert.alert('성공', '그룹이 삭제되었습니다.', [
-                  { text: '확인', onPress: () => router.back() }
+                  { 
+                    text: '확인', 
+                    onPress: () => {
+                      console.log('그룹 목록으로 이동');
+                      router.push('/(tabs)/groups'); // router.back() 대신 직접 경로 지정
+                    } 
+                  }
                 ]);
               } else {
+                console.error('그룹 삭제 실패:', result.error);
                 Alert.alert('오류', '그룹 삭제 중 오류가 발생했습니다.');
                 setDeleting(false);
               }
@@ -382,7 +508,22 @@ export default function GroupDetailScreen() {
     );
   };
 
-  if (loading) {
+  // 수동 새로고침
+  const handleRefresh = () => {
+    setRefreshing(true);
+    loadGroupData();
+  };
+
+  // 각 색상 옵션에 대한 스타일 객체 미리 생성 (Reanimated 경고 방지)
+  const getColorOptionStyles = (colorValue: string) => {
+    return [
+      styles.colorOption,
+      { backgroundColor: colorValue },
+      selectedColor === colorValue && styles.selectedColorOption
+    ];
+  };
+
+  if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -395,9 +536,9 @@ export default function GroupDetailScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity
+      <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={() => router.push('/(tabs)/groups')}
         >
           <Text style={styles.backButtonText}>{'<'} 뒤로</Text>
         </TouchableOpacity>
@@ -416,7 +557,23 @@ export default function GroupDetailScreen() {
         )}
       </View>
       
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={['#3c66af']}
+            tintColor="#3c66af"
+          />
+        }
+      >
+        {refreshing && (
+          <View style={styles.refreshIndicator}>
+            <ActivityIndicator size="small" color="#3c66af" />
+          </View>
+        )}
+        
         <View style={styles.groupInfoSection}>
           <Text style={styles.sectionTitle}>그룹 정보</Text>
           
@@ -439,6 +596,27 @@ export default function GroupDetailScreen() {
             ]}>
               {isOwner ? '관리자' : '멤버'}
             </Text>
+            
+            {/* 색상 선택 UI 수정 - Reanimated 경고 방지 */}
+            <Text style={styles.infoLabel}>그룹 색상 (캘린더에 표시될 색상)</Text>
+            <View style={styles.colorOptions}>
+              {COLOR_OPTIONS.map(color => (
+                <TouchableOpacity
+                  key={color.value}
+                  style={getColorOptionStyles(color.value)}
+                  onPress={() => handleColorChange(color.value)}
+                  disabled={savingColor}
+                >
+                  {selectedColor === color.value && (
+                    <Text style={styles.colorSelectedIcon}>✓</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            {savingColor && (
+              <Text style={styles.savingText}>색상 저장 중...</Text>
+            )}
           </View>
         </View>
         
@@ -446,30 +624,46 @@ export default function GroupDetailScreen() {
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>멤버 목록</Text>
             
-            {isOwner && (
+            <View style={styles.sectionHeaderRight}>
+              {isOwner && (
+                <TouchableOpacity
+                  style={styles.inviteButton}
+                  onPress={() => setInviteModalVisible(true)}
+                >
+                  <Text style={styles.inviteButtonText}>멤버 초대</Text>
+                </TouchableOpacity>
+              )}
+              
+              {!isOwner && (
+                <Text style={styles.ownerOnlyText}>
+                  그룹 관리자만 멤버를 초대할 수 있습니다
+                </Text>
+              )}
+              
               <TouchableOpacity
-                style={styles.inviteButton}
-                onPress={() => setInviteModalVisible(true)}
+                style={styles.refreshButton}
+                onPress={handleRefresh}
               >
-                <Text style={styles.inviteButtonText}>멤버 초대</Text>
+                <Text style={styles.refreshButtonText}>새로고침</Text>
               </TouchableOpacity>
-            )}
+            </View>
           </View>
           
-          <FlatList
-            data={members}
-            renderItem={({ item }) => (
-              <MemberItem 
-                member={item} 
-                isCurrentUser={item.userId === user?.uid} 
-              />
-            )}
-            keyExtractor={(item) => item.id || item.userId}
-            scrollEnabled={false}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>멤버가 없습니다.</Text>
-            }
-          />
+          {members.length > 0 ? (
+            <FlatList
+              data={members}
+              renderItem={({ item }) => (
+                <MemberItem 
+                  member={item} 
+                  isCurrentUser={item.userId === user?.uid} 
+                />
+              )}
+              keyExtractor={(item) => item.id || item.userId}
+              scrollEnabled={false}
+            />
+          ) : (
+            <Text style={styles.emptyText}>멤버가 없습니다.</Text>
+          )}
         </View>
         
         {isOwner && (
@@ -550,6 +744,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center'
   },
+  refreshIndicator: {
+    paddingVertical: 10,
+    alignItems: 'center'
+  },
   content: {
     flex: 1,
     padding: 15
@@ -562,6 +760,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10
+  },
+  sectionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center'
   },
   sectionTitle: {
     fontSize: 18,
@@ -589,6 +791,40 @@ const styles = StyleSheet.create({
     color: '#333',
     marginBottom: 15
   },
+  // 색상 선택 관련 스타일
+  colorOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 5,
+    marginBottom: 15,
+  },
+  colorOption: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 12,
+    marginBottom: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)'
+  },
+  selectedColorOption: {
+    borderWidth: 2,
+    borderColor: '#333',
+  },
+  colorSelectedIcon: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold'
+  },
+  savingText: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginTop: -10,
+    marginBottom: 10
+  },
   membersSection: {
     marginBottom: 20
   },
@@ -596,12 +832,29 @@ const styles = StyleSheet.create({
     backgroundColor: '#3c66af',
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 20
+    borderRadius: 20,
+    marginRight: 8
   },
   inviteButtonText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '500'
+  },
+  refreshButton: {
+    backgroundColor: '#f1f3f5',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 16
+  },
+  refreshButtonText: {
+    color: '#495057',
+    fontSize: 12
+  },
+  ownerOnlyText: {
+    fontSize: 12, 
+    color: '#666',
+    fontStyle: 'italic',
+    marginRight: 8
   },
   memberItem: {
     flexDirection: 'row',

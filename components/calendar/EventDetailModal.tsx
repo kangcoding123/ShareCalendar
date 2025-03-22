@@ -9,11 +9,13 @@ import {
   FlatList,
   TextInput,
   Alert,
-  ScrollView
+  ScrollView,
+  Platform
 } from 'react-native';
 import { addEvent, updateEvent, deleteEvent, CalendarEvent } from '../../services/calendarService';
 import { Group } from '../../services/groupService';
 import { formatDate } from '../../utils/dateUtils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 타입 정의 수정 - time 필드 추가
 interface CalendarDay {
@@ -26,6 +28,7 @@ interface EventItemProps {
   event: CalendarEvent;
   onEdit: (event: CalendarEvent) => void;
   onDelete: (event: CalendarEvent) => void;
+  userId: string; // 현재 사용자 ID 추가
 }
 
 interface EventFormProps {
@@ -42,13 +45,16 @@ interface EventDetailModalProps {
   events: CalendarEvent[];
   groups: Group[];
   userId: string;
+  user: { displayName?: string | null } | null; // user 객체 추가
   onClose: () => void;
   onEventUpdated: (action: string, eventData: any) => void;
 }
 
-const EventItem = ({ event, onEdit, onDelete }: EventItemProps) => {
+const EventItem = ({ event, onEdit, onDelete, userId }: EventItemProps) => {
   // 이벤트가 그룹 일정인지 확인
   const isGroupEvent = event.groupId !== 'personal';
+  // 현재 사용자가 작성자인지 확인
+  const isCreator = event.userId === userId;
   
   return (
     <View style={styles.eventItem}>
@@ -78,24 +84,33 @@ const EventItem = ({ event, onEdit, onDelete }: EventItemProps) => {
           {/* 그룹 일정일 경우 작성자 표시 */}
           {isGroupEvent && event.createdByName && (
             <View style={styles.eventCreatorContainer}>
-              <Text style={styles.eventCreatorText}>작성자: {event.createdByName}</Text>
+              <Text style={styles.eventCreatorText}>
+                작성자: {event.createdByName}
+              </Text>
             </View>
           )}
         </View>
       </View>
       
-      <View style={styles.eventActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => onEdit(event)}>
-          <Text style={styles.actionButtonText}>편집</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={[styles.actionButton, styles.deleteButton]} 
-          onPress={() => onDelete(event)}
-        >
-          <Text style={styles.deleteButtonText}>삭제</Text>
-        </TouchableOpacity>
-      </View>
+      {/* 작성자만 편집/삭제 버튼 표시 */}
+      {isCreator ? (
+        <View style={styles.eventActions}>
+          <TouchableOpacity style={styles.actionButton} onPress={() => onEdit(event)}>
+            <Text style={styles.actionButtonText}>편집</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.actionButton, styles.deleteButton]} 
+            onPress={() => onDelete(event)}
+          >
+            <Text style={styles.deleteButtonText}>삭제</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.eventActionsDisabled}>
+          <Text style={styles.eventCreatorOnlyText}>작성자만 수정 가능</Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -112,12 +127,15 @@ const EventForm = ({
   const [time, setTime] = useState(event?.time || '');
   const [selectedGroup, setSelectedGroup] = useState(event?.groupId || 'personal');
   
-  // 시간 유효성 검사 함수 제거 - 자유롭게 입력 가능하도록
-  
-  // 그룹 ID에 따라 자동으로 색상 설정
+  // 그룹 ID에 따라 자동으로 색상 설정 - 수정
   const getColorForGroup = (groupId: string): string => {
-    // 개인 일정은 파란색, 그룹 일정은 초록색
-    return groupId === 'personal' ? '#3c66af' : '#4CAF50';
+    if (groupId === 'personal') {
+      return '#3c66af'; // 개인 일정 기본 색상
+    } else {
+      // 해당 그룹의 색상 찾기
+      const group = groups.find(g => g.id === groupId);
+      return group?.color || '#4CAF50'; // 그룹 색상이 없으면 기본값
+    }
   };
   
   const handleSubmit = () => {
@@ -126,18 +144,16 @@ const EventForm = ({
       return;
     }
     
-    // 시간 유효성 검사 제거
-    
     // 수정: id가 있을 때만 포함하고, 없으면 제외
     const eventData: CalendarEvent = {
       ...(event?.id ? { id: event.id } : {}), // id가 있을 때만 포함
       title: title.trim(),
       description: description.trim(),
       date: selectedDate.formattedDate,
-      time: time.trim(), // 자유롭게 입력된 시간
+      time: time.trim(),
       groupId: selectedGroup,
       groupName: groups.find(g => g.id === selectedGroup)?.name || '개인 일정',
-      color: getColorForGroup(selectedGroup), // 자동으로 색상 설정
+      color: getColorForGroup(selectedGroup), // 사용자가 선택한 그룹 색상 적용
       createdAt: event?.createdAt || new Date().toISOString()
     };
     
@@ -160,7 +176,7 @@ const EventForm = ({
         value={time}
         onChangeText={setTime}
         placeholder="예: 14:00, 14:00~18:00, 오후 2시 등"
-        keyboardType="default" // 자유로운 입력을 위해 default로 변경
+        keyboardType="default"
       />
       
       <Text style={styles.formLabel}>일정 내용</Text>
@@ -176,29 +192,49 @@ const EventForm = ({
       
       <Text style={styles.formLabel}>그룹</Text>
       <View style={styles.groupSelector}>
-        {/* 개인 일정 옵션 */}
+        {/* 개인 일정 옵션 - 새로운 방식 */}
         <TouchableOpacity
           style={[
             styles.groupOption,
-            selectedGroup === 'personal' && styles.selectedGroupOption,
-            { borderLeftWidth: 4, borderLeftColor: getColorForGroup('personal') } // 색상 표시
+            selectedGroup === 'personal' && styles.selectedGroupOption
           ]}
           onPress={() => setSelectedGroup('personal')}
         >
+          <View 
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 4,
+              backgroundColor: getColorForGroup('personal'),
+              borderRadius: 2
+            }} 
+          />
           <Text style={styles.groupOptionText}>개인 일정</Text>
         </TouchableOpacity>
         
-        {/* 그룹 옵션 */}
+        {/* 그룹 옵션 - 새로운 방식 */}
         {groups.map((group) => (
           <TouchableOpacity
             key={group.id}
             style={[
               styles.groupOption,
-              selectedGroup === group.id && styles.selectedGroupOption,
-              { borderLeftWidth: 4, borderLeftColor: getColorForGroup(group.id) } // 색상 표시
+              selectedGroup === group.id && styles.selectedGroupOption
             ]}
             onPress={() => setSelectedGroup(group.id)}
           >
+            <View 
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 4,
+                backgroundColor: group.color || getColorForGroup(group.id),
+                borderRadius: 2
+              }} 
+            />
             <Text style={styles.groupOptionText}>{group.name}</Text>
           </TouchableOpacity>
         ))}
@@ -223,6 +259,7 @@ const EventDetailModal = ({
   events, 
   groups, 
   userId,
+  user,
   onClose, 
   onEventUpdated 
 }: EventDetailModalProps) => {
@@ -297,13 +334,14 @@ const EventDetailModal = ({
         }
       } else {
         // 새 이벤트 추가 - id가 undefined인 경우 제거
-        const { id, ...newEventWithoutId } = eventData; // id 필드 제거
+        const { id, ...newEventWithoutId } = eventData as any;
+        
+        // 실제 사용자 이름 사용
         const newEventData = {
           ...newEventWithoutId,
           userId,
-          // 사용자 이름 정보 추가 (그룹 일정에 표시될 작성자)
-          createdByName: newEventWithoutId.groupId !== 'personal' ? 
-            localStorage.getItem('userName') || '사용자' : null
+          // 그룹 일정인 경우에만 작성자 이름 설정
+          createdByName: newEventWithoutId.groupId !== 'personal' ? user?.displayName : null
         };
         
         console.log('Adding new event:', newEventData);
@@ -357,6 +395,7 @@ const EventDetailModal = ({
                 event={item}
                 onEdit={handleEditEvent}
                 onDelete={handleDeleteEvent}
+                userId={userId}
               />
             )}
             keyExtractor={(item) => item.id || item.title}
@@ -588,12 +627,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginRight: 8,
     marginBottom: 8,
-    paddingLeft: 16 // 왼쪽 색상 표시를 위한 여백 추가
+    paddingLeft: 16, // 왼쪽 여백 유지
+    position: 'relative' // 절대 위치 배치를 위해 추가
   },
   selectedGroupOption: {
     backgroundColor: '#e7f5ff',
     borderWidth: 1,
     borderColor: '#3c66af'
+    // borderLeftWidth 및 borderLeftColor 제거
   },
   groupOptionText: {
     fontSize: 14,
@@ -628,6 +669,17 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600'
+  },
+  // 새로 추가된 스타일
+  eventActionsDisabled: {
+    marginLeft: 10,
+    justifyContent: 'center',
+    padding: 5
+  },
+  eventCreatorOnlyText: {
+    fontSize: 10,
+    color: '#999',
+    fontStyle: 'italic'
   }
 });
 

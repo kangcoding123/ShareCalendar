@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -10,12 +10,11 @@ import { formatDate } from '../../utils/dateUtils';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();  // logout 함수 추가
   const [loading, setLoading] = useState(true);
   const [todayEvents, setTodayEvents] = useState<CalendarEvent[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   
-  // 기존의 useEffect 유지 (첫 로딩용)
   useEffect(() => {
     loadEvents();
   }, [user]);
@@ -69,6 +68,33 @@ export default function HomeScreen() {
     router.push('/(tabs)/calendar');
   };
   
+  // 로그아웃 처리 함수
+  const handleLogout = async () => {
+    Alert.alert(
+      '로그아웃',
+      '정말 로그아웃하시겠습니까?',
+      [
+        { text: '취소', style: 'cancel' },
+        { 
+          text: '로그아웃', 
+          onPress: async () => {
+            try {
+              const result = await logout();
+              if (result.success) {
+                // 로그아웃 후 처리는 _layout.tsx에서 처리됨
+              } else {
+                Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
+              }
+            } catch (error) {
+              console.error('로그아웃 오류:', error);
+              Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
+            }
+          } 
+        }
+      ]
+    );
+  };
+  
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -80,8 +106,13 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>공유 캘린더</Text>
-        <Text style={styles.headerSubtitle}>안녕하세요, {user?.displayName || '사용자'}님</Text>
+        <Text style={styles.headerTitle}>WE:IN</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.headerSubtitle}>안녕하세요, {user?.displayName || '사용자'}님</Text>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <Text style={styles.logoutButtonText}>로그아웃</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       
       <ScrollView style={styles.content}>
@@ -162,9 +193,25 @@ const styles = StyleSheet.create({
     color: '#3c66af',
     marginBottom: 5
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%'
+  },
   headerSubtitle: {
     fontSize: 16,
     color: '#666'
+  },
+  logoutButton: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    backgroundColor: '#f1f3f5',
+    borderRadius: 5
+  },
+  logoutButtonText: {
+    color: '#495057',
+    fontSize: 14
   },
   content: {
     flex: 1,

@@ -1,43 +1,50 @@
-// This file is a fallback for using MaterialIcons on Android and web.
-
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+// components/ui/IconSymbol.tsx
+import { Ionicons } from '@expo/vector-icons';
 import { SymbolWeight } from 'expo-symbols';
 import React from 'react';
-import { OpaqueColorValue, StyleProp, ViewStyle } from 'react-native';
+import { StyleProp, ViewStyle } from 'react-native';
 
-// Add your SFSymbol to MaterialIcons mappings here.
-const MAPPING = {
-  // See MaterialIcons here: https://icons.expo.fyi
-  // See SF Symbols in the SF Symbols app on Mac.
-  'house.fill': 'home',
-  'paperplane.fill': 'send',
-  'chevron.left.forwardslash.chevron.right': 'code',
-  'chevron.right': 'chevron-right',
-} as Partial<
-  Record<
-    import('expo-symbols').SymbolViewProps['name'],
-    React.ComponentProps<typeof MaterialIcons>['name']
-  >
->;
+// Ionicons의 name 속성에 사용 가능한 타입을 명시적으로 가져옴
+type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
-export type IconSymbolName = keyof typeof MAPPING;
-
-/**
- * An icon component that uses native SFSymbols on iOS, and MaterialIcons on Android and web. This ensures a consistent look across platforms, and optimal resource usage.
- *
- * Icon `name`s are based on SFSymbols and require manual mapping to MaterialIcons.
- */
 export function IconSymbol({
   name,
   size = 24,
   color,
   style,
+  weight = 'regular',
 }: {
-  name: IconSymbolName;
+  name: string;
   size?: number;
-  color: string | OpaqueColorValue;
+  color: string;
   style?: StyleProp<ViewStyle>;
   weight?: SymbolWeight;
 }) {
-  return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} />;
+  // SF Symbol 이름을 Ionicons 이름으로 변환하는 함수
+  const getIoniconsName = (): IoniconsName => {
+    // 각 SF Symbol 이름에 대응하는 Ionicons 이름 반환
+    // 주의: 모든 값은 Ionicons에서 실제로 지원하는 문자열이어야 함
+    switch(name) {
+      case 'house': return 'home-outline';
+      case 'calendar': return 'calendar-outline';
+      case 'person.2.fill': return 'people-outline';
+      case 'house.fill': return 'home';
+      case 'paperplane.fill': return 'paper-plane';
+      case 'chevron.left.forwardslash.chevron.right': return 'code-outline';
+      case 'chevron.right': return 'chevron-forward';
+      default: return 'help-circle-outline';
+    }
+  };
+  
+  // 올바른 Ionicons 이름 가져오기
+  const iconName = getIoniconsName();
+  
+  return (
+    <Ionicons 
+      name={iconName}
+      size={size} 
+      color={color} 
+      style={style as any} // 스타일은 여전히 any 타입으로 처리
+    />
+  );
 }
