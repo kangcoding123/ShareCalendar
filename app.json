@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "ShareCalendar",
+    "name": "WE:IN",
     "slug": "ShareCalendar",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,13 +9,17 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.kangcoding.sharecalendar"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.kangcoding.sharecalendar",
+      "compileSdkVersion": 33,
+      "targetSdkVersion": 33
     },
     "web": {
       "bundler": "metro",
