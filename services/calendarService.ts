@@ -37,7 +37,123 @@ interface EventResult {
   eventId?: string;
 }
 
-// 실시간 구독을 관리하기 위한 Map
+// 전역 이벤트 관리 상태
+const globalEventState = {
+  events: [] as CalendarEvent[],
+  callbacks: new Set<(events: CalendarEvent[]) => void>(),
+  subscription: null as Unsubscribe | null,
+  lastUserId: null as string | null,
+};
+
+/**
+ * 중앙 이벤트 구독 시스템
+ * @param userId 사용자 ID
+ * @param callback 이벤트 업데이트 콜백
+ * @returns 구독 해제 함수
+ */
+export const subscribeToEvents = (
+  userId: string, 
+  callback: (events: CalendarEvent[]) => void
+): (() => void) => {
+  // 사용자 ID가 변경되었거나 구독이 없으면
+  if (userId !== globalEventState.lastUserId || !globalEventState.subscription) {
+    // 기존 구독 해제
+    if (globalEventState.subscription) {
+      console.log(`[GlobalEvents] 사용자 변경으로 구독 재설정 (${globalEventState.lastUserId} -> ${userId})`);
+      globalEventState.subscription();
+      globalEventState.subscription = null;
+    }
+    
+    globalEventState.lastUserId = userId;
+    
+    // Firebase Firestore 구독 설정
+    const eventsQuery = collection(db, 'events');
+    const eventsUnsubscribe = onSnapshot(
+      eventsQuery,
+      async () => {
+        if (!globalEventState.lastUserId) return;
+        
+        console.log(`[GlobalEvents] Firestore 이벤트 변경 감지`);
+        const result = await getUserEvents(globalEventState.lastUserId);
+        
+        if (result.success && Array.isArray(result.events)) {
+          globalEventState.events = result.events;
+          
+          // 등록된 모든 콜백에 새 이벤트 전달
+          globalEventState.callbacks.forEach(cb => {
+            try {
+              cb(globalEventState.events);
+            } catch (error) {
+              console.error('[GlobalEvents] 콜백 실행 오류:', error);
+            }
+          });
+        }
+      },
+      (error) => {
+        console.error('[GlobalEvents] Firestore 구독 오류:', error);
+      }
+    );
+    
+    // 멤버십 변경 구독
+    const membershipQuery = query(
+      collection(db, 'groupMembers'),
+      where('userId', '==', userId)
+    );
+    
+    const membershipUnsubscribe = onSnapshot(
+      membershipQuery,
+      async () => {
+        if (!globalEventState.lastUserId) return;
+        
+        console.log(`[GlobalEvents] 그룹 멤버십 변경 감지`);
+        const result = await getUserEvents(globalEventState.lastUserId);
+        
+        if (result.success && Array.isArray(result.events)) {
+          globalEventState.events = result.events;
+          globalEventState.callbacks.forEach(cb => {
+            try {
+              cb(globalEventState.events);
+            } catch (error) {
+              console.error('[GlobalEvents] 콜백 실행 오류:', error);
+            }
+          });
+        }
+      },
+      (error) => {
+        console.error('[GlobalEvents] 멤버십 구독 오류:', error);
+      }
+    );
+    
+    // 구독 해제 함수 저장
+    globalEventState.subscription = () => {
+      eventsUnsubscribe();
+      membershipUnsubscribe();
+    };
+  }
+  
+  // 콜백 등록
+  globalEventState.callbacks.add(callback);
+  
+  // 이미 데이터가 있으면 즉시 콜백 실행
+  if (globalEventState.events.length > 0) {
+    setTimeout(() => callback(globalEventState.events), 0);
+  }
+  
+  // 구독 해제 함수 반환
+  return () => {
+    globalEventState.callbacks.delete(callback);
+    
+    // 마지막 콜백이 제거되면 구독도 해제
+    if (globalEventState.callbacks.size === 0 && globalEventState.subscription) {
+      console.log(`[GlobalEvents] 마지막 콜백 제거로 구독 해제`);
+      globalEventState.subscription();
+      globalEventState.subscription = null;
+      globalEventState.lastUserId = null;
+    }
+  };
+};
+
+// 실시간 구독을 관리하기 위한 Map (이전 코드 유지, 하위 호환성 위해)
 const eventListeners: Map<string, Unsubscribe> = new Map();
 
 /**
@@ -214,7 +330,7 @@ export const getUserEvents = async (userId: string): Promise<EventResult> => {
 };
 
 /**
- * 실시간으로 사용자 이벤트 구독
+ * 실시간으로 사용자 이벤트 구독 (이제 중앙 구독 시스템 사용)
  * @param userId - 사용자 ID
  * @param callback - 이벤트 목록이 변경될 때마다 호출될 콜백 함수
  * @returns 구독 해제 함수
@@ -223,56 +339,20 @@ export const subscribeToUserEvents = (
   userId: string, 
   callback: (events: CalendarEvent[]) => void
 ): (() => void) => {
-  // 기존 구독이 있으면 해제
-  if (eventListeners.has(userId)) {
-    eventListeners.get(userId)!();
-    eventListeners.delete(userId);
-  }
-  
   console.log(`[subscribeToUserEvents] 사용자 ID: ${userId}에 대한 이벤트 구독 시작`);
   
-  // 이벤트 컬렉션 전체에 대한 리스너 설정
-  const eventsUnsubscribe = onSnapshot(
-    collection(db, 'events'),
-    async (snapshot) => {
-      console.log(`[subscribeToUserEvents] 이벤트 변경 감지, 총 ${snapshot.size}개 이벤트`);
-      
-      // 사용자의 개인 이벤트와 그룹 이벤트를 가져오기
-      const result = await getUserEvents(userId);
-      if (result.success && result.events) {
-        console.log(`[subscribeToUserEvents] 콜백 호출, ${result.events.length}개 이벤트`);
-        callback(result.events);
-      }
-    },
-    (error) => {
-      console.error('[subscribeToUserEvents] 리스너 오류:', error);
+  // 이전 코드 호환성을 위해 eventListeners 맵에도 등록
+  // 다만 실제로는 중앙 구독 시스템이 처리
+  const unsubscribe = subscribeToEvents(userId, callback);
+  eventListeners.set(userId, () => unsubscribe());
+  
+  return () => {
+    console.log('이벤트 구독 해제');
+    if (eventListeners.has(userId)) {
+      eventListeners.delete(userId);
     }
-  );
-  
-  // 그룹 멤버십 변경을 감지하기 위한 리스너도 추가
-  const membershipQuery = query(
-    collection(db, 'groupMembers'),
-    where('userId', '==', userId)
-  );
-  
-  const membershipUnsubscribe = onSnapshot(membershipQuery, async () => {
-    console.log('[subscribeToUserEvents] 그룹 멤버십 변경 감지');
-    const result = await getUserEvents(userId);
-    if (result.success && result.events) {
-      callback(result.events);
-    }
-  }, (error) => {
-    console.error('[subscribeToUserEvents] 멤버십 리스너 오류:', error);
-  });
-  
-  // 두 구독을 합치는 함수
-  const unsubscribeAll = () => {
-    eventsUnsubscribe();
-    membershipUnsubscribe();
+    unsubscribe();
   };
-  
-  eventListeners.set(userId, unsubscribeAll);
-  return unsubscribeAll;
 };
 
 /**

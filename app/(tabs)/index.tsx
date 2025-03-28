@@ -1,34 +1,95 @@
 // app/(tabs)/index.tsx
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import { CalendarEvent, getUserEvents } from '../../services/calendarService';
+import { 
+  CalendarEvent, 
+  getUserEvents,
+  subscribeToUserEvents
+} from '../../services/calendarService';
 import { formatDate } from '../../utils/dateUtils';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user, logout } = useAuth();  // logout 함수 추가
+  const { user, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [todayEvents, setTodayEvents] = useState<CalendarEvent[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   
-  useEffect(() => {
-    loadEvents();
-  }, [user]);
+  // 구독 취소 함수 참조 저장을 위한 ref 추가
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   
-  // 화면이 포커스될 때마다 데이터 새로고침
+  // 이벤트 데이터 처리 함수 (분리된 로직)
+  const processEvents = useCallback((events: CalendarEvent[]) => {
+    if (!Array.isArray(events)) return;
+    
+    // 오늘 날짜 문자열 가져오기 (YYYY-MM-DD 형식)
+    const now = new Date();
+    const todayString = formatDate(now, 'yyyy-MM-dd');
+    
+    console.log('오늘 날짜 문자열:', todayString);
+    
+    // 오늘 일정 필터링
+    const todayEvts = events.filter((event: CalendarEvent) => {
+      return event.date === todayString;
+    });
+    
+    setTodayEvents(todayEvts);
+    
+    // 다가오는 일정 필터링 (오늘 이후 날짜)
+    const upcoming = events.filter((event: CalendarEvent) => {
+      return event.date > todayString;
+    }).sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    
+    // 다가오는 일정 중 최대 5개만 표시
+    setUpcomingEvents(upcoming.slice(0, 5));
+  }, []);
+  
+  // 실시간 구독 설정
+  useEffect(() => {
+    if (user && user.uid) {
+      console.log('[HomeScreen] 실시간 이벤트 구독 설정...');
+      
+      // 로딩 상태 표시
+      setLoading(true);
+      
+      // 중앙 구독 시스템 사용
+      const unsubscribe = subscribeToUserEvents(user.uid, (updatedEvents) => {
+        console.log(`[HomeScreen] 이벤트 업데이트 수신: ${updatedEvents.length}개`);
+        processEvents(updatedEvents);
+        setLoading(false);
+      });
+      
+      unsubscribeRef.current = unsubscribe;
+      
+      // 컴포넌트 언마운트 시 구독 해제
+      return () => {
+        console.log('[HomeScreen] 이벤트 구독 해제');
+        if (unsubscribeRef.current) {
+          unsubscribeRef.current();
+          unsubscribeRef.current = null;
+        }
+      };
+    }
+  }, [user, processEvents]);
+  
+  // 화면이 포커스될 때마다 데이터 새로고침(백업용)
   useFocusEffect(
     useCallback(() => {
-      if (user) {
+      if (user && !unsubscribeRef.current) {
+        // 구독이 활성화되지 않은 경우에만 데이터 새로고침
         loadEvents();
       }
       return () => {};
     }, [user])
   );
   
+  // 기존 로드 함수 (백업용)
   const loadEvents = async () => {
     if (!user) return;
     
@@ -37,35 +98,7 @@ export default function HomeScreen() {
       const result = await getUserEvents(user.uid);
       
       if (result.success && Array.isArray(result.events)) {
-        // 로컬 시간대 기준으로 오늘 날짜 가져오기
-        const now = new Date();
-        const todayYear = now.getFullYear();
-        const todayMonth = now.getMonth() + 1; // 0부터 시작하므로 +1
-        const todayDay = now.getDate();
-        
-        // 날짜를 YYYY-MM-DD 형식으로 변환 (로컬 시간대 기준)
-        const todayString = `${todayYear}-${String(todayMonth).padStart(2, '0')}-${String(todayDay).padStart(2, '0')}`;
-        
-        console.log('오늘 날짜 문자열:', todayString);
-        
-        // 오늘 일정: 정확히 오늘 날짜와 일치하는 일정 
-        const todayEvts = result.events.filter((event: CalendarEvent) => {
-          console.log(`이벤트 날짜 비교: ${event.date} === ${todayString}`);
-          return event.date === todayString;
-        });
-        
-        setTodayEvents(todayEvts);
-        
-        // 다가오는 일정: 오늘 이후 날짜의 일정 (미래 일정)
-        const upcoming = result.events.filter((event: CalendarEvent) => {
-          // 문자열 비교로 날짜가 오늘보다 미래인지 확인
-          return event.date > todayString;
-        }).sort((a, b) => 
-          new Date(a.date).getTime() - new Date(b.date).getTime()
-        );
-        
-        // 다가오는 일정 중 최대 5개만 표시
-        setUpcomingEvents(upcoming.slice(0, 5));
+        processEvents(result.events);
       }
     } catch (error) {
       console.error('일정 로드 오류:', error);
@@ -104,6 +137,11 @@ export default function HomeScreen() {
       ]
     );
   };
+
+  // 디버깅용 코드 - 실행 환경 확인
+  useEffect(() => {
+    console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}`);
+  }, []);
   
   if (loading) {
     return (

@@ -7,7 +7,8 @@ import {
   RefreshControl, 
   ScrollView, 
   Text,
-  Alert
+  Alert,
+  Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../../context/AuthContext';
@@ -107,6 +108,11 @@ export default function CalendarScreen() {
       return () => {};
     }, [user])
   );
+
+  // 디버깅용 정보 로그
+  useEffect(() => {
+    console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}`);
+  }, []);
   
   // 초기 데이터 로드 및 실시간 구독 설정
   useEffect(() => {
@@ -117,10 +123,10 @@ export default function CalendarScreen() {
       loadGroupData();
       const groupsUnsubscribe = setupGroupMembershipListener(user.uid);
       
-      // 실시간 이벤트 구독 설정 - 수정된 부분
-      console.log('실시간 이벤트 구독 설정...');
+      // 실시간 이벤트 구독 설정 - 중앙 구독 시스템 사용
+      console.log('[CalendarScreen] 실시간 이벤트 구독 설정...');
       const eventsUnsubscribe = subscribeToUserEvents(user.uid, (updatedEvents) => {
-        console.log(`실시간 이벤트 업데이트 수신: ${updatedEvents.length}개`);
+        console.log(`[CalendarScreen] 이벤트 업데이트 수신: ${updatedEvents.length}개`);
         // 날짜별로 이벤트 그룹화
         const groupedEvents = groupEventsByDate<CalendarEvent>(updatedEvents);
         setEvents(groupedEvents);
@@ -140,7 +146,7 @@ export default function CalendarScreen() {
       
       // 컴포넌트 언마운트 시 구독 해제
       return () => {
-        console.log('이벤트 구독 해제');
+        console.log('[CalendarScreen] 이벤트 구독 해제');
         if (unsubscribeRef.current) {
           unsubscribeRef.current();
           unsubscribeRef.current = null;
@@ -187,7 +193,8 @@ export default function CalendarScreen() {
   const handleEventUpdated = (action: string, eventData: any) => {
     console.log('Event updated:', action, eventData);
     
-    // 이벤트 업데이트 후 즉시 이벤트 리스트 새로고침
+    // 중앙 구독 시스템을 사용하므로 실시간 업데이트는 자동으로 처리됨
+    // 그러나 백업으로 수동 업데이트도 유지
     if (user && user.uid) {
       getUserEvents(user.uid).then(result => {
         if (result.success && Array.isArray(result.events)) {
