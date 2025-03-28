@@ -117,28 +117,9 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
  */
 export const getUserEvents = async (userId: string): Promise<EventResult> => {
   try {
-    // 개인 일정 쿼리
-    const personalQuery = query(
-      collection(db, 'events'),
-      where('userId', '==', userId)
-    );
-    
-    const personalSnapshot = await getDocs(personalQuery);
     const events: CalendarEvent[] = [];
     
-    personalSnapshot.forEach((doc) => {
-      const data = doc.data();
-      // 필수 필드 기본값 제공
-      events.push({
-        id: doc.id,
-        title: data.title || '',
-        date: data.date || '',
-        groupId: data.groupId || 'personal',
-        ...data
-      } as CalendarEvent);
-    });
-    
-    // 사용자가 속한 그룹 ID 가져오기
+    // 사용자가 속한 그룹 ID와 색상 먼저 가져오기
     const membersQuery = query(
       collection(db, 'groupMembers'),
       where('userId', '==', userId)
@@ -162,7 +143,10 @@ export const getUserEvents = async (userId: string): Promise<EventResult> => {
     console.log(`[getUserEvents] 사용자(${userId})가 속한 그룹 IDs:`, groupIds);
     console.log(`[getUserEvents] 사용자의 그룹 색상:`, groupColors);
     
-    // 각 그룹의 일정 가져오기
+    // 모든 이벤트 ID를 저장할 맵 (중복 방지용)
+    const eventMap: Record<string, CalendarEvent> = {};
+    
+    // 1. 그룹 이벤트 먼저 가져오기
     if (groupIds.length > 0) {
       for (const groupId of groupIds) {
         // 그룹 일정 쿼리 - groupId가 정확히 일치하는 이벤트만 가져옴
@@ -176,27 +160,53 @@ export const getUserEvents = async (userId: string): Promise<EventResult> => {
         
         groupEventsSnapshot.forEach((doc) => {
           const data = doc.data();
+          const eventId = doc.id;
           
-          // 이미 동일한 ID의 이벤트가 있는지 확인 (중복 방지)
-          if (!events.some(e => e.id === doc.id)) {
-            // 그룹 색상 업데이트 - 사용자가 설정한 색상이 있으면 사용
-            const color = groupColors[groupId] || data.color || '#4CAF50';
-            
-            events.push({
-              id: doc.id,
-              title: data.title || '',
-              date: data.date || '',
-              groupId: data.groupId || 'personal',
-              ...data,
-              color // 사용자가 설정한 그룹 색상으로 업데이트
-            } as CalendarEvent);
-          }
+          // 그룹 색상 적용 - 사용자별 설정 색상 사용
+          const color = groupColors[groupId] || data.color || '#4CAF50';
+          
+          eventMap[eventId] = {
+            id: eventId,
+            title: data.title || '',
+            date: data.date || '',
+            groupId: data.groupId || 'personal',
+            ...data,
+            color // 사용자가 설정한 그룹 색상으로 덮어쓰기
+          } as CalendarEvent;
         });
       }
     }
     
-    console.log(`[getUserEvents] 총 불러온 일정 개수: ${events.length}`);
-    return { success: true, events };
+    // 2. 개인 일정 가져오기
+    const personalQuery = query(
+      collection(db, 'events'),
+      where('userId', '==', userId),
+      where('groupId', '==', 'personal')
+    );
+    
+    const personalSnapshot = await getDocs(personalQuery);
+    
+    personalSnapshot.forEach((doc) => {
+      const data = doc.data();
+      const eventId = doc.id;
+      
+      // 개인 일정은 그룹 일정과 중복되지 않음
+      if (!eventMap[eventId]) {
+        eventMap[eventId] = {
+          id: eventId,
+          title: data.title || '',
+          date: data.date || '',
+          groupId: data.groupId || 'personal',
+          ...data
+        } as CalendarEvent;
+      }
+    });
+    
+    // 맵에서 이벤트 배열로 변환
+    const allEvents = Object.values(eventMap);
+    
+    console.log(`[getUserEvents] 총 불러온 일정 개수: ${allEvents.length}`);
+    return { success: true, events: allEvents };
   } catch (error: any) {
     console.error('이벤트 가져오기 오류:', error);
     return { success: false, error: error.message };
@@ -221,115 +231,49 @@ export const subscribeToUserEvents = (
   
   console.log(`[subscribeToUserEvents] 사용자 ID: ${userId}에 대한 이벤트 구독 시작`);
   
-  // 개인 이벤트에 대한 구독
-  const personalQuery = query(
+  // 이벤트 컬렉션 전체에 대한 리스너 설정
+  const eventsUnsubscribe = onSnapshot(
     collection(db, 'events'),
-    where('userId', '==', userId)
+    async (snapshot) => {
+      console.log(`[subscribeToUserEvents] 이벤트 변경 감지, 총 ${snapshot.size}개 이벤트`);
+      
+      // 사용자의 개인 이벤트와 그룹 이벤트를 가져오기
+      const result = await getUserEvents(userId);
+      if (result.success && result.events) {
+        console.log(`[subscribeToUserEvents] 콜백 호출, ${result.events.length}개 이벤트`);
+        callback(result.events);
+      }
+    },
+    (error) => {
+      console.error('[subscribeToUserEvents] 리스너 오류:', error);
+    }
   );
   
-  // 개인 이벤트 리스너
-  const personalUnsubscribe = onSnapshot(personalQuery, async (snapshot) => {
-    console.log(`[subscribeToUserEvents] 개인 이벤트 변경 감지`);
-    
-    // 다시 전체 이벤트 로드
-    try {
-      const result = await getUserEvents(userId);
-      if (result.success && result.events) {
-        callback(result.events);
-      }
-    } catch (error) {
-      console.error('[subscribeToUserEvents] 이벤트 로드 오류:', error);
-    }
-  }, (error) => {
-    console.error('[subscribeToUserEvents] 리스너 오류:', error);
-  });
-  
-  // 사용자가 속한 그룹 ID 가져오기
-  getUserGroupIds(userId).then((groupIds) => {
-    console.log(`[subscribeToUserEvents] 사용자가 속한 그룹 IDs:`, groupIds);
-    
-    if (groupIds.length > 0) {
-      // 각 그룹의 이벤트에 대한 구독 설정
-      groupIds.forEach(groupId => {
-        const groupEventQuery = query(
-          collection(db, 'events'),
-          where('groupId', '==', groupId)
-        );
-        
-        // 그룹 이벤트 리스너
-        const groupUnsubscribe = onSnapshot(groupEventQuery, async (snapshot) => {
-          console.log(`[subscribeToUserEvents] 그룹 ${groupId} 이벤트 변경 감지`);
-          
-          // 다시 전체 이벤트 로드
-          try {
-            const result = await getUserEvents(userId);
-            if (result.success && result.events) {
-              callback(result.events);
-            }
-          } catch (error) {
-            console.error('[subscribeToUserEvents] 이벤트 로드 오류:', error);
-          }
-        });
-        
-        // 기존 구독 해제 함수에 추가
-        const existingUnsubscribe = eventListeners.get(userId);
-        if (existingUnsubscribe) {
-          eventListeners.set(userId, () => {
-            existingUnsubscribe();
-            groupUnsubscribe();
-          });
-        } else {
-          eventListeners.set(userId, () => {
-            personalUnsubscribe();
-            groupUnsubscribe();
-          });
-        }
-      });
-    }
-  });
-  
-  // 초기에는 개인 이벤트 리스너만 등록
-  eventListeners.set(userId, personalUnsubscribe);
-  
-  // 그룹 멤버십 변경을 구독하여 색상 변경 시 이벤트 업데이트
-  subscribeToGroupMembership(userId, async () => {
-    console.log(`[subscribeToUserEvents] 그룹 멤버십 변경 감지`);
-    try {
-      const result = await getUserEvents(userId);
-      if (result.success && result.events) {
-        callback(result.events);
-      }
-    } catch (error) {
-      console.error('[subscribeToUserEvents] 이벤트 로드 오류:', error);
-    }
-  });
-  
-  // 구독 해제 함수 반환
-  return () => {
-    if (eventListeners.has(userId)) {
-      console.log(`[subscribeToUserEvents] 사용자 ID: ${userId}에 대한 구독 해제`);
-      eventListeners.get(userId)!();
-      eventListeners.delete(userId);
-    }
-  };
-};
-
-/**
- * 그룹 멤버십 변경 구독
- * @param userId - 사용자 ID 
- * @param callback - 변경 시 호출될 콜백
- */
-function subscribeToGroupMembership(userId: string, callback: () => void) {
+  // 그룹 멤버십 변경을 감지하기 위한 리스너도 추가
   const membershipQuery = query(
     collection(db, 'groupMembers'),
     where('userId', '==', userId)
   );
   
-  // 변경사항 모니터링
-  return onSnapshot(membershipQuery, callback, (error) => {
-    console.error('[subscribeToGroupMembership] 오류:', error);
+  const membershipUnsubscribe = onSnapshot(membershipQuery, async () => {
+    console.log('[subscribeToUserEvents] 그룹 멤버십 변경 감지');
+    const result = await getUserEvents(userId);
+    if (result.success && result.events) {
+      callback(result.events);
+    }
+  }, (error) => {
+    console.error('[subscribeToUserEvents] 멤버십 리스너 오류:', error);
   });
-}
+  
+  // 두 구독을 합치는 함수
+  const unsubscribeAll = () => {
+    eventsUnsubscribe();
+    membershipUnsubscribe();
+  };
+  
+  eventListeners.set(userId, unsubscribeAll);
+  return unsubscribeAll;
+};
 
 /**
  * 사용자가 속한 그룹 ID 목록 가져오기

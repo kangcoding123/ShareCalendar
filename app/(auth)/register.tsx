@@ -18,7 +18,7 @@ import { useAuth } from '../../context/AuthContext';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { register } = useAuth();
+  const { register, logout } = useAuth(); // logout 함수 추가
   
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -78,6 +78,9 @@ export default function RegisterScreen() {
       const { success, error } = await register(email, password, name);
       
       if (success) {
+        // 회원가입 성공 후 로그아웃 처리 추가
+        await logout();
+        
         Alert.alert(
           '회원가입 성공',
           '회원가입이 완료되었습니다. 로그인하여 서비스를 이용해주세요.',

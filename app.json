@@ -19,7 +19,13 @@
       },
       "package": "com.kangcoding.sharecalendar",
       "compileSdkVersion": 33,
-      "targetSdkVersion": 33
+      "targetSdkVersion": 33,
+      "navigationBarColor": "#ffffff",
+      "softwareKeyboardLayoutMode": "pan",
+      "androidNavigationBar": {
+        "backgroundColor": "#ffffff",
+        "barStyle": "dark-content"
+      }
     },
     "web": {
       "bundler": "metro",

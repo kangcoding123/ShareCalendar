@@ -546,7 +546,6 @@ const styles = StyleSheet.create({
   eventCreatorText: {
     fontSize: 12,
     color: '#666',
-    fontStyle: 'italic'
   },
   eventActions: {
     marginLeft: 10,
@@ -679,7 +678,6 @@ const styles = StyleSheet.create({
   eventCreatorOnlyText: {
     fontSize: 10,
     color: '#999',
-    fontStyle: 'italic'
   }
 });
 

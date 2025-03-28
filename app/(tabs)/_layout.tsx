@@ -1,4 +1,4 @@
-// app/(tabs)/_layout.tsx 수정
+// app/(tabs)/_layout.tsx
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Platform } from 'react-native';
@@ -15,17 +15,25 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: '#3c66af', // 활성 아이콘 색상을 파란색으로 변경
+        tabBarInactiveTintColor: '#888888', // 비활성 아이콘 색상도 명시적으로 설정
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
-        tabBarStyle: Platform.select({
-          ios: {
-            // Use a transparent background on iOS to show the blur effect
-            position: 'absolute',
-          },
-          default: {},
-        }),
+        tabBarStyle: {
+          backgroundColor: '#ffffff', // 명시적으로 흰색 배경 설정
+          ...Platform.select({
+            ios: {
+              // iOS에서는 블러 효과를 위해 투명 배경 유지
+              position: 'absolute',
+            },
+            android: {
+              // Android에서는 명시적으로 하얀색 배경과 약간의 그림자 효과
+              backgroundColor: '#ffffff',
+              elevation: 8, // Android 그림자 효과
+            },
+          }),
+        },
       }}>
       <Tabs.Screen
         name="index"
@@ -52,11 +60,8 @@ export default function TabLayout() {
         name="groups/[id]"
         options={{
           href: null, // 탭바에서 숨김
-          
         }}
       />
-      {/* 다음 라인 제거 - groups/[id] 스크린은 탭바에 표시되면 안 됨 */}
-      {/* <Tabs.Screen name="groups/[id]" options={{ ... }} /> */}
     </Tabs>
   );
 }

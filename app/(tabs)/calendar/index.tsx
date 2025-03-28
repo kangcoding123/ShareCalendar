@@ -16,6 +16,7 @@ import { Group, getUserGroups } from '../../../services/groupService';
 import { groupEventsByDate, CalendarDay } from '../../../utils/dateUtils';
 import { onSnapshot, query, collection, where } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
+import { useFocusEffect } from '@react-navigation/native';
 
 // 컴포넌트
 import Calendar from '../../../components/calendar/Calendar';
@@ -87,25 +88,25 @@ export default function CalendarScreen() {
     }
   };
   
-  // 이벤트 갱신 함수 - 실시간 구독에서 호출됨
-  const updateEvents = (eventList: CalendarEvent[]) => {
-    console.log('[updateEvents] 새 이벤트 데이터 수신:', eventList.length);
-    
-    // 날짜별로 이벤트 그룹화
-    const groupedEvents = groupEventsByDate<CalendarEvent>(eventList);
-    setEvents(groupedEvents);
-    
-    // 선택된 날짜의 이벤트도 업데이트
-    if (selectedDate) {
-      const dateStr = selectedDate.formattedDate;
-      const dateEvents = groupedEvents[dateStr] || [];
-      setSelectedDateEvents(dateEvents);
-    }
-    
-    // 로딩 상태 해제
-    setLoading(false);
-    setRefreshing(false);
-  };
+  // 화면이 포커스될 때마다 데이터 새로고침
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user) {
+        console.log('캘린더 화면 포커스 - 이벤트 데이터 새로고침');
+        setRefreshing(true);
+        // 초기 이벤트 데이터 로드
+        getUserEvents(user.uid).then(result => {
+          if (result.success && Array.isArray(result.events)) {
+            // 날짜별로 이벤트 그룹화
+            const groupedEvents = groupEventsByDate<CalendarEvent>(result.events);
+            setEvents(groupedEvents);
+          }
+          setRefreshing(false);
+        });
+      }
+      return () => {};
+    }, [user])
+  );
   
   // 초기 데이터 로드 및 실시간 구독 설정
   useEffect(() => {
@@ -116,22 +117,30 @@ export default function CalendarScreen() {
       loadGroupData();
       const groupsUnsubscribe = setupGroupMembershipListener(user.uid);
       
-      // 초기 이벤트 데이터 로드
-      getUserEvents(user.uid).then(result => {
-        if (result.success && Array.isArray(result.events)) {
-          // 날짜별로 이벤트 그룹화
-          const groupedEvents = groupEventsByDate<CalendarEvent>(result.events);
-          setEvents(groupedEvents);
+      // 실시간 이벤트 구독 설정 - 수정된 부분
+      console.log('실시간 이벤트 구독 설정...');
+      const eventsUnsubscribe = subscribeToUserEvents(user.uid, (updatedEvents) => {
+        console.log(`실시간 이벤트 업데이트 수신: ${updatedEvents.length}개`);
+        // 날짜별로 이벤트 그룹화
+        const groupedEvents = groupEventsByDate<CalendarEvent>(updatedEvents);
+        setEvents(groupedEvents);
+        
+        // 선택된 날짜의 이벤트도 업데이트
+        if (selectedDate) {
+          const dateStr = selectedDate.formattedDate;
+          const dateEvents = groupedEvents[dateStr] || [];
+          setSelectedDateEvents(dateEvents);
         }
+        
         setLoading(false);
+        setRefreshing(false);
       });
       
-      // 실시간 이벤트 구독 설정
-      const eventsUnsubscribe = subscribeToUserEvents(user.uid, updateEvents);
       unsubscribeRef.current = eventsUnsubscribe;
       
       // 컴포넌트 언마운트 시 구독 해제
       return () => {
+        console.log('이벤트 구독 해제');
         if (unsubscribeRef.current) {
           unsubscribeRef.current();
           unsubscribeRef.current = null;
@@ -150,10 +159,21 @@ export default function CalendarScreen() {
     setRefreshing(true);
     loadGroupData(); // 그룹 정보 새로고침
     
-    // 일정 시간 후 새로고침 상태 해제 (이벤트는 실시간 구독으로 처리됨)
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+    if (user && user.uid) {
+      // 이벤트 데이터 새로고침
+      getUserEvents(user.uid).then(result => {
+        if (result.success && Array.isArray(result.events)) {
+          const groupedEvents = groupEventsByDate<CalendarEvent>(result.events);
+          setEvents(groupedEvents);
+        }
+        setRefreshing(false);
+      });
+    } else {
+      // 일정 시간 후 새로고침 상태 해제
+      setTimeout(() => {
+        setRefreshing(false);
+      }, 1000);
+    }
   };
   
   // 날짜 선택 핸들러
@@ -167,8 +187,23 @@ export default function CalendarScreen() {
   const handleEventUpdated = (action: string, eventData: any) => {
     console.log('Event updated:', action, eventData);
     
-    // 실시간 구독을 통해 데이터가 자동으로 업데이트되므로
-    // 여기서는 모달 관련 상태만 업데이트합니다.
+    // 이벤트 업데이트 후 즉시 이벤트 리스트 새로고침
+    if (user && user.uid) {
+      getUserEvents(user.uid).then(result => {
+        if (result.success && Array.isArray(result.events)) {
+          const groupedEvents = groupEventsByDate<CalendarEvent>(result.events);
+          setEvents(groupedEvents);
+          
+          // 선택된 날짜가 있는 경우, 해당 날짜의 이벤트도 업데이트
+          if (selectedDate) {
+            const dateEvents = groupedEvents[selectedDate.formattedDate] || [];
+            setSelectedDateEvents(dateEvents);
+          }
+        }
+      });
+    }
+    
+    // 삭제 시 모달 닫기
     if (action === 'delete') {
       setModalVisible(false);
     }

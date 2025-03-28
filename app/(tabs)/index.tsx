@@ -37,25 +37,35 @@ export default function HomeScreen() {
       const result = await getUserEvents(user.uid);
       
       if (result.success && Array.isArray(result.events)) {
-        const today = new Date().toISOString().split('T')[0];
+        // 로컬 시간대 기준으로 오늘 날짜 가져오기
+        const now = new Date();
+        const todayYear = now.getFullYear();
+        const todayMonth = now.getMonth() + 1; // 0부터 시작하므로 +1
+        const todayDay = now.getDate();
         
-        // 오늘 일정
-        const todayEvts = result.events.filter((calendarEvent: CalendarEvent) => calendarEvent.date === today);
+        // 날짜를 YYYY-MM-DD 형식으로 변환 (로컬 시간대 기준)
+        const todayString = `${todayYear}-${String(todayMonth).padStart(2, '0')}-${String(todayDay).padStart(2, '0')}`;
+        
+        console.log('오늘 날짜 문자열:', todayString);
+        
+        // 오늘 일정: 정확히 오늘 날짜와 일치하는 일정 
+        const todayEvts = result.events.filter((event: CalendarEvent) => {
+          console.log(`이벤트 날짜 비교: ${event.date} === ${todayString}`);
+          return event.date === todayString;
+        });
+        
         setTodayEvents(todayEvts);
         
-        // 다가오는 일정 (오늘 이후, 7일 이내)
-        const upcoming = result.events.filter((calendarEvent: CalendarEvent) => {
-          const eventDate = new Date(calendarEvent.date);
-          const currentDate = new Date();
-          const weekLater = new Date();
-          weekLater.setDate(currentDate.getDate() + 7);
-          
-          return calendarEvent.date > today && eventDate <= weekLater;
-        }).sort((a: CalendarEvent, b: CalendarEvent) => 
+        // 다가오는 일정: 오늘 이후 날짜의 일정 (미래 일정)
+        const upcoming = result.events.filter((event: CalendarEvent) => {
+          // 문자열 비교로 날짜가 오늘보다 미래인지 확인
+          return event.date > todayString;
+        }).sort((a, b) => 
           new Date(a.date).getTime() - new Date(b.date).getTime()
         );
         
-        setUpcomingEvents(upcoming.slice(0, 5)); // 최대 5개만 표시
+        // 다가오는 일정 중 최대 5개만 표시
+        setUpcomingEvents(upcoming.slice(0, 5));
       }
     } catch (error) {
       console.error('일정 로드 오류:', error);

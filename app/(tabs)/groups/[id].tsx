@@ -29,14 +29,12 @@ import {
 
 // 색상 선택 옵션
 const COLOR_OPTIONS = [
-  { name: '파란색', value: '#3b82f6' },
-  { name: '초록색', value: '#10b981' },
-  { name: '빨간색', value: '#ef4444' },
-  { name: '보라색', value: '#8b5cf6' },
-  { name: '주황색', value: '#f97316' },
-  { name: '분홍색', value: '#ec4899' },
-  { name: '청록색', value: '#14b8a6' },
-  { name: '노란색', value: '#f59e0b' },
+  { name: '초록색', value: '#4CAF50' }, // 기본 초록색 (기본값과 동일)
+  { name: '빨간색', value: '#FF0000' }, // 빨강
+  { name: '주황색', value: '#FF8C00' }, // 주황
+  { name: '파란색', value: '#0066FF' }, // 파랑
+  { name: '보라색', value: '#8A2BE2' }, // 보라
+  { name: '검정색', value: '#333333' }  // 검정
 ];
 
 // 멤버 항목 컴포넌트
