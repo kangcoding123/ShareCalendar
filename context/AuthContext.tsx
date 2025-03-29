@@ -1,7 +1,7 @@
 // context/AuthContext.tsx
 import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../config/firebase';
+import { auth, db } from '../config/firebase';
 import { 
   loginUser, 
   logoutUser, 
@@ -9,12 +9,18 @@ import {
   autoLoginWithSavedCredentials,
   getSavedUserInfo
 } from '../services/authService';
+import { 
+  registerForPushNotificationsAsync, 
+  saveUserPushToken  // 새로 추가된 함수 import
+} from '../services/notificationService';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 
 // 사용자 타입 정의
 interface User {
   uid: string;
   email: string | null;
   displayName: string | null;
+  unreadNotifications?: number; // 추가: 읽지 않은 알림 수
 }
 
 // 인증 컨텍스트 타입 정의
@@ -25,6 +31,7 @@ interface AuthContextType {
   logout: () => Promise<{ success: boolean; error?: string }>;
   register: (email: string, password: string, displayName: string) => Promise<{ success: boolean; user?: any; error?: string }>;
   isAuthenticated: boolean;
+  resetNotificationCount: () => Promise<void>; // 추가: 알림 카운터 리셋 함수
 }
 
 // Props 타입 정의
@@ -46,6 +53,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // 알림 카운터 초기화 함수 (추가)
+  const resetNotificationCount = async () => {
+    if (!user) return;
+    
+    try {
+      // Firestore에서 사용자 알림 카운터 초기화
+      await setDoc(doc(db, 'users', user.uid), 
+        { unreadNotifications: 0 }, 
+        { merge: true }
+      );
+      
+      // 로컬 사용자 상태 업데이트
+      setUser(prev => prev ? {...prev, unreadNotifications: 0} : null);
+    } catch (error) {
+      console.error('알림 카운터 초기화 오류:', error);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
     
@@ -62,6 +87,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
           autoLoginWithSavedCredentials().catch(error => 
             console.log('자동 로그인 갱신 실패:', error)
           );
+          
+          // 알림 권한 요청
+          registerForPushNotificationsAsync();
+          
+          // 푸시 토큰 저장 (추가)
+          if (savedUser.uid) {
+            saveUserPushToken(savedUser.uid);
+          }
         }
       } catch (error) {
         console.error('인증 초기화 오류:', error);
@@ -76,18 +109,38 @@ export function AuthProvider({ children }: AuthProviderProps) {
     initAuth();
 
     // Firebase 인증 상태 변경 이벤트 구독
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!isMounted) return;
       
       if (firebaseUser) {
         // Firebase에 인증된 사용자가 있으면 상태 업데이트
-        const userData: User = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName
-        };
-        
-        setUser(userData);
+        try {
+          // 추가: Firestore에서 사용자 추가 정보 가져오기
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          const userData = userDoc.exists() ? userDoc.data() : {};
+          
+          const userState: User = {
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName,
+            unreadNotifications: userData.unreadNotifications || 0 // 읽지 않은 알림 수 추가
+          };
+          
+          setUser(userState);
+          
+          // 푸시 토큰 저장 (추가)
+          saveUserPushToken(firebaseUser.uid);
+          
+        } catch (error) {
+          console.error('사용자 데이터 가져오기 오류:', error);
+          
+          // 오류 발생 시 기본 정보만으로 사용자 상태 설정
+          setUser({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email,
+            displayName: firebaseUser.displayName
+          });
+        }
       } else {
         // Firebase에서 로그아웃 상태면 로컬 상태도 초기화
         setUser(null);
@@ -125,7 +178,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     login,
     logout,
     register,
-    isAuthenticated: !!user
+    isAuthenticated: !!user,
+    resetNotificationCount  // 추가: 알림 카운터 리셋 함수 포함
   };
 
   return (

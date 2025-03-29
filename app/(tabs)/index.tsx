@@ -186,6 +186,14 @@ export default function HomeScreen() {
                 />
                 <View style={styles.eventInfo}>
                   <Text style={[styles.eventTitle, { color: colors.text }]}>{calendarEvent.title}</Text>
+                  
+                  {/* 시간 정보 추가 */}
+                  {calendarEvent.time && (
+                    <Text style={[styles.eventTime, { color: colors.lightGray }]}>
+                      {calendarEvent.time}
+                    </Text>
+                  )}
+                  
                   <Text style={[styles.eventGroup, { color: colors.darkGray }]}>{calendarEvent.groupName || '개인 일정'}</Text>
                 </View>
               </View>
@@ -212,6 +220,7 @@ export default function HomeScreen() {
                   <Text style={[styles.eventTitle, { color: colors.text }]}>{calendarEvent.title}</Text>
                   <Text style={[styles.eventDate, { color: colors.lightGray }]}>
                     {formatDate(new Date(calendarEvent.date), 'MM월 dd일 (eee)')}
+                    {calendarEvent.time && ` ${calendarEvent.time}`} {/* 날짜와 시간 함께 표시 */}
                   </Text>
                   <Text style={[styles.eventGroup, { color: colors.darkGray }]}>{calendarEvent.groupName || '개인 일정'}</Text>
                 </View>
@@ -302,6 +311,10 @@ const styles = StyleSheet.create({
   eventTitle: {
     fontSize: 16,
     fontWeight: '500',
+    marginBottom: 3
+  },
+  eventTime: {
+    fontSize: 14,
     marginBottom: 3
   },
   eventDate: {

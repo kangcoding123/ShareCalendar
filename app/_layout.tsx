@@ -3,13 +3,23 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import 'react-native-reanimated';
-import { Platform, StatusBar as RNStatusBar, NativeModules } from 'react-native';
+import { Platform, StatusBar as RNStatusBar, NativeModules, AppState, AppStateStatus } from 'react-native';
+import * as Notifications from 'expo-notifications'; // 추가: 알림 모듈 가져오기
 
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+
+// 알림 핸들러 설정 (추가)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -21,6 +31,13 @@ function RootLayoutNav() {
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  
+  // 알림 응답 리스너 참조 저장 (추가)
+  const notificationListener = useRef<Notifications.Subscription>();
+  const responseListener = useRef<Notifications.Subscription>();
+  
+  // 앱 상태 관리 (추가)
+  const appState = useRef(AppState.currentState);
 
   useEffect(() => {
     // 상태바 스타일 직접 설정
@@ -61,6 +78,66 @@ function RootLayoutNav() {
       }
     }
   }, [isAuthenticated, segments, authLoading]);
+  
+  // 알림 설정 (추가)
+  useEffect(() => {
+    // 알림 수신 이벤트 리스너
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      const data = notification.request.content.data;
+      console.log('알림 수신됨:', data);
+      
+      // 여기서 알림 데이터에 따른 추가 작업을 할 수 있습니다
+      // 예: 글로벌 상태 업데이트, 소리 재생 등
+    });
+    
+    // 알림 응답 리스너 (사용자가 알림을 탭했을 때)
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data;
+      console.log('알림 응답 수신됨:', data);
+      
+      // 알림 유형에 따라 다른 화면으로 이동
+      if (data.type === 'new_event' || data.type === 'update_event') {
+        if (data.groupId && data.date) {
+          // 캘린더 화면으로 이동
+          router.push('/(tabs)/calendar');
+          
+          // 일정 상세 모달 열기 위한 데이터를 전달할 수도 있음
+          // (이 부분은 앱 구조에 따라 구현 방식이 다를 수 있음)
+        }
+      } else if (data.type === 'delete_event') {
+        if (data.groupId) {
+          // 그룹 상세 화면으로 이동
+          router.push(`/(tabs)/groups/${data.groupId}`);
+        }
+      }
+    });
+    
+    // 앱 상태 변경 리스너 (앱이 백그라운드에서 포그라운드로 돌아올 때)
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (
+        appState.current.match(/inactive|background/) && 
+        nextAppState === 'active' &&
+        isAuthenticated
+      ) {
+        // 앱이 활성화되면 최신 데이터 가져오기
+        console.log('앱이 포그라운드로 돌아옴 - 데이터 새로고침 필요');
+        // 여기서 필요한 데이터 새로고침 로직 추가
+      }
+      
+      appState.current = nextAppState;
+    });
+    
+    return () => {
+      // 구독 해제
+      if (notificationListener.current) {
+        Notifications.removeNotificationSubscription(notificationListener.current);
+      }
+      if (responseListener.current) {
+        Notifications.removeNotificationSubscription(responseListener.current);
+      }
+      subscription.remove();
+    };
+  }, [isAuthenticated, router]);
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

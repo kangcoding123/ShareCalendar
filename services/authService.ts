@@ -6,7 +6,7 @@ import {
   updateProfile,
   User as FirebaseUser
 } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -41,12 +41,16 @@ export const registerUser = async (
     // 사용자 프로필 업데이트
     await updateProfile(user, { displayName });
     
-    // Firestore에 사용자 정보 저장
+    // Firestore에 사용자 정보 저장 (새 필드 포함)
     await setDoc(doc(db, 'users', user.uid), {
       uid: user.uid,
       email,
       displayName,
       createdAt: new Date().toISOString(),
+      // 새 필드 추가
+      pushToken: null,
+      tokenUpdatedAt: null,
+      unreadNotifications: 0
     });
     
     return { success: true, user };
@@ -80,6 +84,54 @@ export const loginUser = async (
       
       // 자격 증명 저장 (자동 로그인용)
       await AsyncStorage.setItem(AUTH_CREDENTIALS_KEY, JSON.stringify({ email, password }));
+      
+      // Firestore에 새 필드 추가
+      const userRef = doc(db, 'users', userCredential.user.uid);
+      
+      try {
+        // 먼저 사용자 문서가 존재하는지 확인
+        const userDoc = await getDoc(userRef);
+        
+        if (userDoc.exists()) {
+          // 기존 문서에 새 필드 추가 (updateDoc 사용)
+          const userData = userDoc.data();
+          const fieldsToUpdate: Record<string, any> = {};
+          
+          // 필드가 없는 경우에만 추가
+          if (userData.pushToken === undefined) {
+            fieldsToUpdate.pushToken = null;
+          }
+          
+          if (userData.tokenUpdatedAt === undefined) {
+            fieldsToUpdate.tokenUpdatedAt = null;
+          }
+          
+          if (userData.unreadNotifications === undefined) {
+            fieldsToUpdate.unreadNotifications = 0;
+          }
+          
+          // 업데이트할 필드가 있는 경우만 실행
+          if (Object.keys(fieldsToUpdate).length > 0) {
+            await updateDoc(userRef, fieldsToUpdate);
+            console.log(`사용자 ${userCredential.user.uid}의 문서에 새 필드 추가 완료`);
+          }
+        } else {
+          // 사용자 문서가 없으면 새로 생성
+          await setDoc(userRef, {
+            uid: userCredential.user.uid,
+            email: userCredential.user.email,
+            displayName: userCredential.user.displayName,
+            createdAt: new Date().toISOString(),
+            pushToken: null,
+            tokenUpdatedAt: null,
+            unreadNotifications: 0
+          });
+          console.log(`사용자 ${userCredential.user.uid}의 문서 새로 생성 완료`);
+        }
+      } catch (firestoreError) {
+        console.error('Firestore 사용자 문서 업데이트 실패:', firestoreError);
+      }
+      
     } catch (storageError) {
       console.error('인증 정보 저장 실패:', storageError);
     }
