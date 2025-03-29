@@ -9,6 +9,7 @@ import { Platform, StatusBar as RNStatusBar, NativeModules } from 'react-native'
 
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors } from '@/constants/Colors';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -16,6 +17,7 @@ SplashScreen.preventAutoHideAsync();
 // 인증 상태에 따른 라우팅 처리를 위한 컴포넌트
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme || 'light'];
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const segments = useSegments();
   const router = useRouter();
@@ -23,8 +25,9 @@ function RootLayoutNav() {
   useEffect(() => {
     // 상태바 스타일 직접 설정
     if (Platform.OS === 'android') {
-      RNStatusBar.setBackgroundColor('#ffffff'); // 흰색 배경
-      RNStatusBar.setTranslucent(false); // 투명 상태바 비활성화
+      const bgColor = colorScheme === 'dark' ? colors.background : '#ffffff';
+      RNStatusBar.setBackgroundColor(bgColor);
+      RNStatusBar.setTranslucent(false);
       
       // JavaScript 방식으로 메서드 존재 확인 및 호출
       try {
@@ -41,8 +44,8 @@ function RootLayoutNav() {
     }
     
     // iOS와 Android 모두에 적용
-    RNStatusBar.setBarStyle('dark-content');
-  }, []);
+    RNStatusBar.setBarStyle(colorScheme === 'dark' ? 'light-content' : 'dark-content');
+  }, [colorScheme]);
 
   useEffect(() => {
     // 인증 상태에 따라 리다이렉트
@@ -61,7 +64,13 @@ function RootLayoutNav() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
+      <Stack
+        screenOptions={{
+          contentStyle: {
+            backgroundColor: colors.background
+          }
+        }}
+      >
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />

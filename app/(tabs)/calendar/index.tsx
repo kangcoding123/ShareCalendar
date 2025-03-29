@@ -18,6 +18,8 @@ import { groupEventsByDate, CalendarDay } from '../../../utils/dateUtils';
 import { onSnapshot, query, collection, where } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
 import { useFocusEffect } from '@react-navigation/native';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 // 컴포넌트
 import Calendar from '../../../components/calendar/Calendar';
@@ -25,6 +27,10 @@ import EventDetailModal from '../../../components/calendar/EventDetailModal';
 
 export default function CalendarScreen() {
   const { user } = useAuth();
+  
+  // 색상 테마 설정
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme || 'light'];
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -111,8 +117,8 @@ export default function CalendarScreen() {
 
   // 디버깅용 정보 로그
   useEffect(() => {
-    console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}`);
-  }, []);
+    console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}, colorScheme: ${colorScheme}`);
+  }, [colorScheme]);
   
   // 초기 데이터 로드 및 실시간 구독 설정
   useEffect(() => {
@@ -222,25 +228,31 @@ export default function CalendarScreen() {
   };
   
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>WE:IN</Text>
+    <SafeAreaView style={[styles.container, {backgroundColor: colors.secondary}]}>
+      <View style={[styles.header, {backgroundColor: colors.headerBackground, borderBottomColor: colors.border}]}>
+        <Text style={[styles.headerTitle, {color: colors.text}]}>WE:IN</Text>
       </View>
       
       {loading && !refreshing ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3c66af" />
+          <ActivityIndicator size="large" color={colors.tint} />
         </View>
       ) : (
         <ScrollView
           contentContainerStyle={styles.scrollContainer}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={handleRefresh}
+              tintColor={colors.tint}
+              colors={[colors.tint]}
+            />
           }
         >
           <Calendar 
             events={events} 
-            onDayPress={handleDayPress} 
+            onDayPress={handleDayPress}
+            colorScheme={colorScheme}
           />
           
           {selectedDate && (
@@ -253,6 +265,8 @@ export default function CalendarScreen() {
               user={user}
               onClose={handleCloseModal}
               onEventUpdated={handleEventUpdated}
+              colorScheme={colorScheme}
+              colors={colors}
             />
           )}
         </ScrollView>
@@ -264,7 +278,6 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa'
   },
   header: {
     flexDirection: 'row',
@@ -273,13 +286,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    backgroundColor: '#fff'
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#333'
   },
   loadingContainer: {
     flex: 1,

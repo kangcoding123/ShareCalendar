@@ -11,6 +11,8 @@ import {
   subscribeToUserEvents
 } from '../../services/calendarService';
 import { formatDate } from '../../utils/dateUtils';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -18,6 +20,10 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [todayEvents, setTodayEvents] = useState<CalendarEvent[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
+  
+  // 색상 테마 설정
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme || 'light'];
   
   // 구독 취소 함수 참조 저장을 위한 ref 추가
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -140,84 +146,87 @@ export default function HomeScreen() {
 
   // 디버깅용 코드 - 실행 환경 확인
   useEffect(() => {
-    console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}`);
-  }, []);
+    console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}, colorScheme: ${colorScheme}`);
+  }, [colorScheme]);
   
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <ActivityIndicator size="large" color="#3c66af" />
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
+        <ActivityIndicator size="large" color={colors.tint} />
       </SafeAreaView>
     );
   }
   
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>WE:IN</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <Text style={[styles.headerTitle, { color: colors.tint }]}>WE:IN</Text>
         <View style={styles.headerRow}>
-          <Text style={styles.headerSubtitle}>안녕하세요, {user?.displayName || '사용자'}님</Text>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Text style={styles.logoutButtonText}>로그아웃</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.lightGray }]}>안녕하세요, {user?.displayName || '사용자'}님</Text>
+          <TouchableOpacity onPress={handleLogout} style={[styles.logoutButton, { backgroundColor: colors.secondary }]}>
+            <Text style={[styles.logoutButtonText, { color: colors.darkGray }]}>로그아웃</Text>
           </TouchableOpacity>
         </View>
       </View>
       
       <ScrollView style={styles.content}>
         {/* 오늘 일정 섹션 */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>오늘 일정</Text>
-          <Text style={styles.dateText}>{formatDate(new Date(), 'yyyy년 MM월 dd일 (eee)')}</Text>
+        <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>오늘 일정</Text>
+          <Text style={[styles.dateText, { color: colors.lightGray }]}>{formatDate(new Date(), 'yyyy년 MM월 dd일 (eee)')}</Text>
           
           {todayEvents.length > 0 ? (
             todayEvents.map((calendarEvent: CalendarEvent) => (
-              <View key={calendarEvent.id} style={styles.eventCard}>
+              <View key={calendarEvent.id} style={[styles.eventCard, { backgroundColor: colors.eventCardBackground }]}>
                 <View 
                   style={[
                     styles.eventColor, 
-                    { backgroundColor: calendarEvent.color || '#3c66af' }
+                    { backgroundColor: calendarEvent.color || colors.tint }
                   ]} 
                 />
                 <View style={styles.eventInfo}>
-                  <Text style={styles.eventTitle}>{calendarEvent.title}</Text>
-                  <Text style={styles.eventGroup}>{calendarEvent.groupName || '개인 일정'}</Text>
+                  <Text style={[styles.eventTitle, { color: colors.text }]}>{calendarEvent.title}</Text>
+                  <Text style={[styles.eventGroup, { color: colors.darkGray }]}>{calendarEvent.groupName || '개인 일정'}</Text>
                 </View>
               </View>
             ))
           ) : (
-            <Text style={styles.emptyText}>오늘은 일정이 없습니다.</Text>
+            <Text style={[styles.emptyText, { color: colorScheme === 'dark' ? '#999' : '#999' }]}>오늘은 일정이 없습니다.</Text>
           )}
         </View>
         
         {/* 다가오는 일정 섹션 */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>다가오는 일정</Text>
+        <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>다가오는 일정</Text>
           
           {upcomingEvents.length > 0 ? (
             upcomingEvents.map((calendarEvent: CalendarEvent) => (
-              <View key={calendarEvent.id} style={styles.eventCard}>
+              <View key={calendarEvent.id} style={[styles.eventCard, { backgroundColor: colors.eventCardBackground }]}>
                 <View 
                   style={[
                     styles.eventColor, 
-                    { backgroundColor: calendarEvent.color || '#3c66af' }
+                    { backgroundColor: calendarEvent.color || colors.tint }
                   ]} 
                 />
                 <View style={styles.eventInfo}>
-                  <Text style={styles.eventTitle}>{calendarEvent.title}</Text>
-                  <Text style={styles.eventDate}>
+                  <Text style={[styles.eventTitle, { color: colors.text }]}>{calendarEvent.title}</Text>
+                  <Text style={[styles.eventDate, { color: colors.lightGray }]}>
                     {formatDate(new Date(calendarEvent.date), 'MM월 dd일 (eee)')}
                   </Text>
-                  <Text style={styles.eventGroup}>{calendarEvent.groupName || '개인 일정'}</Text>
+                  <Text style={[styles.eventGroup, { color: colors.darkGray }]}>{calendarEvent.groupName || '개인 일정'}</Text>
                 </View>
               </View>
             ))
           ) : (
-            <Text style={styles.emptyText}>다가오는 일정이 없습니다.</Text>
+            <Text style={[styles.emptyText, { color: colorScheme === 'dark' ? '#999' : '#999' }]}>다가오는 일정이 없습니다.</Text>
           )}
         </View>
         
-        <TouchableOpacity style={styles.calendarButton} onPress={navigateToCalendar}>
-          <Text style={styles.calendarButtonText}>캘린더 보기</Text>
+        <TouchableOpacity 
+          style={[styles.calendarButton, { backgroundColor: colors.buttonBackground }]} 
+          onPress={navigateToCalendar}
+        >
+          <Text style={[styles.calendarButtonText, { color: colors.buttonText }]}>캘린더 보기</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -227,18 +236,14 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa'
   },
   header: {
     padding: 20,
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#eee'
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#3c66af',
     marginBottom: 5
   },
   headerRow: {
@@ -249,16 +254,13 @@ const styles = StyleSheet.create({
   },
   headerSubtitle: {
     fontSize: 16,
-    color: '#666'
   },
   logoutButton: {
     paddingVertical: 5,
     paddingHorizontal: 10,
-    backgroundColor: '#f1f3f5',
     borderRadius: 5
   },
   logoutButtonText: {
-    color: '#495057',
     fontSize: 14
   },
   content: {
@@ -266,11 +268,9 @@ const styles = StyleSheet.create({
     padding: 15
   },
   section: {
-    backgroundColor: '#fff',
     borderRadius: 10,
     padding: 15,
     marginBottom: 20,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -280,17 +280,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 5,
-    color: '#333'
   },
   dateText: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 15
   },
   eventCard: {
     flexDirection: 'row',
     padding: 12,
-    backgroundColor: '#f9f9f9',
     borderRadius: 8,
     marginBottom: 10
   },
@@ -305,33 +302,27 @@ const styles = StyleSheet.create({
   eventTitle: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#333',
     marginBottom: 3
   },
   eventDate: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 3
   },
   eventGroup: {
     fontSize: 12,
-    color: '#888'
   },
   emptyText: {
     textAlign: 'center',
     padding: 20,
-    color: '#999',
     fontStyle: 'italic'
   },
   calendarButton: {
-    backgroundColor: '#3c66af',
     padding: 15,
     borderRadius: 10,
     alignItems: 'center',
     marginBottom: 20
   },
   calendarButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold'
   }

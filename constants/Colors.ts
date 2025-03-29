@@ -1,26 +1,46 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+// constants/Colors.ts
+const tintColorLight = '#3c66af';  // WE:IN 앱의 기본 파란색
+const tintColorDark = '#4e7bd4';   // 다크 모드에서는 약간 밝은 파란색
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: '#000000',
+    background: '#ffffff',
+    card: '#ffffff',
+    cardText: '#333333',
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
+    tabIconDefault: '#888888',
     tabIconSelected: tintColorLight,
+    secondary: '#f8f9fa',
+    border: '#eeeeee',
+    headerBackground: '#ffffff',
+    inputBackground: '#f9f9f9',
+    inputBorder: '#dddddd',
+    buttonBackground: '#3c66af',
+    buttonText: '#ffffff',
+    disabledButton: '#a0a0a0',
+    eventCardBackground: '#f9f9f9',
+    lightGray: '#666666',
+    darkGray: '#495057'
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: '#ffffff',
+    background: '#121212',
+    card: '#1e1e1e',
+    cardText: '#e0e0e0',
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    tabIconDefault: '#888888',
     tabIconSelected: tintColorDark,
-  },
+    secondary: '#242424',
+    border: '#333333',
+    headerBackground: '#1e1e1e',
+    inputBackground: '#2c2c2c',
+    inputBorder: '#444444',
+    buttonBackground: '#4e7bd4',
+    buttonText: '#ffffff',
+    disabledButton: '#555555',
+    eventCardBackground: '#2c2c2c',
+    lightGray: '#bbbbbb',
+    darkGray: '#aaaaaa'
+  }
 };

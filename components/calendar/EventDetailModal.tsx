@@ -10,7 +10,9 @@ import {
   TextInput,
   Alert,
   ScrollView,
-  Platform
+  Platform,
+  ActivityIndicator,
+  ColorSchemeName
 } from 'react-native';
 import { addEvent, updateEvent, deleteEvent, CalendarEvent } from '../../services/calendarService';
 import { Group } from '../../services/groupService';
@@ -29,6 +31,7 @@ interface EventItemProps {
   onEdit: (event: CalendarEvent) => void;
   onDelete: (event: CalendarEvent) => void;
   userId: string; // 현재 사용자 ID 추가
+  colors: any;
 }
 
 interface EventFormProps {
@@ -37,6 +40,7 @@ interface EventFormProps {
   groups: Group[];
   onSubmit: (eventData: CalendarEvent) => void;
   onCancel: () => void;
+  colors: any;
 }
 
 interface EventDetailModalProps {
@@ -48,43 +52,47 @@ interface EventDetailModalProps {
   user: { displayName?: string | null } | null; // user 객체 추가
   onClose: () => void;
   onEventUpdated: (action: string, eventData: any) => void;
+  colorScheme: ColorSchemeName;
+  colors: any;
 }
 
-const EventItem = ({ event, onEdit, onDelete, userId }: EventItemProps) => {
+const EventItem = ({ event, onEdit, onDelete, userId, colors }: EventItemProps) => {
   // 이벤트가 그룹 일정인지 확인
   const isGroupEvent = event.groupId !== 'personal';
   // 현재 사용자가 작성자인지 확인
   const isCreator = event.userId === userId;
   
   return (
-    <View style={styles.eventItem}>
-      <View style={[styles.eventColor, { backgroundColor: event.color || '#3c66af' }]} />
+    <View style={[styles.eventItem, { backgroundColor: colors.eventCardBackground }]}>
+      <View style={[styles.eventColor, { backgroundColor: event.color || colors.tint }]} />
       
       <View style={styles.eventDetails}>
-        <Text style={styles.eventTitle}>{event.title}</Text>
+        <Text style={[styles.eventTitle, { color: colors.text }]}>{event.title}</Text>
         
         {/* 시간 표시 */}
         {event.time && (
-          <Text style={styles.eventTime}>
+          <Text style={[styles.eventTime, { color: colors.lightGray }]}>
             {event.time}
           </Text>
         )}
         
         {event.description ? (
-          <Text style={styles.eventDescription} numberOfLines={2}>
+          <Text style={[styles.eventDescription, { color: colors.lightGray }]} numberOfLines={2}>
             {event.description}
           </Text>
         ) : null}
         
         <View style={styles.eventMetaContainer}>
-          <View style={styles.eventGroupContainer}>
-            <Text style={styles.eventGroupText}>{event.groupName || '개인 일정'}</Text>
+          <View style={[styles.eventGroupContainer, { backgroundColor: colors.secondary }]}>
+            <Text style={[styles.eventGroupText, { color: colors.darkGray }]}>
+              {event.groupName || '개인 일정'}
+            </Text>
           </View>
           
           {/* 그룹 일정일 경우 작성자 표시 */}
           {isGroupEvent && event.createdByName && (
-            <View style={styles.eventCreatorContainer}>
-              <Text style={styles.eventCreatorText}>
+            <View style={[styles.eventCreatorContainer, { backgroundColor: colors.secondary }]}>
+              <Text style={[styles.eventCreatorText, { color: colors.darkGray }]}>
                 작성자: {event.createdByName}
               </Text>
             </View>
@@ -95,12 +103,15 @@ const EventItem = ({ event, onEdit, onDelete, userId }: EventItemProps) => {
       {/* 작성자만 편집/삭제 버튼 표시 */}
       {isCreator ? (
         <View style={styles.eventActions}>
-          <TouchableOpacity style={styles.actionButton} onPress={() => onEdit(event)}>
-            <Text style={styles.actionButtonText}>편집</Text>
+          <TouchableOpacity 
+            style={[styles.actionButton, { backgroundColor: colors.secondary }]} 
+            onPress={() => onEdit(event)}
+          >
+            <Text style={[styles.actionButtonText, { color: colors.darkGray }]}>편집</Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
-            style={[styles.actionButton, styles.deleteButton]} 
+            style={[styles.actionButton, styles.deleteButton, { backgroundColor: '#ffebee' }]} 
             onPress={() => onDelete(event)}
           >
             <Text style={styles.deleteButtonText}>삭제</Text>
@@ -108,7 +119,7 @@ const EventItem = ({ event, onEdit, onDelete, userId }: EventItemProps) => {
         </View>
       ) : (
         <View style={styles.eventActionsDisabled}>
-          <Text style={styles.eventCreatorOnlyText}>작성자만 수정 가능</Text>
+          <Text style={[styles.eventCreatorOnlyText, { color: colors.lightGray }]}>작성자만 수정 가능</Text>
         </View>
       )}
     </View>
@@ -120,7 +131,8 @@ const EventForm = ({
   event, 
   groups, 
   onSubmit, 
-  onCancel 
+  onCancel,
+  colors 
 }: EventFormProps) => {
   const [title, setTitle] = useState(event?.title || '');
   const [description, setDescription] = useState(event?.description || '');
@@ -130,7 +142,7 @@ const EventForm = ({
   // 그룹 ID에 따라 자동으로 색상 설정 - 수정
   const getColorForGroup = (groupId: string): string => {
     if (groupId === 'personal') {
-      return '#3c66af'; // 개인 일정 기본 색상
+      return colors.tint; // 개인 일정 기본 색상
     } else {
       // 해당 그룹의 색상 찾기
       const group = groups.find(g => g.id === groupId);
@@ -162,41 +174,73 @@ const EventForm = ({
   
   return (
     <ScrollView style={styles.formContainer}>
-      <Text style={styles.formLabel}>일정 제목</Text>
+      <Text style={[styles.formLabel, { color: colors.text }]}>일정 제목</Text>
       <TextInput
-        style={styles.formInput}
+        style={[
+          styles.formInput, 
+          { 
+            backgroundColor: colors.inputBackground, 
+            borderColor: colors.inputBorder,
+            color: colors.text
+          }
+        ]}
+        placeholder="일정 제목"
+        placeholderTextColor={colors.lightGray}
         value={title}
         onChangeText={setTitle}
-        placeholder="일정 제목"
       />
       
-      <Text style={styles.formLabel}>일시</Text>
+      <Text style={[styles.formLabel, { color: colors.text }]}>일시</Text>
       <TextInput
-        style={styles.formInput}
+        style={[
+          styles.formInput, 
+          { 
+            backgroundColor: colors.inputBackground, 
+            borderColor: colors.inputBorder,
+            color: colors.text
+          }
+        ]}
+        placeholder="예: 14:00, 14:00~18:00, 오후 2시 등"
+        placeholderTextColor={colors.lightGray}
         value={time}
         onChangeText={setTime}
-        placeholder="예: 14:00, 14:00~18:00, 오후 2시 등"
         keyboardType="default"
       />
       
-      <Text style={styles.formLabel}>일정 내용</Text>
+      <Text style={[styles.formLabel, { color: colors.text }]}>일정 내용</Text>
       <TextInput
-        style={[styles.formInput, styles.textArea]}
+        style={[
+          styles.formInput, 
+          styles.textArea,
+          { 
+            backgroundColor: colors.inputBackground, 
+            borderColor: colors.inputBorder,
+            color: colors.text
+          }
+        ]}
+        placeholder="일정 내용"
+        placeholderTextColor={colors.lightGray}
         value={description}
         onChangeText={setDescription}
-        placeholder="일정 내용"
         multiline
         numberOfLines={4}
         textAlignVertical="top"
       />
       
-      <Text style={styles.formLabel}>그룹</Text>
+      <Text style={[styles.formLabel, { color: colors.text }]}>그룹</Text>
       <View style={styles.groupSelector}>
-        {/* 개인 일정 옵션 - 새로운 방식 */}
+        {/* 개인 일정 옵션 */}
         <TouchableOpacity
           style={[
             styles.groupOption,
-            selectedGroup === 'personal' && styles.selectedGroupOption
+            { 
+              backgroundColor: selectedGroup === 'personal' ? 
+                colors.secondary : colors.inputBackground
+            },
+            selectedGroup === 'personal' && { 
+              borderWidth: 1,
+              borderColor: colors.tint
+            }
           ]}
           onPress={() => setSelectedGroup('personal')}
         >
@@ -207,20 +251,27 @@ const EventForm = ({
               top: 0,
               bottom: 0,
               width: 4,
-              backgroundColor: getColorForGroup('personal'),
+              backgroundColor: colors.tint,
               borderRadius: 2
             }} 
           />
-          <Text style={styles.groupOptionText}>개인 일정</Text>
+          <Text style={[styles.groupOptionText, { color: colors.text }]}>개인 일정</Text>
         </TouchableOpacity>
         
-        {/* 그룹 옵션 - 새로운 방식 */}
+        {/* 그룹 옵션 */}
         {groups.map((group) => (
           <TouchableOpacity
             key={group.id}
             style={[
               styles.groupOption,
-              selectedGroup === group.id && styles.selectedGroupOption
+              { 
+                backgroundColor: selectedGroup === group.id ? 
+                  colors.secondary : colors.inputBackground
+              },
+              selectedGroup === group.id && { 
+                borderWidth: 1,
+                borderColor: group.color || colors.tint
+              }
             ]}
             onPress={() => setSelectedGroup(group.id)}
           >
@@ -231,22 +282,28 @@ const EventForm = ({
                 top: 0,
                 bottom: 0,
                 width: 4,
-                backgroundColor: group.color || getColorForGroup(group.id),
+                backgroundColor: group.color || colors.tint,
                 borderRadius: 2
               }} 
             />
-            <Text style={styles.groupOptionText}>{group.name}</Text>
+            <Text style={[styles.groupOptionText, { color: colors.text }]}>{group.name}</Text>
           </TouchableOpacity>
         ))}
       </View>
       
       <View style={styles.formActions}>
-        <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
-          <Text style={styles.cancelButtonText}>취소</Text>
+        <TouchableOpacity 
+          style={[styles.cancelButton, { backgroundColor: colors.secondary }]} 
+          onPress={onCancel}
+        >
+          <Text style={[styles.cancelButtonText, { color: colors.darkGray }]}>취소</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.submitButton} onPress={handleSubmit}>
-          <Text style={styles.submitButtonText}>저장</Text>
+        <TouchableOpacity 
+          style={[styles.submitButton, { backgroundColor: colors.buttonBackground }]} 
+          onPress={handleSubmit}
+        >
+          <Text style={[styles.submitButtonText, { color: colors.buttonText }]}>저장</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -261,7 +318,9 @@ const EventDetailModal = ({
   userId,
   user,
   onClose, 
-  onEventUpdated 
+  onEventUpdated,
+  colorScheme,
+  colors
 }: EventDetailModalProps) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
@@ -377,13 +436,14 @@ const EventDetailModal = ({
             // 취소 시 바로 모달 닫기
             onClose();
           }}
+          colors={colors}
         />
       );
     }
     
     return (
       <View style={styles.content}>
-        <Text style={styles.dateHeader}>
+        <Text style={[styles.dateHeader, { color: colors.text }]}>
           {selectedDate ? formatDate(selectedDate.date, 'yyyy년 MM월 dd일 (eee)') : ''}
         </Text>
         
@@ -396,6 +456,7 @@ const EventDetailModal = ({
                 onEdit={handleEditEvent}
                 onDelete={handleDeleteEvent}
                 userId={userId}
+                colors={colors}
               />
             )}
             keyExtractor={(item) => item.id || item.title}
@@ -403,12 +464,15 @@ const EventDetailModal = ({
           />
         ) : (
           <View style={styles.noEventsContainer}>
-            <Text style={styles.noEventsText}>일정이 없습니다.</Text>
+            <Text style={[styles.noEventsText, { color: colors.lightGray }]}>일정이 없습니다.</Text>
           </View>
         )}
         
-        <TouchableOpacity style={styles.addButton} onPress={handleAddEvent}>
-          <Text style={styles.addButtonText}>일정 추가</Text>
+        <TouchableOpacity 
+          style={[styles.addButton, { backgroundColor: colors.buttonBackground }]} 
+          onPress={handleAddEvent}
+        >
+          <Text style={[styles.addButtonText, { color: colors.buttonText }]}>일정 추가</Text>
         </TouchableOpacity>
       </View>
     );
@@ -422,15 +486,15 @@ const EventDetailModal = ({
       onRequestClose={onClose}
     >
       <View style={styles.modalContainer}>
-        <View style={styles.modalContent}>
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>
+        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>
               {isEditing ? (editingEvent ? '일정 편집' : '새 일정') : '일정 상세'}
             </Text>
             
             {!isEditing && (
               <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-                <Text style={styles.closeButtonText}>닫기</Text>
+                <Text style={[styles.closeButtonText, { color: colors.tint }]}>닫기</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -449,7 +513,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)'
   },
   modalContent: {
-    backgroundColor: '#fff',
     borderTopLeftRadius: 15,
     borderTopRightRadius: 15,
     height: '80%',
@@ -460,20 +523,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomWidth: 1
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333'
+    fontWeight: 'bold'
   },
   closeButton: {
     padding: 5
   },
   closeButtonText: {
-    fontSize: 16,
-    color: '#3c66af'
+    fontSize: 16
   },
   content: {
     flex: 1,
@@ -482,15 +542,13 @@ const styles = StyleSheet.create({
   dateHeader: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 15,
-    color: '#333'
+    marginBottom: 15
   },
   eventList: {
     flex: 1
   },
   eventItem: {
     flexDirection: 'row',
-    backgroundColor: '#f9f9f9',
     borderRadius: 8,
     padding: 12,
     marginBottom: 10
@@ -506,17 +564,14 @@ const styles = StyleSheet.create({
   eventTitle: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 5,
-    color: '#333'
+    marginBottom: 5
   },
   eventTime: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 3
   },
   eventDescription: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 5
   },
   eventMetaContainer: {
@@ -525,7 +580,6 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   eventGroupContainer: {
-    backgroundColor: '#eee',
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -533,19 +587,16 @@ const styles = StyleSheet.create({
     marginBottom: 4
   },
   eventGroupText: {
-    fontSize: 12,
-    color: '#666'
+    fontSize: 12
   },
   eventCreatorContainer: {
-    backgroundColor: '#f0f8ff',
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
     marginBottom: 4
   },
   eventCreatorText: {
-    fontSize: 12,
-    color: '#666',
+    fontSize: 12
   },
   eventActions: {
     marginLeft: 10,
@@ -555,18 +606,16 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 4,
-    backgroundColor: '#e9ecef'
+    borderRadius: 4
   },
   actionButtonText: {
-    fontSize: 12,
-    color: '#495057'
+    fontSize: 12
   },
   deleteButton: {
-    backgroundColor: '#ffebee'
   },
   deleteButtonText: {
-    color: '#f44336'
+    color: '#f44336',
+    fontSize: 12
   },
   noEventsContainer: {
     flex: 1,
@@ -575,18 +624,15 @@ const styles = StyleSheet.create({
   },
   noEventsText: {
     fontSize: 16,
-    color: '#999',
     textAlign: 'center'
   },
   addButton: {
-    backgroundColor: '#3c66af',
     borderRadius: 8,
     padding: 12,
     alignItems: 'center',
     marginTop: 15
   },
   addButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600'
   },
@@ -599,17 +645,14 @@ const styles = StyleSheet.create({
   formLabel: {
     fontSize: 14,
     fontWeight: '600',
-    marginBottom: 8,
-    color: '#333'
+    marginBottom: 8
   },
   formInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 8,
     padding: 10,
     marginBottom: 15,
-    fontSize: 16,
-    backgroundColor: '#f9f9f9'
+    fontSize: 16
   },
   textArea: {
     minHeight: 100
@@ -620,7 +663,6 @@ const styles = StyleSheet.create({
     marginBottom: 15
   },
   groupOption: {
-    backgroundColor: '#f1f3f5',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -630,14 +672,9 @@ const styles = StyleSheet.create({
     position: 'relative' // 절대 위치 배치를 위해 추가
   },
   selectedGroupOption: {
-    backgroundColor: '#e7f5ff',
-    borderWidth: 1,
-    borderColor: '#3c66af'
-    // borderLeftWidth 및 borderLeftColor 제거
   },
   groupOptionText: {
-    fontSize: 14,
-    color: '#333'
+    fontSize: 14
   },
   formActions: {
     flexDirection: 'row',
@@ -646,26 +683,22 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    backgroundColor: '#f1f3f5',
     borderRadius: 8,
     padding: 12,
     alignItems: 'center',
     marginRight: 10
   },
   cancelButtonText: {
-    color: '#495057',
     fontSize: 16,
     fontWeight: '600'
   },
   submitButton: {
     flex: 1,
-    backgroundColor: '#3c66af',
     borderRadius: 8,
     padding: 12,
     alignItems: 'center'
   },
   submitButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600'
   },
@@ -676,8 +709,7 @@ const styles = StyleSheet.create({
     padding: 5
   },
   eventCreatorOnlyText: {
-    fontSize: 10,
-    color: '#999',
+    fontSize: 10
   }
 });
 

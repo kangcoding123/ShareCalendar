@@ -15,10 +15,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { register, logout } = useAuth(); // logout 함수 추가
+  const { register, logout } = useAuth();
+  
+  // 색상 테마 설정 추가
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme || 'light'];
   
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -98,7 +104,7 @@ export default function RegisterScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoid}
@@ -109,20 +115,32 @@ export default function RegisterScreen() {
             style={styles.homeButton}
             onPress={() => router.push('/login')}
           >
-            <Text style={styles.homeButtonText}>{'< 로그인 화면으로'}</Text>
+            <Text style={[styles.homeButtonText, { color: colors.tint }]}>{'< 로그인 화면으로'}</Text>
           </TouchableOpacity>
           
           <View style={styles.headerContainer}>
-            <Text style={styles.title}>회원가입</Text>
-            <Text style={styles.subtitle}>계정 정보를 입력해주세요</Text>
+            <Text style={[styles.title, { color: colors.tint }]}>회원가입</Text>
+            <Text style={[styles.subtitle, { color: colors.lightGray }]}>계정 정보를 입력해주세요</Text>
           </View>
           
-          <View style={styles.formContainer}>
+          <View style={[styles.formContainer, { 
+            backgroundColor: colors.card,
+            shadowColor: colorScheme === 'dark' ? 'transparent' : '#000'
+          }]}>
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>이름</Text>
+              <Text style={[styles.label, { color: colors.text }]}>이름</Text>
               <TextInput
-                style={[styles.input, errors.name && styles.inputError]}
+                style={[
+                  styles.input, 
+                  { 
+                    backgroundColor: colors.inputBackground, 
+                    borderColor: colors.inputBorder,
+                    color: colors.text
+                  },
+                  errors.name && styles.inputError
+                ]}
                 placeholder="이름"
+                placeholderTextColor={colors.lightGray}
                 autoCapitalize="words"
                 value={name}
                 onChangeText={setName}
@@ -131,10 +149,19 @@ export default function RegisterScreen() {
             </View>
             
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>이메일</Text>
+              <Text style={[styles.label, { color: colors.text }]}>이메일</Text>
               <TextInput
-                style={[styles.input, errors.email && styles.inputError]}
+                style={[
+                  styles.input, 
+                  { 
+                    backgroundColor: colors.inputBackground, 
+                    borderColor: colors.inputBorder,
+                    color: colors.text
+                  },
+                  errors.email && styles.inputError
+                ]}
                 placeholder="이메일 주소"
+                placeholderTextColor={colors.lightGray}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 value={email}
@@ -144,10 +171,19 @@ export default function RegisterScreen() {
             </View>
             
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>비밀번호</Text>
+              <Text style={[styles.label, { color: colors.text }]}>비밀번호</Text>
               <TextInput
-                style={[styles.input, errors.password && styles.inputError]}
+                style={[
+                  styles.input, 
+                  { 
+                    backgroundColor: colors.inputBackground, 
+                    borderColor: colors.inputBorder,
+                    color: colors.text
+                  },
+                  errors.password && styles.inputError
+                ]}
                 placeholder="비밀번호 (6자 이상)"
+                placeholderTextColor={colors.lightGray}
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
@@ -156,10 +192,19 @@ export default function RegisterScreen() {
             </View>
             
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>비밀번호 확인</Text>
+              <Text style={[styles.label, { color: colors.text }]}>비밀번호 확인</Text>
               <TextInput
-                style={[styles.input, errors.confirmPassword && styles.inputError]}
+                style={[
+                  styles.input, 
+                  { 
+                    backgroundColor: colors.inputBackground, 
+                    borderColor: colors.inputBorder,
+                    color: colors.text
+                  },
+                  errors.confirmPassword && styles.inputError
+                ]}
                 placeholder="비밀번호 확인"
+                placeholderTextColor={colors.lightGray}
                 secureTextEntry
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
@@ -170,21 +215,25 @@ export default function RegisterScreen() {
             </View>
             
             <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
+              style={[
+                styles.button, 
+                { backgroundColor: colors.buttonBackground },
+                loading && { backgroundColor: colors.disabledButton }
+              ]}
               onPress={handleRegister}
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#ffffff" />
+                <ActivityIndicator color={colors.buttonText} />
               ) : (
-                <Text style={styles.buttonText}>회원가입</Text>
+                <Text style={[styles.buttonText, { color: colors.buttonText }]}>회원가입</Text>
               )}
             </TouchableOpacity>
             
             <View style={styles.loginContainer}>
-              <Text style={styles.loginText}>이미 계정이 있으신가요?</Text>
+              <Text style={[styles.loginText, { color: colors.lightGray }]}>이미 계정이 있으신가요?</Text>
               <TouchableOpacity onPress={() => router.push('/login')}>
-                <Text style={styles.loginLink}>로그인</Text>
+                <Text style={[styles.loginLink, { color: colors.tint }]}>로그인</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -196,8 +245,7 @@ export default function RegisterScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa'
+    flex: 1
   },
   keyboardAvoid: {
     flex: 1
@@ -207,7 +255,6 @@ const styles = StyleSheet.create({
     padding: 20,
     justifyContent: 'center'
   },
-  // 홈으로 돌아가기 버튼 스타일 추가
   homeButton: {
     alignSelf: 'flex-start',
     paddingHorizontal: 10,
@@ -215,7 +262,6 @@ const styles = StyleSheet.create({
     marginBottom: 10
   },
   homeButtonText: {
-    color: '#3c66af',
     fontSize: 16,
     fontWeight: '500'
   },
@@ -226,19 +272,15 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: 'bold',
-    color: '#3c66af',
     marginBottom: 10
   },
   subtitle: {
     fontSize: 16,
-    color: '#666',
     textAlign: 'center'
   },
   formContainer: {
-    backgroundColor: '#fff',
     borderRadius: 10,
     padding: 20,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -251,16 +293,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     marginBottom: 8,
-    color: '#333'
   },
   input: {
     height: 50,
     borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 8,
     paddingHorizontal: 15,
     fontSize: 16,
-    backgroundColor: '#f9f9f9'
   },
   inputError: {
     borderColor: '#ff3b30'
@@ -272,17 +311,12 @@ const styles = StyleSheet.create({
   },
   button: {
     height: 50,
-    backgroundColor: '#3c66af',
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 10
   },
-  buttonDisabled: {
-    backgroundColor: '#a0a0a0'
-  },
   buttonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600'
   },
@@ -292,10 +326,8 @@ const styles = StyleSheet.create({
     marginTop: 20
   },
   loginText: {
-    color: '#666'
   },
   loginLink: {
-    color: '#3c66af',
     fontWeight: '600',
     marginLeft: 5
   }

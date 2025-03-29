@@ -11,25 +11,26 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme || 'light'];
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#3c66af', // 활성 아이콘 색상을 파란색으로 변경
-        tabBarInactiveTintColor: '#888888', // 비활성 아이콘 색상도 명시적으로 설정
+        tabBarActiveTintColor: colors.tint,
+        tabBarInactiveTintColor: colors.tabIconDefault,
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
         tabBarStyle: {
-          backgroundColor: '#ffffff', // 명시적으로 흰색 배경 설정
+          backgroundColor: colors.background,
           ...Platform.select({
             ios: {
               // iOS에서는 블러 효과를 위해 투명 배경 유지
               position: 'absolute',
             },
             android: {
-              // Android에서는 명시적으로 하얀색 배경과 약간의 그림자 효과
-              backgroundColor: '#ffffff',
+              // Android에서는 테마에 맞는 배경색
+              backgroundColor: colors.background,
               elevation: 8, // Android 그림자 효과
             },
           }),

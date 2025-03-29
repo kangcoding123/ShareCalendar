@@ -26,6 +26,8 @@ import {
   inviteToGroup,
   setUserGroupColor
 } from '../../../services/groupService';
+import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 // 색상 선택 옵션
 const COLOR_OPTIONS = [
@@ -41,23 +43,26 @@ const COLOR_OPTIONS = [
 interface MemberItemProps {
   member: GroupMember;
   isCurrentUser: boolean;
+  colors: any;
 }
 
-const MemberItem = ({ member, isCurrentUser }: MemberItemProps) => {
+const MemberItem = ({ member, isCurrentUser, colors }: MemberItemProps) => {
   return (
-    <View style={styles.memberItem}>
+    <View style={[styles.memberItem, { backgroundColor: colors.card }]}>
       <View style={styles.memberInfo}>
-        <Text style={styles.memberName}>
+        <Text style={[styles.memberName, { color: colors.text }]}>
           {member.displayName}
-          {isCurrentUser && <Text style={styles.currentUser}> (나)</Text>}
+          {isCurrentUser && <Text style={[styles.currentUser, { color: colors.lightGray }]}> (나)</Text>}
         </Text>
-        <Text style={styles.memberEmail}>{member.email}</Text>
+        <Text style={[styles.memberEmail, { color: colors.lightGray }]}>{member.email}</Text>
       </View>
       
-      <View style={styles.memberRole}>
+      <View style={[styles.memberRole, { backgroundColor: colors.secondary }]}>
         <Text style={[
           styles.roleText,
-          member.role === 'owner' ? styles.ownerRoleText : styles.memberRoleText
+          member.role === 'owner' ? 
+            [styles.ownerRoleText, { color: colors.tint }] : 
+            [styles.memberRoleText, { color: colors.darkGray }]
         ]}>
           {member.role === 'owner' ? '관리자' : '멤버'}
         </Text>
@@ -72,9 +77,10 @@ interface InviteModalProps {
   onClose: () => void;
   onSubmit: (email: string) => void;
   loading: boolean;
+  colors: any;
 }
 
-const InviteModal = ({ visible, onClose, onSubmit, loading }: InviteModalProps) => {
+const InviteModal = ({ visible, onClose, onSubmit, loading, colors }: InviteModalProps) => {
   const [email, setEmail] = useState('');
   const [errors, setErrors] = useState<{ email?: string }>({});
 
@@ -112,14 +118,19 @@ const InviteModal = ({ visible, onClose, onSubmit, loading }: InviteModalProps) 
       onRequestClose={onClose}
     >
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>멤버 초대</Text>
+        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+          <Text style={[styles.modalTitle, { color: colors.text }]}>멤버 초대</Text>
           
           <View style={styles.formGroup}>
-            <Text style={styles.label}>초대할 사용자 이메일</Text>
+            <Text style={[styles.label, { color: colors.text }]}>초대할 사용자 이메일</Text>
             <TextInput
-              style={[styles.input, errors.email && styles.inputError]}
+              style={[
+                styles.input, 
+                { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder, color: colors.text },
+                errors.email && styles.inputError
+              ]}
               placeholder="이메일 주소"
+              placeholderTextColor={colors.lightGray}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -130,22 +141,26 @@ const InviteModal = ({ visible, onClose, onSubmit, loading }: InviteModalProps) 
           
           <View style={styles.modalActions}>
             <TouchableOpacity 
-              style={[styles.modalButton, styles.cancelButton]} 
+              style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.secondary }]} 
               onPress={onClose}
               disabled={loading}
             >
-              <Text style={styles.cancelButtonText}>취소</Text>
+              <Text style={[styles.cancelButtonText, { color: colors.darkGray }]}>취소</Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={[styles.modalButton, styles.submitButton, loading && styles.disabledButton]} 
+              style={[
+                styles.modalButton, 
+                { backgroundColor: colors.buttonBackground }, 
+                loading && { backgroundColor: colors.disabledButton }
+              ]} 
               onPress={handleSubmit}
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={colors.buttonText} />
               ) : (
-                <Text style={styles.submitButtonText}>초대</Text>
+                <Text style={[styles.submitButtonText, { color: colors.buttonText }]}>초대</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -162,9 +177,10 @@ interface EditGroupModalProps {
   onSubmit: (groupData: { name: string; description: string }) => void;
   loading: boolean;
   group: Group | null;
+  colors: any;
 }
 
-const EditGroupModal = ({ visible, onClose, onSubmit, loading, group }: EditGroupModalProps) => {
+const EditGroupModal = ({ visible, onClose, onSubmit, loading, group, colors }: EditGroupModalProps) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [errors, setErrors] = useState<{ name?: string }>({});
@@ -204,14 +220,19 @@ const EditGroupModal = ({ visible, onClose, onSubmit, loading, group }: EditGrou
       onRequestClose={onClose}
     >
       <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>그룹 정보 편집</Text>
+        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+          <Text style={[styles.modalTitle, { color: colors.text }]}>그룹 정보 편집</Text>
           
           <View style={styles.formGroup}>
-            <Text style={styles.label}>그룹 이름</Text>
+            <Text style={[styles.label, { color: colors.text }]}>그룹 이름</Text>
             <TextInput
-              style={[styles.input, errors.name && styles.inputError]}
+              style={[
+                styles.input, 
+                { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder, color: colors.text },
+                errors.name && styles.inputError
+              ]}
               placeholder="그룹 이름"
+              placeholderTextColor={colors.lightGray}
               value={name}
               onChangeText={setName}
             />
@@ -219,10 +240,15 @@ const EditGroupModal = ({ visible, onClose, onSubmit, loading, group }: EditGrou
           </View>
           
           <View style={styles.formGroup}>
-            <Text style={styles.label}>설명 (선택사항)</Text>
+            <Text style={[styles.label, { color: colors.text }]}>설명 (선택사항)</Text>
             <TextInput
-              style={[styles.input, styles.textArea]}
+              style={[
+                styles.input, 
+                styles.textArea,
+                { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder, color: colors.text }
+              ]}
               placeholder="그룹에 대한 설명"
+              placeholderTextColor={colors.lightGray}
               value={description}
               onChangeText={setDescription}
               multiline
@@ -233,22 +259,26 @@ const EditGroupModal = ({ visible, onClose, onSubmit, loading, group }: EditGrou
           
           <View style={styles.modalActions}>
             <TouchableOpacity 
-              style={[styles.modalButton, styles.cancelButton]} 
+              style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.secondary }]} 
               onPress={onClose}
               disabled={loading}
             >
-              <Text style={styles.cancelButtonText}>취소</Text>
+              <Text style={[styles.cancelButtonText, { color: colors.darkGray }]}>취소</Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={[styles.modalButton, styles.submitButton, loading && styles.disabledButton]} 
+              style={[
+                styles.modalButton, 
+                { backgroundColor: colors.buttonBackground }, 
+                loading && { backgroundColor: colors.disabledButton }
+              ]} 
               onPress={handleSubmit}
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={colors.buttonText} />
               ) : (
-                <Text style={styles.submitButtonText}>저장</Text>
+                <Text style={[styles.submitButtonText, { color: colors.buttonText }]}>저장</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -263,6 +293,10 @@ export default function GroupDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const groupId = Array.isArray(id) ? id[0] : id;
+  
+  // 색상 테마 설정
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme || 'light'];
   
   const [group, setGroup] = useState<Group | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
@@ -390,7 +424,7 @@ export default function GroupDetailScreen() {
     }
   }, [user, groupId]);
 
-  // 초대 처리 - 여기가 수정된 부분
+  // 초대 처리
   const handleInvite = async (email: string) => {
     try {
       console.log(`[handleInvite] 사용자 초대 시작: ${email}`);
@@ -523,25 +557,28 @@ export default function GroupDetailScreen() {
 
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3c66af" />
+          <ActivityIndicator size="large" color={colors.tint} />
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-      <TouchableOpacity
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
+      <View style={[styles.header, { 
+        backgroundColor: colors.headerBackground, 
+        borderBottomColor: colors.border 
+      }]}>
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.push('/(tabs)/groups')}
         >
-          <Text style={styles.backButtonText}>{'<'} 뒤로</Text>
+          <Text style={[styles.backButtonText, { color: colors.tint }]}>{'<'} 뒤로</Text>
         </TouchableOpacity>
         
-        <Text style={styles.headerTitle} numberOfLines={1}>
+        <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
           {group?.name}
         </Text>
         
@@ -550,7 +587,7 @@ export default function GroupDetailScreen() {
             style={styles.editButton}
             onPress={() => setEditModalVisible(true)}
           >
-            <Text style={styles.editButtonText}>편집</Text>
+            <Text style={[styles.editButtonText, { color: colors.tint }]}>편집</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -561,42 +598,45 @@ export default function GroupDetailScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={['#3c66af']}
-            tintColor="#3c66af"
+            colors={[colors.tint]}
+            tintColor={colors.tint}
           />
         }
       >
         {refreshing && (
           <View style={styles.refreshIndicator}>
-            <ActivityIndicator size="small" color="#3c66af" />
+            <ActivityIndicator size="small" color={colors.tint} />
           </View>
         )}
         
         <View style={styles.groupInfoSection}>
-          <Text style={styles.sectionTitle}>그룹 정보</Text>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>그룹 정보</Text>
           
-          <View style={styles.infoCard}>
-            <Text style={styles.infoLabel}>그룹 이름</Text>
-            <Text style={styles.infoValue}>{group?.name}</Text>
+          <View style={[styles.infoCard, { 
+            backgroundColor: colors.card,
+            shadowColor: colorScheme === 'dark' ? 'transparent' : '#000'
+          }]}>
+            <Text style={[styles.infoLabel, { color: colors.lightGray }]}>그룹 이름</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{group?.name}</Text>
             
-            <Text style={styles.infoLabel}>설명</Text>
-            <Text style={styles.infoValue}>
+            <Text style={[styles.infoLabel, { color: colors.lightGray }]}>설명</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>
               {group?.description || '설명이 없습니다.'}
             </Text>
             
-            <Text style={styles.infoLabel}>멤버</Text>
-            <Text style={styles.infoValue}>{members.length}명</Text>
+            <Text style={[styles.infoLabel, { color: colors.lightGray }]}>멤버</Text>
+            <Text style={[styles.infoValue, { color: colors.text }]}>{members.length}명</Text>
             
-            <Text style={styles.infoLabel}>내 역할</Text>
+            <Text style={[styles.infoLabel, { color: colors.lightGray }]}>내 역할</Text>
             <Text style={[
               styles.infoValue,
-              isOwner ? styles.ownerRoleText : styles.memberRoleText
+              isOwner ? [styles.ownerRoleText, { color: colors.tint }] : [styles.memberRoleText, { color: colors.darkGray }]
             ]}>
               {isOwner ? '관리자' : '멤버'}
             </Text>
             
             {/* 색상 선택 UI 수정 - Reanimated 경고 방지 */}
-            <Text style={styles.infoLabel}>그룹 색상 (캘린더에 표시될 색상)</Text>
+            <Text style={[styles.infoLabel, { color: colors.lightGray }]}>그룹 색상 (캘린더에 표시될 색상)</Text>
             <View style={styles.colorOptions}>
               {COLOR_OPTIONS.map(color => (
                 <TouchableOpacity
@@ -613,36 +653,36 @@ export default function GroupDetailScreen() {
             </View>
             
             {savingColor && (
-              <Text style={styles.savingText}>색상 저장 중...</Text>
+              <Text style={[styles.savingText, { color: colors.lightGray }]}>색상 저장 중...</Text>
             )}
           </View>
         </View>
         
         <View style={styles.membersSection}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>멤버 목록</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>멤버 목록</Text>
             
             <View style={styles.sectionHeaderRight}>
               {isOwner && (
                 <TouchableOpacity
-                  style={styles.inviteButton}
+                  style={[styles.inviteButton, { backgroundColor: colors.tint }]}
                   onPress={() => setInviteModalVisible(true)}
                 >
-                  <Text style={styles.inviteButtonText}>멤버 초대</Text>
+                  <Text style={[styles.inviteButtonText, { color: colors.buttonText }]}>멤버 초대</Text>
                 </TouchableOpacity>
               )}
               
               {!isOwner && (
-                <Text style={styles.ownerOnlyText}>
+                <Text style={[styles.ownerOnlyText, { color: colors.lightGray }]}>
                   그룹 관리자만 멤버를 초대할 수 있습니다
                 </Text>
               )}
               
               <TouchableOpacity
-                style={styles.refreshButton}
+                style={[styles.refreshButton, { backgroundColor: colors.secondary }]}
                 onPress={handleRefresh}
               >
-                <Text style={styles.refreshButtonText}>새로고침</Text>
+                <Text style={[styles.refreshButtonText, { color: colors.darkGray }]}>새로고침</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -653,14 +693,15 @@ export default function GroupDetailScreen() {
               renderItem={({ item }) => (
                 <MemberItem 
                   member={item} 
-                  isCurrentUser={item.userId === user?.uid} 
+                  isCurrentUser={item.userId === user?.uid}
+                  colors={colors}
                 />
               )}
               keyExtractor={(item) => item.id || item.userId}
               scrollEnabled={false}
             />
           ) : (
-            <Text style={styles.emptyText}>멤버가 없습니다.</Text>
+            <Text style={[styles.emptyText, { color: colors.lightGray }]}>멤버가 없습니다.</Text>
           )}
         </View>
         
@@ -668,7 +709,10 @@ export default function GroupDetailScreen() {
           <View style={styles.dangerZone}>
             <Text style={styles.dangerZoneTitle}>위험 구역</Text>
             <TouchableOpacity
-              style={[styles.deleteButton, deleting && styles.disabledButton]}
+              style={[
+                styles.deleteButton, 
+                deleting && styles.disabledButton
+              ]}
               onPress={handleDeleteGroup}
               disabled={deleting}
             >
@@ -687,6 +731,7 @@ export default function GroupDetailScreen() {
         onClose={() => setInviteModalVisible(false)}
         onSubmit={handleInvite}
         loading={inviting}
+        colors={colors}
       />
       
       <EditGroupModal
@@ -695,6 +740,7 @@ export default function GroupDetailScreen() {
         onSubmit={handleUpdateGroup}
         loading={editing}
         group={group}
+        colors={colors}
       />
     </SafeAreaView>
   );
@@ -702,8 +748,7 @@ export default function GroupDetailScreen() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa'
+    flex: 1
   },
   header: {
     flexDirection: 'row',
@@ -711,31 +756,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 15,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    backgroundColor: '#fff'
+    borderBottomWidth: 1
   },
   backButton: {
     padding: 5
   },
   backButtonText: {
-    fontSize: 16,
-    color: '#3c66af'
+    fontSize: 16
   },
   headerTitle: {
     flex: 1,
     fontSize: 18,
     fontWeight: 'bold',
     textAlign: 'center',
-    marginHorizontal: 10,
-    color: '#333'
+    marginHorizontal: 10
   },
   editButton: {
     padding: 5
   },
   editButtonText: {
-    fontSize: 16,
-    color: '#3c66af'
+    fontSize: 16
   },
   loadingContainer: {
     flex: 1,
@@ -766,14 +806,11 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
     marginBottom: 10
   },
   infoCard: {
-    backgroundColor: '#fff',
     borderRadius: 10,
     padding: 15,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -781,12 +818,10 @@ const styles = StyleSheet.create({
   },
   infoLabel: {
     fontSize: 14,
-    color: '#666',
     marginBottom: 5
   },
   infoValue: {
     fontSize: 16,
-    color: '#333',
     marginBottom: 15
   },
   // 색상 선택 관련 스타일
@@ -818,7 +853,6 @@ const styles = StyleSheet.create({
   },
   savingText: {
     fontSize: 12,
-    color: '#666',
     fontStyle: 'italic',
     marginTop: -10,
     marginBottom: 10
@@ -827,36 +861,30 @@ const styles = StyleSheet.create({
     marginBottom: 20
   },
   inviteButton: {
-    backgroundColor: '#3c66af',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
     marginRight: 8
   },
   inviteButtonText: {
-    color: '#fff',
     fontSize: 14,
     fontWeight: '500'
   },
   refreshButton: {
-    backgroundColor: '#f1f3f5',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 16
   },
   refreshButtonText: {
-    color: '#495057',
     fontSize: 12
   },
   ownerOnlyText: {
     fontSize: 12, 
-    color: '#666',
     fontStyle: 'italic',
     marginRight: 8
   },
   memberItem: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
     borderRadius: 8,
     padding: 12,
     marginBottom: 8,
@@ -873,37 +901,30 @@ const styles = StyleSheet.create({
   memberName: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#333',
     marginBottom: 4
   },
   currentUser: {
-    fontWeight: 'normal',
-    color: '#666'
+    fontWeight: 'normal'
   },
   memberEmail: {
-    fontSize: 14,
-    color: '#666'
+    fontSize: 14
   },
   memberRole: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 4,
-    backgroundColor: '#f1f3f5'
+    borderRadius: 4
   },
   roleText: {
     fontSize: 12,
     fontWeight: '500'
   },
   ownerRoleText: {
-    color: '#3c66af'
   },
   memberRoleText: {
-    color: '#495057'
   },
   emptyText: {
     textAlign: 'center',
     fontSize: 16,
-    color: '#999',
     marginTop: 20
   },
   dangerZone: {
@@ -945,7 +966,6 @@ const styles = StyleSheet.create({
     padding: 20
   },
   modalContent: {
-    backgroundColor: '#fff',
     borderRadius: 10,
     padding: 20,
     width: '100%',
@@ -955,7 +975,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 20,
-    color: '#333',
     textAlign: 'center'
   },
   formGroup: {
@@ -964,16 +983,13 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     marginBottom: 8,
-    color: '#333',
     fontWeight: '500'
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
     borderRadius: 8,
     padding: 12,
-    fontSize: 16,
-    backgroundColor: '#f9f9f9'
+    fontSize: 16
   },
   inputError: {
     borderColor: '#ff3b30'
@@ -999,18 +1015,12 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   cancelButton: {
-    backgroundColor: '#f1f3f5',
     marginRight: 10
   },
   cancelButtonText: {
-    color: '#495057',
     fontWeight: '600'
   },
-  submitButton: {
-    backgroundColor: '#3c66af'
-  },
   submitButtonText: {
-    color: '#fff',
     fontWeight: '600'
   }
 });

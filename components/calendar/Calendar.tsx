@@ -1,4 +1,4 @@
-// components/calendar/Calendar.tsx 전체 코드
+// components/calendar/Calendar.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   View, 
@@ -9,7 +9,8 @@ import {
   useWindowDimensions,
   LayoutAnimation,
   Platform,
-  UIManager
+  UIManager,
+  ColorSchemeName
 } from 'react-native';
 import { addMonths, subMonths } from 'date-fns';
 
@@ -46,9 +47,13 @@ interface Holiday {
 interface CalendarProps {
   events?: Record<string, CalendarEvent[]>;
   onDayPress: (day: CalendarDay, events: CalendarEvent[]) => void;
+  colorScheme: ColorSchemeName;
 }
 
-const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
+const Calendar = ({ events = {}, onDayPress, colorScheme }: CalendarProps) => {
+  // 다크 모드 여부 확인
+  const isDark = colorScheme === 'dark';
+  
   // 화면 크기 가져오기
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   
@@ -109,17 +114,17 @@ const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
   // 달력 헤더 컴포넌트
   const CalendarHeader = () => {
     return (
-      <View style={styles.headerContainer}>
+      <View style={[styles.headerContainer, { borderBottomColor: isDark ? '#333333' : '#eeeeee' }]}>
         <TouchableOpacity onPress={handlePrevMonth} style={styles.headerButton}>
-          <Text style={styles.headerButtonText}>{'<'}</Text>
+          <Text style={[styles.headerButtonText, { color: isDark ? '#4e7bd4' : '#3c66af' }]}>{'<'}</Text>
         </TouchableOpacity>
         
-        <Text style={styles.headerTitle}>
+        <Text style={[styles.headerTitle, { color: isDark ? '#ffffff' : '#333333' }]}>
           {formatDate(currentDate, 'yyyy년 MM월')}
         </Text>
         
         <TouchableOpacity onPress={handleNextMonth} style={styles.headerButton}>
-          <Text style={styles.headerButtonText}>{'>'}</Text>
+          <Text style={[styles.headerButtonText, { color: isDark ? '#4e7bd4' : '#3c66af' }]}>{'>'}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -130,12 +135,17 @@ const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
     const dayNames = Array.from({ length: 7 }, (_, i) => getKoreanDayName(i));
     
     return (
-      <View style={styles.dayNamesContainer}>
+      <View style={[styles.dayNamesContainer, { 
+        borderBottomColor: isDark ? '#333333' : '#eeeeee',
+        backgroundColor: isDark ? '#1e1e1e' : '#f9f9f9'
+      }]}>
         {dayNames.map((day, index) => (
           <View key={index} style={[styles.dayNameCell, { width: dayWidth }]}>
             <Text style={[
               styles.dayNameText, 
-              index === 0 ? styles.sundayText : (index === 6 ? styles.saturdayText : {})
+              { color: isDark ? '#bbbbbb' : '#666666' },
+              index === 0 ? { color: isDark ? '#ff6b6b' : '#ff3b30' } : 
+                (index === 6 ? { color: isDark ? '#63a4ff' : '#007aff' } : {})
             ]}>
               {day}
             </Text>
@@ -166,21 +176,28 @@ const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
           styles.dayCell,
           { 
             width: dayWidth, 
-            height: cellHeight 
+            height: cellHeight,
+            backgroundColor: isDark ? '#2c2c2c' : '#ffffff', 
+            borderColor: isDark ? '#333333' : '#eeeeee'
           },
-          !isCurrentMonth && styles.outsideMonthCell,
-          isToday && styles.todayCell
+          !isCurrentMonth && { 
+            backgroundColor: isDark ? '#242424' : '#f9f9f9' 
+          },
+          isToday && { 
+            backgroundColor: isDark ? '#3a3a3a' : '#e6f0ff' 
+          }
         ]}
         onPress={() => onDayPress(item, dayEvents)}
       >
         <View style={styles.dayContent}>
           <Text style={[
             styles.dayText,
-            !isCurrentMonth && styles.outsideMonthText,
-            isSunday && styles.sundayText,
-            isSaturday && styles.saturdayText,
-            holiday && styles.holidayText,
-            isToday && styles.todayText
+            { color: isDark ? '#e0e0e0' : '#333333' },
+            !isCurrentMonth && { color: isDark ? '#666666' : '#bbbbbb' },
+            isSunday && { color: isDark ? '#ff6b6b' : '#ff3b30' },
+            isSaturday && { color: isDark ? '#63a4ff' : '#007aff' },
+            holiday && { color: isDark ? '#ff6b6b' : '#ff3b30' },
+            isToday && { color: isDark ? '#4e7bd4' : '#3c66af' }
           ]}>
             {dayOfMonth}
           </Text>
@@ -188,7 +205,10 @@ const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
           {holiday && (
             <Text style={[
               styles.holidayName, 
-              holiday.isAlternative && styles.alternativeHolidayName
+              { color: isDark ? '#ff6b6b' : '#ff3b30' },
+              holiday.isAlternative && { 
+                color: isDark ? '#ff8a80' : '#ff6a4a' 
+              }
             ]} numberOfLines={1} ellipsizeMode="tail">
               {holiday.name}
             </Text>
@@ -198,7 +218,8 @@ const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
           <View style={styles.eventContainer}>
             {dayEvents.slice(0, 3).map((calendarEvent, index) => (
               <View 
-                key={index} 
+                key={index}
+
                 style={[
                   styles.eventIndicator,
                   { backgroundColor: calendarEvent.color || '#3c66af' }
@@ -212,7 +233,9 @@ const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
             
             {/* 더 많은 이벤트가 있는 경우 +N 표시 */}
             {dayEvents.length > 3 && (
-              <Text style={styles.moreEventsText}>+{dayEvents.length - 3}</Text>
+              <Text style={[styles.moreEventsText, { color: isDark ? '#bbbbbb' : '#666666' }]}>
+                +{dayEvents.length - 3}
+              </Text>
             )}
           </View>
         </View>
@@ -221,10 +244,15 @@ const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
   };
   
   return (
-    <View style={[styles.container, { 
-      width: calendarWidth, 
-      minHeight: cellHeight * weekCount + 100 // 헤더와 요일 행 포함한 최소 높이
-    }]}>
+    <View style={[
+      styles.container, 
+      { 
+        width: calendarWidth, 
+        minHeight: cellHeight * weekCount + 100, // 헤더와 요일 행 포함한 최소 높이
+        backgroundColor: isDark ? '#1e1e1e' : '#ffffff',
+        shadowColor: isDark ? 'transparent' : '#000000'
+      }
+    ]}>
       <CalendarHeader />
       <DayNames />
       
@@ -242,9 +270,7 @@ const Calendar = ({ events = {}, onDayPress }: CalendarProps) => {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
     borderRadius: 10,
-    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -261,27 +287,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     paddingHorizontal: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee'
+    borderBottomWidth: 1
   },
   headerButton: {
     padding: 10
   },
   headerButtonText: {
     fontSize: 18,
-    color: '#3c66af',
     fontWeight: 'bold'
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333'
+    fontWeight: 'bold'
   },
   dayNamesContainer: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    backgroundColor: '#f9f9f9'
+    borderBottomWidth: 1
   },
   dayNameCell: {
     paddingVertical: 8,
@@ -289,14 +310,12 @@ const styles = StyleSheet.create({
   },
   dayNameText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#666'
+    fontWeight: '600'
   },
   dayCell: {
     padding: 2,
     borderRightWidth: 0.5,
-    borderBottomWidth: 0.5,
-    borderColor: '#eee'
+    borderBottomWidth: 0.5
   },
   dayContent: {
     flex: 1,
@@ -306,40 +325,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 4,
-    fontWeight: '500',
-    color: '#333'
+    fontWeight: '500'
   },
   outsideMonthCell: {
-    backgroundColor: '#f9f9f9'
   },
   outsideMonthText: {
-    color: '#bbb'
   },
   todayCell: {
-    backgroundColor: '#e6f0ff'
   },
   todayText: {
-    fontWeight: 'bold',
-    color: '#3c66af'
+    fontWeight: 'bold'
   },
   sundayText: {
-    color: '#ff3b30'
   },
   saturdayText: {
-    color: '#007aff'
   },
   holidayText: {
-    color: '#ff3b30',
     fontWeight: 'bold'
   },
   holidayName: {
     fontSize: 8,
-    color: '#ff3b30',
     marginBottom: 2,
     textAlign: 'center'
   },
   alternativeHolidayName: {
-    color: '#ff6a4a',
     fontStyle: 'italic'
   },
   eventContainer: {
@@ -360,7 +369,6 @@ const styles = StyleSheet.create({
   },
   moreEventsText: {
     fontSize: 8,
-    color: '#666',
     textAlign: 'center',
     marginTop: 2
   }
