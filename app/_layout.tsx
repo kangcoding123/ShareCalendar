@@ -5,12 +5,58 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useRef } from 'react';
 import 'react-native-reanimated';
-import { Platform, StatusBar as RNStatusBar, NativeModules, AppState, AppStateStatus } from 'react-native';
-import * as Notifications from 'expo-notifications'; // 추가: 알림 모듈 가져오기
+import { Platform, StatusBar as RNStatusBar, NativeModules, AppState, AppStateStatus, Alert } from 'react-native';
+import * as Notifications from 'expo-notifications'; 
+import Constants from 'expo-constants';
 
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
+import { testLocalNotification } from '@/services/notificationService';
+
+// 알림 채널 생성 함수
+const createNotificationChannel = () => {
+  if (Platform.OS === 'android') {
+    Notifications.setNotificationChannelAsync('default', {
+      name: 'WE:IN',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#3c66af',
+    });
+    
+    // 테스트 알림 표시 함수 - 수정된 버전
+    const sendTestNotification = async () => {
+      try {
+        // 방법 1: 직접 import한 경우
+        const result = await testLocalNotification();
+        
+        // 또는 방법 2: 모듈 전체를 import한 경우
+        // const result = await NotificationService.testLocalNotification();
+        
+        console.log("테스트 알림 전송 결과:", result);
+      } catch (error) {
+        console.error("테스트 알림 전송 실패:", error);
+      }
+    };
+    
+    // 앱 설치 후 첫 실행 시에만 테스트 알림 보내기
+    const checkAndSendTestNotification = async () => {
+      try {
+        const { status } = await Notifications.getPermissionsAsync();
+        if (status === 'granted') {
+          // 설정에서 알림 상태를 확인할 수 있도록 테스트 알림 전송
+          setTimeout(() => {
+            sendTestNotification();
+          }, 3000); // 앱 실행 3초 후 테스트 알림 전송
+        }
+      } catch (error) {
+        console.error("알림 권한 확인 실패:", error);
+      }
+    };
+    
+    checkAndSendTestNotification();
+  }
+};
 
 // 알림 핸들러 설정 (추가)
 Notifications.setNotificationHandler({
@@ -62,6 +108,9 @@ function RootLayoutNav() {
     
     // iOS와 Android 모두에 적용
     RNStatusBar.setBarStyle(colorScheme === 'dark' ? 'light-content' : 'dark-content');
+    
+    // 알림 채널 생성
+    createNotificationChannel();
   }, [colorScheme]);
 
   useEffect(() => {

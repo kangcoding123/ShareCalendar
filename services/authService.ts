@@ -9,6 +9,7 @@ import {
 import { doc, setDoc, updateDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications'; // 추가된 import
 
 // 인증 상태 저장을 위한 키
 const AUTH_CREDENTIALS_KEY = 'auth_credentials';
@@ -84,6 +85,30 @@ export const loginUser = async (
       
       // 자격 증명 저장 (자동 로그인용)
       await AsyncStorage.setItem(AUTH_CREDENTIALS_KEY, JSON.stringify({ email, password }));
+      
+      // 푸시 토큰 등록 시도 (추가된 부분)
+      try {
+        console.log('푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
+        
+        const { status } = await Notifications.getPermissionsAsync();
+        if (status === 'granted') {
+          const token = await Notifications.getExpoPushTokenAsync({
+            projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51'
+          });
+          
+          console.log('푸시 토큰 생성 성공:', token.data);
+          
+          // Firestore에 토큰 저장
+          await updateDoc(doc(db, 'users', userCredential.user.uid), {
+            pushToken: token.data,
+            tokenUpdatedAt: new Date().toISOString()
+          });
+          
+          console.log('푸시 토큰이 Firestore에 저장됨');
+        }
+      } catch (tokenError) {
+        console.error('푸시 토큰 등록 오류:', tokenError);
+      }
       
       // Firestore에 새 필드 추가
       const userRef = doc(db, 'users', userCredential.user.uid);

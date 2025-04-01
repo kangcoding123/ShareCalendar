@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import { doc, updateDoc, getDoc, getDocs, collection, query, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { CalendarEvent } from './calendarService';
+import Constants from 'expo-constants';
 
 // 알림 기본 설정
 Notifications.setNotificationHandler({
@@ -33,9 +34,13 @@ export async function registerForPushNotificationsAsync() {
       return null;
     }
     
-    // 추가: Expo 푸시 토큰 가져오기
+    // Expo 푸시 토큰 가져오기 (projectId 동적 로드)
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? 
+                      Constants.easConfig?.projectId ?? 
+                      'acfa6bea-3fb9-4677-8980-6e08d2324c51';
+    
     token = (await Notifications.getExpoPushTokenAsync({ 
-      projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51' // app.json의 projectId 값으로 변경하세요
+      projectId
     })).data;
     
     console.log('알림 권한이 승인되었습니다. 토큰:', token);
@@ -46,7 +51,31 @@ export async function registerForPushNotificationsAsync() {
   return token;
 }
 
-// 새 함수: 사용자의 푸시 알림 토큰 저장
+// 로컬 알림 테스트 함수
+export async function testLocalNotification() {
+  if (!Device.isDevice) {
+    console.log('실제 기기에서만 알림이 작동합니다');
+    return false;
+  }
+  
+  try {
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'WE:IN 로컬 알림 테스트',
+        body: '로컬 알림이 정상적으로 작동합니다.',
+        data: { testData: true }
+      },
+      trigger: null // 즉시 표시
+    });
+    console.log('로컬 알림 전송 성공, ID:', id);
+    return true;
+  } catch (error) {
+    console.error('로컬 알림 전송 실패:', error);
+    return false;
+  }
+}
+
+// 사용자의 푸시 알림 토큰 저장
 export async function saveUserPushToken(userId: string) {
   if (!Device.isDevice) return null;
   
@@ -58,9 +87,13 @@ export async function saveUserPushToken(userId: string) {
       if (status !== 'granted') return null;
     }
     
-    // Expo 푸시 토큰 가져오기
+    // Expo 푸시 토큰 가져오기 (projectId 동적 로드)
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? 
+                      Constants.easConfig?.projectId ?? 
+                      'acfa6bea-3fb9-4677-8980-6e08d2324c51';
+    
     const token = (await Notifications.getExpoPushTokenAsync({
-      projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51' // app.json의 projectId 값으로 변경하세요
+      projectId
     })).data;
     
     // Firestore에 토큰 저장
@@ -77,13 +110,13 @@ export async function saveUserPushToken(userId: string) {
   }
 }
 
-// 새 함수: 그룹 멤버들에게 알림 전송
+// 그룹 멤버들에게 알림 전송 (수정된 버전)
 export async function sendGroupNotification(
   groupId: string, 
   title: string, 
   body: string,
   data: any,
-  excludeUserId?: string // 알림을 보낸 사용자는 제외
+  excludeUserId?: string
 ) {
   try {
     console.log(`그룹 ${groupId} 멤버들에게 알림 전송 시작`);
@@ -108,51 +141,69 @@ export async function sendGroupNotification(
       if (userDoc.exists() && userDoc.data().pushToken) {
         pushTokens.push(userDoc.data().pushToken);
       }
+      
+      // 그룹 멤버의 로컬 알림 카운터 증가
+      try {
+        const userRef = doc(db, 'users', userId);
+        const userData = userDoc.exists() ? userDoc.data() : {};
+        const unreadCount = (userData?.unreadNotifications || 0) + 1;
+        
+        await updateDoc(userRef, {
+          unreadNotifications: unreadCount,
+          lastNotificationAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error(`사용자 ${userId} 알림 카운터 업데이트 실패:`, err);
+      }
     }
     
     console.log(`유효한 푸시 토큰 수: ${pushTokens.length}`);
     
-    // 알림 서버에 전송 요청
-    if (pushTokens.length > 0) {
-      // Expo 푸시 알림 서비스 사용
-      const messages = pushTokens.map(token => ({
-        to: token,
-        sound: 'default',
-        title,
-        body,
-        data,
-      }));
-      
-      // Expo 푸시 API 호출
-      const response = await fetch('https://exp.host/--/api/v2/push/send', {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(messages)
-      });
-      
-      const responseData = await response.json();
-      console.log('알림 전송 응답:', responseData);
-      
-      // 그룹 멤버들의 로컬 알림 카운터 증가
+    // 알림 통합 전략: 개발/디버깅용으로 로컬 알림 우선 사용
+    // 실제 서비스에서는 Expo 푸시 서비스 사용
+    if (__DEV__) {
+      // 개발 환경에서는 로컬 알림으로 테스트
       for (const userId of memberIds) {
         try {
-          const userRef = doc(db, 'users', userId);
-          const userDoc = await getDoc(userRef);
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            const unreadCount = (userData.unreadNotifications || 0) + 1;
-            
-            await updateDoc(userRef, {
-              unreadNotifications: unreadCount,
-              lastNotificationAt: new Date().toISOString()
-            });
-          }
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title,
+              body,
+              data
+            },
+            trigger: null // 즉시 표시
+          });
+          console.log(`사용자 ${userId}에게 로컬 알림 전송됨`);
         } catch (err) {
-          console.error(`사용자 ${userId} 알림 카운터 업데이트 실패:`, err);
+          console.error(`사용자 ${userId} 로컬 알림 전송 실패:`, err);
         }
+      }
+    } else if (pushTokens.length > 0) {
+      // 프로덕션 환경에서는 Expo 푸시 알림 서비스 사용
+      try {
+        // 메시지 구조 준비
+        const messages = pushTokens.map(token => ({
+          to: token,
+          sound: 'default',
+          title,
+          body,
+          data,
+        }));
+        
+        // Expo 푸시 API 호출
+        const response = await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(messages)
+        });
+        
+        const responseData = await response.json();
+        console.log('Expo 알림 전송 응답:', responseData);
+      } catch (error) {
+        console.error('Expo 푸시 API 호출 실패:', error);
       }
     }
     
@@ -235,7 +286,7 @@ export async function getAllScheduledNotifications() {
   }
 }
 
-// 새 함수: 사용자의 알림 카운터 초기화
+// 사용자의 알림 카운터 초기화
 export async function resetUserNotificationCounter(userId: string) {
   try {
     await updateDoc(doc(db, 'users', userId), {
