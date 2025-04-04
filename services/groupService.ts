@@ -56,6 +56,63 @@ interface MemberResult {
 }
 
 /**
+ * 그룹 탈퇴 함수
+ * @param {string} groupId - 그룹 ID
+ * @param {string} userId - 사용자 ID
+ * @returns {Promise<GroupResult>} 탈퇴 결과
+ */
+export const leaveGroup = async (
+  groupId: string,
+  userId: string
+): Promise<GroupResult> => {
+  try {
+    // 해당 사용자의 그룹 멤버십 찾기
+    const membersQuery = query(
+      collection(db, 'groupMembers'),
+      where('userId', '==', userId),
+      where('groupId', '==', groupId)
+    );
+    
+    const snapshot = await getDocs(membersQuery);
+    
+    if (snapshot.empty) {
+      return { success: false, error: '그룹 멤버십을 찾을 수 없습니다.' };
+    }
+    
+    // 사용자가 그룹의 소유자인지 확인
+    const memberDoc = snapshot.docs[0];
+    const memberData = memberDoc.data();
+    
+    if (memberData.role === 'owner') {
+      return { success: false, error: '그룹의 관리자는 탈퇴할 수 없습니다. 그룹을 삭제하거나 다른 멤버에게 관리자 권한을 이전하세요.' };
+    }
+    
+    // 멤버십 문서 삭제
+    await deleteDoc(doc(db, 'groupMembers', memberDoc.id));
+    
+    // 그룹의 memberCount 업데이트
+    const groupRef = doc(db, 'groups', groupId);
+    const groupDoc = await getDoc(groupRef);
+    
+    if (groupDoc.exists()) {
+      const groupData = groupDoc.data();
+      const currentCount = groupData.memberCount || 0;
+      
+      if (currentCount > 0) {
+        await updateDoc(groupRef, {
+          memberCount: currentCount - 1
+        });
+      }
+    }
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error('그룹 탈퇴 오류:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
  * 사용자별 그룹 색상 설정
  * @param userId 사용자 ID
  * @param groupId 그룹 ID

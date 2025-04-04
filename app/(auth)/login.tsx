@@ -10,13 +10,15 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  ScrollView
+  ScrollView,
+  Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { sendPasswordReset } from '../../services/authService';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -30,6 +32,13 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{email?: string; password?: string}>({});
+  
+  // 비밀번호 재설정 관련 상태
+  const [forgotPasswordVisible, setForgotPasswordVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
+  const [resetMessageType, setResetMessageType] = useState<'success' | 'error'>('success');
 
   // 디버깅용 정보 로그
   React.useEffect(() => {
@@ -75,6 +84,38 @@ export default function LoginScreen() {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+  
+  // 비밀번호 재설정 함수
+  const handlePasswordReset = async () => {
+    if (!resetEmail.trim()) {
+      setResetMessage('이메일을 입력해주세요.');
+      setResetMessageType('error');
+      return;
+    }
+    
+    setResetLoading(true);
+    try {
+      const result = await sendPasswordReset(resetEmail);
+      if (result.success) {
+        setResetMessage(result.message || '비밀번호 재설정 링크가 이메일로 전송되었습니다.');
+        setResetMessageType('success');
+        // 성공 후 잠시 기다렸다가 모달 닫기
+        setTimeout(() => {
+          setForgotPasswordVisible(false);
+          setResetEmail('');
+          setResetMessage('');
+        }, 3000);
+      } else {
+        setResetMessage(result.error || '오류가 발생했습니다.');
+        setResetMessageType('error');
+      }
+    } catch (error) {
+      setResetMessage('오류가 발생했습니다. 다시 시도해주세요.');
+      setResetMessageType('error');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -142,6 +183,15 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
             
+            {/* 비밀번호 찾기 버튼 */}
+            <View style={styles.forgotPasswordContainer}>
+              <TouchableOpacity onPress={() => setForgotPasswordVisible(true)}>
+                <Text style={[styles.forgotPasswordText, { color: colors.tint }]}>
+                  비밀번호를 잊으셨나요?
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
             <View style={styles.registerContainer}>
               <Text style={[styles.registerText, { color: colors.lightGray }]}>계정이 없으신가요?</Text>
               <TouchableOpacity onPress={() => router.push("/register")}>
@@ -151,6 +201,76 @@ export default function LoginScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      {/* 비밀번호 재설정 모달 */}
+      <Modal
+        visible={forgotPasswordVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setForgotPasswordVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>비밀번호 재설정</Text>
+            <Text style={[styles.modalSubtitle, { color: colors.lightGray }]}>
+              가입한 이메일을 입력하시면 비밀번호 재설정 링크를 보내드립니다.
+            </Text>
+            
+            <TextInput
+              style={[
+                styles.input, 
+                { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder, color: colors.text }
+              ]}
+              placeholder="이메일 주소"
+              placeholderTextColor={colors.lightGray}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={resetEmail}
+              onChangeText={setResetEmail}
+            />
+            
+            {resetMessage ? (
+              <Text 
+                style={[
+                  styles.resetMessage, 
+                  { color: resetMessageType === 'success' ? '#4CAF50' : '#FF3B30' }
+                ]}
+              >
+                {resetMessage}
+              </Text>
+            ) : null}
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.secondary }]} 
+                onPress={() => {
+                  setForgotPasswordVisible(false);
+                  setResetEmail('');
+                  setResetMessage('');
+                }}
+              >
+                <Text style={[styles.cancelButtonText, { color: colors.darkGray }]}>취소</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.modalButton, 
+                  { backgroundColor: colors.buttonBackground }, 
+                  resetLoading && { backgroundColor: colors.disabledButton }
+                ]} 
+                onPress={handlePasswordReset}
+                disabled={resetLoading}
+              >
+                {resetLoading ? (
+                  <ActivityIndicator color={colors.buttonText} />
+                ) : (
+                  <Text style={[styles.submitButtonText, { color: colors.buttonText }]}>전송</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -232,5 +352,63 @@ const styles = StyleSheet.create({
   registerLink: {
     fontWeight: '600',
     marginLeft: 5
+  },
+  // 비밀번호 찾기 관련 스타일
+  forgotPasswordContainer: {
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  forgotPasswordText: {
+    fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20
+  },
+  modalContent: {
+    borderRadius: 10,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textAlign: 'center'
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    marginBottom: 20,
+    textAlign: 'center'
+  },
+  resetMessage: {
+    fontSize: 14,
+    marginTop: 10,
+    marginBottom: 15,
+    textAlign: 'center'
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20
+  },
+  modalButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center'
+  },
+  cancelButton: {
+    marginRight: 10
+  },
+  cancelButtonText: {
+    fontWeight: '600'
+  },
+  submitButtonText: {
+    fontWeight: '600'
   }
 });

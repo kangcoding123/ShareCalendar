@@ -24,7 +24,8 @@ import {
   updateGroup, 
   deleteGroup, 
   inviteToGroup,
-  setUserGroupColor
+  setUserGroupColor,
+  leaveGroup
 } from '../../../services/groupService';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -307,6 +308,7 @@ export default function GroupDetailScreen() {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [leavingGroup, setLeavingGroup] = useState(false);
   
   // 색상 선택 관련 상태
   const [selectedColor, setSelectedColor] = useState<string>('#4CAF50'); // 기본 색상
@@ -344,6 +346,54 @@ export default function GroupDetailScreen() {
     } finally {
       setSavingColor(false);
     }
+  };
+  
+  // 그룹 탈퇴 핸들러
+  const handleLeaveGroup = () => {
+    Alert.alert(
+      '그룹 탈퇴',
+      '정말로 이 그룹에서 탈퇴하시겠습니까? 탈퇴 후에는 이 그룹의 일정을 볼 수 없습니다.',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '탈퇴',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLeavingGroup(true);
+              
+              if (!groupId || !user?.uid) {
+                console.error('그룹 ID 또는 사용자 ID가 없습니다.');
+                setLeavingGroup(false);
+                return;
+              }
+              
+              const result = await leaveGroup(groupId, user.uid);
+              
+              if (result.success) {
+                setLeavingGroup(false);
+                
+                Alert.alert('성공', '그룹에서 탈퇴했습니다.', [
+                  { 
+                    text: '확인', 
+                    onPress: () => {
+                      router.push('/(tabs)/groups');
+                    } 
+                  }
+                ]);
+              } else {
+                Alert.alert('오류', result.error || '그룹 탈퇴 중 오류가 발생했습니다.');
+                setLeavingGroup(false);
+              }
+            } catch (error) {
+              console.error('그룹 탈퇴 중 오류:', error);
+              Alert.alert('오류', '그룹 탈퇴 중 오류가 발생했습니다.');
+              setLeavingGroup(false);
+            }
+          }
+        }
+      ]
+    );
   };
   
   // 그룹 및 멤버 데이터 로드
@@ -724,6 +774,30 @@ export default function GroupDetailScreen() {
             </TouchableOpacity>
           </View>
         )}
+        
+        {/* 관리자가 아닌 경우에만 그룹 탈퇴 UI 표시 */}
+        {!isOwner && (
+          <View style={styles.leaveGroupContainer}>
+            <Text style={styles.dangerZoneTitle}>그룹 탈퇴</Text>
+            <Text style={styles.leaveGroupDescription}>
+              이 그룹에서 탈퇴하면 더 이상 그룹 일정에 접근할 수 없습니다.
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.leaveButton, 
+                leavingGroup && styles.disabledButton
+              ]}
+              onPress={handleLeaveGroup}
+              disabled={leavingGroup}
+            >
+              {leavingGroup ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.leaveButtonText}>그룹 탈퇴하기</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
       
       <InviteModal
@@ -955,6 +1029,32 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     backgroundColor: '#ffa39e'
+  },
+  // 그룹 탈퇴 관련 스타일
+  leaveGroupContainer: {
+    marginTop: 20,
+    marginBottom: 30,
+    padding: 15,
+    borderRadius: 10,
+    backgroundColor: '#fff1f0',
+    borderWidth: 1,
+    borderColor: '#ffccc7'
+  },
+  leaveGroupDescription: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 15
+  },
+  leaveButton: {
+    backgroundColor: '#ff4d4f',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center'
+  },
+  leaveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600'
   },
   
   // 모달 스타일

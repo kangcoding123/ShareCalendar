@@ -109,7 +109,13 @@ export default function CalendarScreen() {
             setEvents(groupedEvents);
           }
           setRefreshing(false);
+        }).catch(error => {
+          console.error('이벤트 데이터 로드 오류:', error);
+          setRefreshing(false);
         });
+      } else {
+        // 사용자가 없는 경우 로딩 상태 해제
+        setRefreshing(false);
       }
       return () => {};
     }, [user])
@@ -163,6 +169,21 @@ export default function CalendarScreen() {
           groupsUnsubscribeRef.current = null;
         }
       };
+    } else {
+      // 추가: 사용자가 없는 경우에도 로딩 상태 해제
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user]);
+  
+  // 추가: 사용자가 변경되거나 null이 될 때 상태 초기화
+  useEffect(() => {
+    if (!user) {
+      setEvents({});
+      setSelectedDate(null);
+      setSelectedDateEvents([]);
+      setLoading(false);
+      setRefreshing(false);
     }
   }, [user]);
   
@@ -178,6 +199,9 @@ export default function CalendarScreen() {
           const groupedEvents = groupEventsByDate<CalendarEvent>(result.events);
           setEvents(groupedEvents);
         }
+        setRefreshing(false);
+      }).catch(error => {
+        console.error('이벤트 데이터 새로고침 오류:', error);
         setRefreshing(false);
       });
     } else {
@@ -213,6 +237,8 @@ export default function CalendarScreen() {
             setSelectedDateEvents(dateEvents);
           }
         }
+      }).catch(error => {
+        console.error('이벤트 업데이트 후 데이터 로드 오류:', error);
       });
     }
     

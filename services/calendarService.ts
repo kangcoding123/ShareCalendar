@@ -538,13 +538,28 @@ export const subscribeToUserEvents = (
 ): (() => void) => {
   console.log(`[subscribeToUserEvents] 사용자 ID: ${userId}에 대한 이벤트 구독 시작`);
   
+  // 안전장치: 10초 후에도 이벤트가 업데이트되지 않으면 빈 배열로 콜백 호출
+  const timeoutId = setTimeout(() => {
+    console.log('[subscribeToUserEvents] 타임아웃 발생 - 빈 이벤트 배열로 콜백 호출');
+    callback([]);
+  }, 3000);
+  
   // 이전 코드 호환성을 위해 eventListeners 맵에도 등록
   // 다만 실제로는 중앙 구독 시스템이 처리
-  const unsubscribe = subscribeToEvents(userId, callback);
-  eventListeners.set(userId, () => unsubscribe());
+  const unsubscribe = subscribeToEvents(userId, (events) => {
+    // 타임아웃 취소
+    clearTimeout(timeoutId);
+    callback(events);
+  });
+  
+  eventListeners.set(userId, () => {
+    clearTimeout(timeoutId); // 구독 해제 시 타임아웃도 취소
+    unsubscribe();
+  });
   
   return () => {
     console.log('이벤트 구독 해제');
+    clearTimeout(timeoutId);
     if (eventListeners.has(userId)) {
       eventListeners.delete(userId);
     }

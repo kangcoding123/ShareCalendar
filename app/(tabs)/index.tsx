@@ -1,6 +1,6 @@
 // app/(tabs)/index.tsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -13,6 +13,10 @@ import {
 import { formatDate } from '../../utils/dateUtils';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { getDoc, doc, updateDoc } from 'firebase/firestore';
+import { updateProfile } from 'firebase/auth';
+import { db, auth } from '../../config/firebase';
+import { deleteAccount } from '../../services/authService';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -27,6 +31,12 @@ export default function HomeScreen() {
   
   // 구독 취소 함수 참조 저장을 위한 ref 추가
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  
+  // 프로필 관련 상태 추가
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [updatingProfile, setUpdatingProfile] = useState(false);
+  const [userDetails, setUserDetails] = useState<any>(null);
   
   // 이벤트 데이터 처리 함수 (분리된 로직)
   const processEvents = useCallback((events: CalendarEvent[]) => {
@@ -83,6 +93,25 @@ export default function HomeScreen() {
       };
     }
   }, [user, processEvents]);
+  
+  // 사용자 상세 정보 가져오기
+  useEffect(() => {
+    if (user && user.uid) {
+      // Firestore에서 사용자 추가 정보 가져오기
+      const fetchUserDetails = async () => {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            setUserDetails(userDoc.data());
+          }
+        } catch (error) {
+          console.error('사용자 정보 가져오기 오류:', error);
+        }
+      };
+      
+      fetchUserDetails();
+    }
+  }, [user]);
   
   // 화면이 포커스될 때마다 데이터 새로고침(백업용)
   useFocusEffect(
@@ -143,6 +172,84 @@ export default function HomeScreen() {
       ]
     );
   };
+  
+  // 프로필 수정 모달을 열 때 현재 이름으로 초기화
+  const handleOpenProfileModal = () => {
+    setProfileName(user?.displayName || '');
+    setProfileModalVisible(true);
+  };
+
+  // 프로필 업데이트 함수
+  const handleUpdateProfile = async () => {
+    if (!user) return;
+    
+    if (!profileName.trim()) {
+      Alert.alert('오류', '이름을 입력해주세요.');
+      return;
+    }
+    
+    setUpdatingProfile(true);
+    try {
+      // auth.currentUser를 직접 사용
+      if (auth.currentUser) {
+        // Firebase Auth 사용자 프로필 업데이트
+        await updateProfile(auth.currentUser, { displayName: profileName });
+        
+        // Firestore 사용자 문서 업데이트
+        await updateDoc(doc(db, 'users', user.uid), {
+          displayName: profileName,
+          updatedAt: new Date().toISOString()
+        });
+        
+        // 성공 알림
+        Alert.alert('성공', '프로필이 업데이트되었습니다.');
+        setProfileModalVisible(false);
+      } else {
+        throw new Error('사용자가 로그인되어 있지 않습니다.');
+      }
+    } catch (error) {
+      console.error('프로필 업데이트 오류:', error);
+      Alert.alert('오류', '프로필 업데이트 중 오류가 발생했습니다.');
+    } finally {
+      setUpdatingProfile(false);
+    }
+  };
+
+  // 회원탈퇴 처리 함수
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      '회원 탈퇴',
+      '정말로 회원 탈퇴하시겠습니까? 모든 개인 정보와 일정이 삭제되며 이 작업은 되돌릴 수 없습니다.',
+      [
+        { text: '취소', style: 'cancel' },
+        { 
+          text: '탈퇴', 
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setUpdatingProfile(true);
+              const result = await deleteAccount();
+              
+              if (result.success) {
+                Alert.alert('성공', '회원 탈퇴가 완료되었습니다.', [
+                  { text: '확인' }
+                ]);
+                // 로그아웃은 자동으로 처리됨 (AuthContext에서)
+              } else {
+                Alert.alert('오류', result.error || '회원 탈퇴 중 오류가 발생했습니다.');
+              }
+            } catch (error) {
+              console.error('회원 탈퇴 오류:', error);
+              Alert.alert('오류', '회원 탈퇴 중 오류가 발생했습니다.');
+            } finally {
+              setUpdatingProfile(false);
+              setProfileModalVisible(false);
+            }
+          }
+        }
+      ]
+    );
+  };
 
   // 디버깅용 코드 - 실행 환경 확인
   useEffect(() => {
@@ -160,12 +267,28 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
       <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-        <Text style={[styles.headerTitle, { color: colors.tint }]}>WE:IN</Text>
-        <View style={styles.headerRow}>
-          <Text style={[styles.headerSubtitle, { color: colors.lightGray }]}>안녕하세요, {user?.displayName || '사용자'}님</Text>
-          <TouchableOpacity onPress={handleLogout} style={[styles.logoutButton, { backgroundColor: colors.secondary }]}>
-            <Text style={[styles.logoutButtonText, { color: colors.darkGray }]}>로그아웃</Text>
-          </TouchableOpacity>
+        <View style={styles.headerTop}>
+          <Text style={[styles.headerTitle, { color: colors.tint }]}>WE:IN</Text>
+          
+          <View style={styles.profileContainer}>
+            <TouchableOpacity onPress={handleOpenProfileModal} style={styles.avatarContainer}>
+              <View style={[styles.profileAvatar, { backgroundColor: colors.tint }]}>
+                <Text style={styles.avatarText}>
+                  {user?.displayName ? user.displayName.charAt(0).toUpperCase() : '?'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+            
+            <TouchableOpacity onPress={handleLogout} style={[styles.logoutButton, { backgroundColor: colors.secondary }]}>
+              <Text style={[styles.logoutButtonText, { color: colors.darkGray }]}>로그아웃</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        <View style={styles.headerBottom}>
+          <Text style={[styles.headerSubtitle, { color: colors.lightGray }]}>
+            안녕하세요, {user?.displayName || '사용자'}님
+          </Text>
         </View>
       </View>
       
@@ -238,6 +361,88 @@ export default function HomeScreen() {
           <Text style={[styles.calendarButtonText, { color: colors.buttonText }]}>캘린더 보기</Text>
         </TouchableOpacity>
       </ScrollView>
+      
+      {/* 프로필 수정 모달 */}
+      <Modal
+        visible={profileModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setProfileModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>프로필 수정</Text>
+            
+            <View style={styles.formGroup}>
+              <Text style={[styles.label, { color: colors.text }]}>이름</Text>
+              <TextInput
+                style={[styles.input, { 
+                  backgroundColor: colors.inputBackground, 
+                  borderColor: colors.inputBorder, 
+                  color: colors.text 
+                }]}
+                placeholder="이름"
+                placeholderTextColor={colors.lightGray}
+                value={profileName}
+                onChangeText={setProfileName}
+              />
+            </View>
+            
+            <View style={styles.formGroup}>
+              <Text style={[styles.label, { color: colors.text }]}>이메일</Text>
+              <Text style={[styles.emailValue, { 
+                backgroundColor: colors.inputBackground, 
+                borderColor: colors.inputBorder, 
+                color: colors.lightGray 
+              }]}>
+                {user?.email || ''}
+              </Text>
+              <Text style={[styles.emailNote, { color: colors.lightGray }]}>
+                이메일은 변경할 수 없습니다.
+              </Text>
+            </View>
+            
+            <View style={styles.deleteAccountContainer}>
+              <TouchableOpacity 
+                style={[styles.deleteAccountButton, updatingProfile && styles.disabledButton]}
+                onPress={handleDeleteAccount}
+                disabled={updatingProfile}
+              >
+                <Text style={styles.deleteAccountText}>회원 탈퇴</Text>
+              </TouchableOpacity>
+              <Text style={[styles.deleteAccountWarning, { color: colors.lightGray }]}>
+                탈퇴 시 모든 데이터가 삭제됩니다
+              </Text>
+            </View>
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.secondary }]} 
+                onPress={() => setProfileModalVisible(false)}
+                disabled={updatingProfile}
+              >
+                <Text style={[styles.cancelButtonText, { color: colors.darkGray }]}>취소</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[
+                  styles.modalButton, 
+                  { backgroundColor: colors.buttonBackground }, 
+                  updatingProfile && { backgroundColor: colors.disabledButton }
+                ]} 
+                onPress={handleUpdateProfile}
+                disabled={updatingProfile}
+              >
+                {updatingProfile ? (
+                  <ActivityIndicator size="small" color={colors.buttonText} />
+                ) : (
+                  <Text style={[styles.submitButtonText, { color: colors.buttonText }]}>저장</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -247,22 +452,45 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    padding: 20,
+    padding: 15,
+    paddingBottom: 10,
     borderBottomWidth: 1,
+  },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  headerBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 5
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    width: '100%'
   },
   headerSubtitle: {
+    fontSize: 14,
+  },
+  profileContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatarContainer: {
+    marginRight: 10,
+  },
+  profileAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarText: {
     fontSize: 16,
+    fontWeight: 'bold',
+    color: 'white',
   },
   logoutButton: {
     paddingVertical: 5,
@@ -270,7 +498,7 @@ const styles = StyleSheet.create({
     borderRadius: 5
   },
   logoutButtonText: {
-    fontSize: 14
+    fontSize: 12,
   },
   content: {
     flex: 1,
@@ -338,5 +566,98 @@ const styles = StyleSheet.create({
   calendarButtonText: {
     fontSize: 16,
     fontWeight: 'bold'
-  }
+  },
+  // 모달 관련 스타일
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    borderRadius: 10,
+    padding: 20,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  formGroup: {
+    marginBottom: 15,
+  },
+  label: {
+    fontSize: 14,
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  input: {
+    height: 50,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    fontSize: 16,
+  },
+  emailValue: {
+    height: 50,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    fontSize: 16,
+    paddingTop: 14, // TextInput과 비슷한 정렬을 위한 패딩
+  },
+  emailNote: {
+    fontSize: 12,
+    marginTop: 5,
+    fontStyle: 'italic',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  modalButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    marginRight: 10,
+  },
+  cancelButtonText: {
+    fontWeight: '600',
+  },
+  submitButtonText: {
+    fontWeight: '600',
+  },
+  // 회원 탈퇴 관련 스타일
+  deleteAccountContainer: {
+    marginTop: 10,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  deleteAccountButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#ff3b30',
+  },
+  deleteAccountText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  deleteAccountWarning: {
+    fontSize: 12,
+    marginTop: 5,
+    fontStyle: 'italic',
+  },
+  disabledButton: {
+    opacity: 0.7,
+  },
 });
