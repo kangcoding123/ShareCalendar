@@ -8,7 +8,8 @@ import {
   ScrollView, 
   Text,
   Alert,
-  Platform
+  Platform,
+  TouchableOpacity // 추가
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../../context/AuthContext';
@@ -20,10 +21,12 @@ import { db } from '../../../config/firebase';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { GestureHandlerRootView } from 'react-native-gesture-handler'; // 추가
 
 // 컴포넌트
 import Calendar from '../../../components/calendar/Calendar';
 import EventDetailModal from '../../../components/calendar/EventDetailModal';
+import { ZoomableView } from '../../../components/ZoomableView'; // 변경: ZoomableCalendar 대신 ZoomableView 직접 사용
 
 export default function CalendarScreen() {
   const { user } = useAuth();
@@ -39,10 +42,16 @@ export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState<CalendarDay | null>(null);
   const [selectedDateEvents, setSelectedDateEvents] = useState<CalendarEvent[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
+  const [zoomModeEnabled, setZoomModeEnabled] = useState(false); // 확대 모드 상태 추가
   
   // 구독 취소 함수 참조 저장
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const groupsUnsubscribeRef = useRef<(() => void) | null>(null);
+  
+  // 확대 모드 전환 핸들러
+  const toggleZoomMode = () => {
+    setZoomModeEnabled(!zoomModeEnabled);
+  };
   
   // 그룹 멤버십 변경 감지 및 구독 설정
   const setupGroupMembershipListener = (userId: string) => {
@@ -95,6 +104,15 @@ export default function CalendarScreen() {
     }
   };
   
+  // 현재 보고 있는 달을 위한 상태 변수 추가
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+
+  // 달 변경 핸들러 추가
+  const handleMonthChange = (month: Date) => {
+    setCurrentMonth(month);
+  };
+
+
   // 화면이 포커스될 때마다 데이터 새로고침
   useFocusEffect(
     React.useCallback(() => {
@@ -212,8 +230,11 @@ export default function CalendarScreen() {
     }
   };
   
-  // 날짜 선택 핸들러
+  // 날짜 선택 핸들러 - 수정된 버전
   const handleDayPress = (day: CalendarDay, dayEvents: CalendarEvent[]) => {
+    // 확대 모드에서는 날짜 선택 무시
+    if (zoomModeEnabled) return;
+    
     setSelectedDate(day);
     setSelectedDateEvents(dayEvents || []);
     setModalVisible(true);
@@ -257,6 +278,25 @@ export default function CalendarScreen() {
     <SafeAreaView style={[styles.container, {backgroundColor: colors.secondary}]}>
       <View style={[styles.header, {backgroundColor: colors.headerBackground, borderBottomColor: colors.border}]}>
         <Text style={[styles.headerTitle, {color: colors.text}]}>WE:IN</Text>
+        
+        {/* 확대 모드 전환 버튼 추가 */}
+        <TouchableOpacity
+          style={[
+            styles.zoomModeButton, 
+            { 
+              backgroundColor: zoomModeEnabled ? colors.tint : colors.secondary,
+              borderColor: colors.border
+            }
+          ]}
+          onPress={toggleZoomMode}
+        >
+          <Text style={[
+            styles.zoomModeButtonText, 
+            { color: zoomModeEnabled ? colors.buttonText : colors.text }
+          ]}>
+            {zoomModeEnabled ? '확대 모드 켜짐' : '확대 모드'}
+          </Text>
+        </TouchableOpacity>
       </View>
       
       {loading && !refreshing ? (
@@ -274,12 +314,38 @@ export default function CalendarScreen() {
               colors={[colors.tint]}
             />
           }
+          scrollEnabled={!zoomModeEnabled} // 확대 모드에서는 스크롤 비활성화
         >
-          <Calendar 
-            events={events} 
-            onDayPress={handleDayPress}
-            colorScheme={colorScheme}
-          />
+          {zoomModeEnabled ? (
+            // 확대 모드일 때
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <ZoomableView style={{ flex: 1 }}>
+                <Calendar
+                  events={events} 
+                  onDayPress={handleDayPress}
+                  colorScheme={colorScheme}
+                  initialMonth={currentMonth} // 현재 보고 있는 달 유지
+                  onMonthChange={handleMonthChange} // 달 변경 이벤트 처리
+                />
+              </ZoomableView>
+              
+              {/* 안내 텍스트 */}
+              <View style={[styles.zoomModeIndicator, { backgroundColor: colors.tint + '80' }]}>
+                <Text style={styles.zoomModeIndicatorText}>
+                  확대 모드에서는 날짜를 선택할 수 없습니다
+                </Text>
+              </View>
+            </GestureHandlerRootView>
+          ) : (
+            // 일반 모드일 때
+            <Calendar
+              events={events} 
+              onDayPress={handleDayPress}
+              colorScheme={colorScheme}
+              initialMonth={currentMonth} // 현재 보고 있는 달 유지
+              onMonthChange={handleMonthChange} // 달 변경 이벤트 처리
+            />
+          )}
           
           {selectedDate && (
             <EventDetailModal
@@ -324,5 +390,30 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     padding: 15
+  },
+  // 확대 모드 관련 스타일 추가
+  zoomModeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  zoomModeButtonText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  zoomModeIndicator: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    padding: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  zoomModeIndicatorText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '500',
   }
 });

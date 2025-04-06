@@ -48,9 +48,17 @@ interface CalendarProps {
   events?: Record<string, CalendarEvent[]>;
   onDayPress: (day: CalendarDay, events: CalendarEvent[]) => void;
   colorScheme: ColorSchemeName;
+  initialMonth?: Date; // 추가
+  onMonthChange?: (month: Date) => void; // 추가
 }
 
-const Calendar = ({ events = {}, onDayPress, colorScheme }: CalendarProps) => {
+const Calendar = ({ 
+  events = {}, 
+  onDayPress, 
+  colorScheme,
+  initialMonth,  // 추가된 prop
+  onMonthChange  // 추가된 prop
+}: CalendarProps) => {
   // 다크 모드 여부 확인
   const isDark = colorScheme === 'dark';
   
@@ -63,19 +71,37 @@ const Calendar = ({ events = {}, onDayPress, colorScheme }: CalendarProps) => {
   // 날짜 셀 너비 계산
   const dayWidth = calendarWidth / 7;
   
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  // initialMonth prop이 전달되면 사용, 아니면 현재 날짜 사용
+  const [currentDate, setCurrentDate] = useState<Date>(initialMonth || new Date());
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [holidays, setHolidays] = useState<Record<string, Holiday>>({});
+  
+  // initialMonth prop이 변경되면 currentDate 업데이트
+  useEffect(() => {
+    if (initialMonth) {
+      setCurrentDate(initialMonth);
+    }
+  }, [initialMonth]);
   
   // 월 변경 핸들러
   const handlePrevMonth = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setCurrentDate(prevDate => subMonths(prevDate, 1));
+    const newDate = subMonths(currentDate, 1);
+    setCurrentDate(newDate);
+    // onMonthChange 콜백 호출 추가
+    if (onMonthChange) {
+      onMonthChange(newDate);
+    }
   };
   
   const handleNextMonth = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setCurrentDate(prevDate => addMonths(prevDate, 1));
+    const newDate = addMonths(currentDate, 1);
+    setCurrentDate(newDate);
+    // onMonthChange 콜백 호출 추가
+    if (onMonthChange) {
+      onMonthChange(newDate);
+    }
   };
   
   // 주 수 계산
