@@ -1,5 +1,5 @@
 // app/(tabs)/calendar/index.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   View, 
   StyleSheet, 
@@ -7,9 +7,7 @@ import {
   RefreshControl, 
   ScrollView, 
   Text,
-  Alert,
-  Platform,
-  TouchableOpacity // 추가
+  Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../../context/AuthContext';
@@ -21,12 +19,11 @@ import { db } from '../../../config/firebase';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { GestureHandlerRootView } from 'react-native-gesture-handler'; // 추가
 
 // 컴포넌트
 import Calendar from '../../../components/calendar/Calendar';
+import CalendarPager from '../../../components/calendar/CalendarPager';
 import EventDetailModal from '../../../components/calendar/EventDetailModal';
-import { ZoomableView } from '../../../components/ZoomableView'; // 변경: ZoomableCalendar 대신 ZoomableView 직접 사용
 
 export default function CalendarScreen() {
   const { user } = useAuth();
@@ -42,19 +39,30 @@ export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState<CalendarDay | null>(null);
   const [selectedDateEvents, setSelectedDateEvents] = useState<CalendarEvent[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
-  const [zoomModeEnabled, setZoomModeEnabled] = useState(false); // 확대 모드 상태 추가
   
   // 구독 취소 함수 참조 저장
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const groupsUnsubscribeRef = useRef<(() => void) | null>(null);
   
-  // 확대 모드 전환 핸들러
-  const toggleZoomMode = () => {
-    setZoomModeEnabled(!zoomModeEnabled);
-  };
+  // ScrollView ref 추가
+  const scrollRef = useRef(null);
+  
+  // 현재 보고 있는 달을 위한 상태 변수
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+
+  // 달 변경 핸들러
+  const handleMonthChange = useCallback((month: Date) => {
+    // 이전 month 값과 비교해서 같으면 상태 업데이트 하지 않음
+    setCurrentMonth(prev => {
+      if (prev.getFullYear() === month.getFullYear() && prev.getMonth() === month.getMonth()) {
+        return prev;
+      }
+      return month;
+    });
+  }, []);
   
   // 그룹 멤버십 변경 감지 및 구독 설정
-  const setupGroupMembershipListener = (userId: string) => {
+  const setupGroupMembershipListener = useCallback((userId: string) => {
     // 이전 구독 해제
     if (groupsUnsubscribeRef.current) {
       groupsUnsubscribeRef.current();
@@ -75,10 +83,10 @@ export default function CalendarScreen() {
     
     groupsUnsubscribeRef.current = unsubscribe;
     return unsubscribe;
-  };
+  }, []);
   
   // 데이터 로드 - 그룹만 로드
-  const loadGroupData = async () => {
+  const loadGroupData = useCallback(async () => {
     try {
       if (!user || !user.uid) return;
       
@@ -91,31 +99,17 @@ export default function CalendarScreen() {
         console.log(`[loadGroupData] 그룹 ${groupsResult.groups.length}개 로드됨`);
         // 타입 단언 사용
         setGroups(groupsResult.groups as Group[]);
-        
-        // 그룹 ID와 색상 로깅
-        groupsResult.groups.forEach(group => {
-          console.log(`[loadGroupData] 그룹: ${group.name}, 색상: ${group.color || '미설정'}`);
-        });
       } else {
         console.error('그룹 로드 실패:', groupsResult.error);
       }
     } catch (error) {
       console.error('그룹 데이터 로드 중 오류:', error);
     }
-  };
-  
-  // 현재 보고 있는 달을 위한 상태 변수 추가
-  const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
-
-  // 달 변경 핸들러 추가
-  const handleMonthChange = (month: Date) => {
-    setCurrentMonth(month);
-  };
-
+  }, [user]);
 
   // 화면이 포커스될 때마다 데이터 새로고침
   useFocusEffect(
-    React.useCallback(() => {
+    useCallback(() => {
       if (user) {
         console.log('캘린더 화면 포커스 - 이벤트 데이터 새로고침');
         setRefreshing(true);
@@ -192,7 +186,7 @@ export default function CalendarScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [user, loadGroupData, setupGroupMembershipListener]);
   
   // 추가: 사용자가 변경되거나 null이 될 때 상태 초기화
   useEffect(() => {
@@ -206,7 +200,7 @@ export default function CalendarScreen() {
   }, [user]);
   
   // 새로고침 핸들러
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
     loadGroupData(); // 그룹 정보 새로고침
     
@@ -228,83 +222,52 @@ export default function CalendarScreen() {
         setRefreshing(false);
       }, 1000);
     }
-  };
+  }, [loadGroupData, user]);
   
-  // 날짜 선택 핸들러 - 수정된 버전
-  const handleDayPress = (day: CalendarDay, dayEvents: CalendarEvent[]) => {
-    // 확대 모드에서는 날짜 선택 무시
-    if (zoomModeEnabled) return;
-    
+  // 날짜 선택 핸들러
+  const handleDayPress = useCallback((day: CalendarDay, dayEvents: CalendarEvent[]) => {
     setSelectedDate(day);
     setSelectedDateEvents(dayEvents || []);
     setModalVisible(true);
-  };
+  }, []);
   
-  // 이벤트 업데이트 핸들러 - 모달에서 호출됨
-  const handleEventUpdated = (action: string, eventData: any) => {
+  // 이벤트 업데이트 핸들러
+  const handleEventUpdated = useCallback((action: string, eventData: any) => {
     console.log('Event updated:', action, eventData);
-    
-    // 중앙 구독 시스템을 사용하므로 실시간 업데이트는 자동으로 처리됨
-    // 그러나 백업으로 수동 업데이트도 유지
-    if (user && user.uid) {
-      getUserEvents(user.uid).then(result => {
-        if (result.success && Array.isArray(result.events)) {
-          const groupedEvents = groupEventsByDate<CalendarEvent>(result.events);
-          setEvents(groupedEvents);
-          
-          // 선택된 날짜가 있는 경우, 해당 날짜의 이벤트도 업데이트
-          if (selectedDate) {
-            const dateEvents = groupedEvents[selectedDate.formattedDate] || [];
-            setSelectedDateEvents(dateEvents);
-          }
-        }
-      }).catch(error => {
-        console.error('이벤트 업데이트 후 데이터 로드 오류:', error);
-      });
-    }
     
     // 삭제 시 모달 닫기
     if (action === 'delete') {
       setModalVisible(false);
     }
-  };
+  }, []);
   
   // 모달 닫기 핸들러
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setModalVisible(false);
-  };
+  }, []);
   
-  return (
-    <SafeAreaView style={[styles.container, {backgroundColor: colors.secondary}]}>
-      <View style={[styles.header, {backgroundColor: colors.headerBackground, borderBottomColor: colors.border}]}>
-        <Text style={[styles.headerTitle, {color: colors.text}]}>WE:IN</Text>
-        
-        {/* 확대 모드 전환 버튼 추가 */}
-        <TouchableOpacity
-          style={[
-            styles.zoomModeButton, 
-            { 
-              backgroundColor: zoomModeEnabled ? colors.tint : colors.secondary,
-              borderColor: colors.border
-            }
-          ]}
-          onPress={toggleZoomMode}
-        >
-          <Text style={[
-            styles.zoomModeButtonText, 
-            { color: zoomModeEnabled ? colors.buttonText : colors.text }
-          ]}>
-            {zoomModeEnabled ? '확대 모드 켜짐' : '확대 모드'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-      
-      {loading && !refreshing ? (
+  if (loading && !refreshing) {
+    return (
+      <SafeAreaView style={[styles.container, {backgroundColor: colors.secondary}]}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.tint} />
         </View>
-      ) : (
+      </SafeAreaView>
+    );
+  }
+  
+  return (
+    <SafeAreaView 
+      style={[styles.container, {backgroundColor: colors.secondary}]} 
+      edges={['top', 'right', 'left']} // 바닥은 TabBar가 있어서 제외
+    >
+      <View style={[styles.header, {backgroundColor: colors.headerBackground, borderBottomColor: colors.border}]}>
+        <Text style={[styles.headerTitle, {color: colors.text}]}>WE:IN</Text>
+      </View>
+      
+      <View style={styles.calendarWrapper}>
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.scrollContainer}
           refreshControl={
             <RefreshControl 
@@ -314,54 +277,32 @@ export default function CalendarScreen() {
               colors={[colors.tint]}
             />
           }
-          scrollEnabled={!zoomModeEnabled} // 확대 모드에서는 스크롤 비활성화
+          showsVerticalScrollIndicator={false}
+          scrollEnabled={false} // 스크롤 비활성화하여 날짜 전체 표시 보장
         >
-          {zoomModeEnabled ? (
-            // 확대 모드일 때
-            <GestureHandlerRootView style={{ flex: 1 }}>
-              <ZoomableView style={{ flex: 1 }}>
-                <Calendar
-                  events={events} 
-                  onDayPress={handleDayPress}
-                  colorScheme={colorScheme}
-                  initialMonth={currentMonth} // 현재 보고 있는 달 유지
-                  onMonthChange={handleMonthChange} // 달 변경 이벤트 처리
-                />
-              </ZoomableView>
-              
-              {/* 안내 텍스트 */}
-              <View style={[styles.zoomModeIndicator, { backgroundColor: colors.tint + '80' }]}>
-                <Text style={styles.zoomModeIndicatorText}>
-                  확대 모드에서는 날짜를 선택할 수 없습니다
-                </Text>
-              </View>
-            </GestureHandlerRootView>
-          ) : (
-            // 일반 모드일 때
-            <Calendar
-              events={events} 
-              onDayPress={handleDayPress}
-              colorScheme={colorScheme}
-              initialMonth={currentMonth} // 현재 보고 있는 달 유지
-              onMonthChange={handleMonthChange} // 달 변경 이벤트 처리
-            />
-          )}
-          
-          {selectedDate && (
-            <EventDetailModal
-              visible={modalVisible}
-              selectedDate={selectedDate}
-              events={selectedDateEvents}
-              groups={groups}
-              userId={user?.uid || ''}
-              user={user}
-              onClose={handleCloseModal}
-              onEventUpdated={handleEventUpdated}
-              colorScheme={colorScheme}
-              colors={colors}
-            />
-          )}
+          <CalendarPager
+            events={events}
+            onDayPress={handleDayPress}
+            colorScheme={colorScheme}
+            initialMonth={currentMonth}
+            onMonthChange={handleMonthChange}
+          />
         </ScrollView>
+      </View>
+      
+      {selectedDate && (
+        <EventDetailModal
+          visible={modalVisible}
+          selectedDate={selectedDate}
+          events={selectedDateEvents}
+          groups={groups}
+          userId={user?.uid || ''}
+          user={user}
+          onClose={handleCloseModal}
+          onEventUpdated={handleEventUpdated}
+          colorScheme={colorScheme}
+          colors={colors}
+        />
       )}
     </SafeAreaView>
   );
@@ -373,10 +314,10 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 12,
     borderBottomWidth: 1,
   },
   headerTitle: {
@@ -388,32 +329,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center'
   },
+  calendarWrapper: {
+    flex: 1, // 핵심: 고정 높이 대신 flex 사용
+    width: '100%',
+    overflow: 'hidden',
+  },
   scrollContainer: {
-    padding: 15
-  },
-  // 확대 모드 관련 스타일 추가
-  zoomModeButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  zoomModeButtonText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  zoomModeIndicator: {
-    position: 'absolute',
-    bottom: 20,
-    left: 20,
-    right: 20,
-    padding: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  zoomModeIndicatorText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500',
+    flexGrow: 1, // 화면 전체를 채우도록 함
+    paddingVertical: 5,
+    paddingHorizontal: 0,
   }
 });

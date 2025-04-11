@@ -1,4 +1,4 @@
-// services/calendarService.ts
+// services/calendarService.ts (단순화된 다중 그룹 지원)
 import { 
   collection, 
   addDoc, 
@@ -15,7 +15,7 @@ import {
 import { db } from '../config/firebase';
 import { sendGroupNotification } from './notificationService';
 
-// 타입 정의 수정 - 알림 필드 추가
+// 타입 정의 수정 - 다중 그룹 지원을 위한 필드 추가
 export interface CalendarEvent {
   id?: string;
   title: string;
@@ -29,10 +29,13 @@ export interface CalendarEvent {
   createdAt?: string | null;
   updatedAt?: string | null;
   createdByName?: string | null;
-  // 알림 관련 필드에 명시적으로 null 허용
+  // 알림 관련 필드
   notificationEnabled?: boolean | null;
   notificationMinutesBefore?: number | null;
   notificationId?: string | null;
+  // 다중 그룹 지원을 위한 필드 추가
+  targetGroupIds?: string[];    // 이벤트가 공유된 모든 그룹 ID
+  isSharedEvent?: boolean;      // 여러 그룹에 공유된 이벤트인지 여부
 }
 
 // 결과 인터페이스
@@ -215,7 +218,7 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
     const docRef = await addDoc(collection(db, 'events'), cleanData);
     console.log('Event added with ID:', docRef.id);
     
-    // 그룹 일정인 경우 멤버들에게 알림 전송 (추가된 부분)
+    // 그룹 일정인 경우 멤버들에게 알림 전송
     if (eventData.groupId && eventData.groupId !== 'personal') {
       // 그룹 정보 가져오기
       const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
@@ -231,11 +234,19 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
           }
         }
         
+        // 알림 메시지 구성 - 다중 그룹 공유 정보 포함
+        let notificationTitle = `새 일정: ${eventData.title}`;
+        let notificationBody = `${creatorName}님이 ${groupName} 그룹에 새 일정을 추가했습니다.`;
+        
+        if (eventData.isSharedEvent && eventData.targetGroupIds && eventData.targetGroupIds.length > 1) {
+          notificationBody += ` (${eventData.targetGroupIds.length}개 그룹에 공유됨)`;
+        }
+        
         // 알림 전송
         await sendGroupNotification(
           eventData.groupId,
-          `새 일정: ${eventData.title}`,
-          `${creatorName}님이 ${groupName} 그룹에 새 일정을 추가했습니다.`,
+          notificationTitle,
+          notificationBody,
           { 
             type: 'new_event',
             eventId: docRef.id,
@@ -334,11 +345,17 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
           }
         }
         
+        // 다중 그룹 정보 표시
+        let groupInfo = "";
+        if (eventData.isSharedEvent && eventData.targetGroupIds && eventData.targetGroupIds.length > 1) {
+          groupInfo = ` (${eventData.targetGroupIds.length}개 그룹에 공유됨)`;
+        }
+        
         // 알림 전송
         await sendGroupNotification(
           eventData.groupId,
           `일정 수정: ${eventData.title}`,
-          `${updaterName}님이 ${groupName} 그룹의 일정을 수정했습니다. ${changeDescription}`,
+          `${updaterName}님이 ${groupName} 그룹의 일정을 수정했습니다.${groupInfo} ${changeDescription}`,
           { 
             type: 'update_event',
             eventId: eventId,

@@ -15,7 +15,13 @@
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "ios": {
+        "resourceClass": "m-medium",
+        "podfileProperties": {
+          "use_modular_headers": true
+        }
+      }
     }
   },
   "submit": {

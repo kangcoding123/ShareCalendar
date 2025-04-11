@@ -19,8 +19,7 @@ import { addEvent, updateEvent, deleteEvent, CalendarEvent } from '../../service
 import { Group } from '../../services/groupService';
 import { formatDate } from '../../utils/dateUtils';
 import { scheduleEventNotification, cancelEventNotification } from '../../services/notificationService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { TimeSlotPickerWithManual } from './TimeSlotPickerWithManual'; // 추가된 import
+import { TimeSlotPickerWithManual } from './TimeSlotPickerWithManual';
 
 // 타입 정의 수정
 interface CalendarDay {
@@ -153,11 +152,100 @@ const EventForm = ({
   const [timePickerVisible, setTimePickerVisible] = useState(false);
   const [time, setTime] = useState(event?.time || null);
   
-  const [selectedGroup, setSelectedGroup] = useState(event?.groupId || 'personal');
+  // 그룹 선택 상태를 배열로 변경 (단순화)
+  const [selectedGroups, setSelectedGroups] = useState<string[]>(
+    event?.groupId ? [event.groupId] : ['personal']
+  );
   
   // 알림 상태는 항상 비활성화
   const [enableNotification, setEnableNotification] = useState(false);
-  const [notificationTime, setNotificationTime] = useState(30);
+  
+  // 시간 선택 핸들러
+  const handleTimeSelected = (selectedTime: string | null) => {
+    setTime(selectedTime);
+  };
+  
+  // 그룹 선택 핸들러 수정 (단순화)
+  const handleGroupToggle = (groupId: string) => {
+    setSelectedGroups(prevGroups => {
+      // 그룹이 이미 선택되어 있는지 확인
+      const isSelected = prevGroups.includes(groupId);
+      
+      if (isSelected) {
+        // 최소 하나의 그룹은 선택되어 있어야 함
+        if (prevGroups.length === 1) {
+          return prevGroups;
+        }
+        
+        // 선택 해제
+        return prevGroups.filter(id => id !== groupId);
+      } else {
+        // 선택 추가
+        return [...prevGroups, groupId];
+      }
+    });
+  };
+  
+  const handleSubmit = () => {
+    if (!title.trim()) {
+      Alert.alert('알림', '일정 제목을 입력해주세요.');
+      return;
+    }
+    
+    if (selectedGroups.length === 0) {
+      Alert.alert('알림', '최소 하나의 그룹을 선택해주세요.');
+      return;
+    }
+    
+    // 기존 이벤트를 업데이트하는 경우
+    if (event?.id) {
+      // 단일 그룹만 편집 가능 (기존 구조 유지)
+      const eventData: CalendarEvent = {
+        id: event.id,
+        title: title.trim(),
+        description: description.trim() || null,
+        date: selectedDate.formattedDate,
+        time: time || null,
+        groupId: selectedGroups[0], // 첫 번째 선택된 그룹을 사용
+        groupName: selectedGroups[0] === 'personal' 
+          ? '개인 일정' 
+          : groups.find(g => g.id === selectedGroups[0])?.name || '그룹 일정',
+        color: getColorForGroup(selectedGroups[0]),
+        createdAt: event.createdAt || new Date().toISOString(),
+        notificationEnabled: false,
+        notificationMinutesBefore: null,
+        notificationId: null,
+        isSharedEvent: selectedGroups.length > 1,
+        targetGroupIds: selectedGroups
+      };
+      
+      onSubmit(eventData);
+    } else {
+      // 새 이벤트를 여러 그룹에 추가하는 경우
+      // 첫 번째 그룹을 메인 데이터로 사용 (UI 표시용)
+      const mainGroupId = selectedGroups[0];
+      
+      const eventData: CalendarEvent = {
+        title: title.trim(),
+        description: description.trim() || null,
+        date: selectedDate.formattedDate,
+        time: time || null,
+        groupId: mainGroupId,
+        groupName: mainGroupId === 'personal' 
+          ? '개인 일정' 
+          : groups.find(g => g.id === mainGroupId)?.name || '그룹 일정',
+        color: getColorForGroup(mainGroupId),
+        createdAt: new Date().toISOString(),
+        notificationEnabled: false,
+        notificationMinutesBefore: null,
+        notificationId: null,
+        isSharedEvent: selectedGroups.length > 1,
+        targetGroupIds: selectedGroups
+      };
+      
+      onSubmit(eventData);
+    }
+  };
   
   // 그룹 ID에 따라 자동으로 색상 설정
   const getColorForGroup = (groupId: string): string => {
@@ -168,36 +256,6 @@ const EventForm = ({
       const group = groups.find(g => g.id === groupId);
       return group?.color || '#4CAF50'; // 그룹 색상이 없으면 기본값
     }
-  };
-  
-  // 시간 선택 핸들러
-  const handleTimeSelected = (selectedTime: string | null) => {
-    setTime(selectedTime);
-  };
-  
-  const handleSubmit = () => {
-    if (!title.trim()) {
-      Alert.alert('알림', '일정 제목을 입력해주세요.');
-      return;
-    }
-    
-    // 수정: 명시적으로 null 또는 값 할당
-    const eventData: CalendarEvent = {
-      ...(event?.id ? { id: event.id } : {}),
-      title: title.trim(),
-      description: description.trim() || null,
-      date: selectedDate.formattedDate,
-      time: time || null,
-      groupId: selectedGroup,
-      groupName: groups.find(g => g.id === selectedGroup)?.name || '개인 일정',
-      color: getColorForGroup(selectedGroup),
-      createdAt: event?.createdAt || new Date().toISOString(),
-      notificationEnabled: false, // 알림 항상 비활성화
-      notificationMinutesBefore: null,
-      notificationId: null
-    };
-    
-    onSubmit(eventData);
   };
   
   return (
@@ -219,7 +277,7 @@ const EventForm = ({
           onChangeText={setTitle}
         />
         
-        {/* 시간 선택 UI - 변경된 부분 */}
+        {/* 시간 선택 UI */}
         <Text style={[styles.formLabel, { color: colors.text }]}>일시</Text>
         <TouchableOpacity
           style={[
@@ -268,22 +326,22 @@ const EventForm = ({
           textAlignVertical="top"
         />
         
-        <Text style={[styles.formLabel, { color: colors.text }]}>그룹</Text>
+        <Text style={[styles.formLabel, { color: colors.text }]}>그룹 선택 (여러 그룹에 공유 가능)</Text>
         <View style={styles.groupSelector}>
           {/* 개인 일정 옵션 */}
           <TouchableOpacity
             style={[
               styles.groupOption,
               { 
-                backgroundColor: selectedGroup === 'personal' ? 
+                backgroundColor: selectedGroups.includes('personal') ? 
                   colors.secondary : colors.inputBackground
               },
-              selectedGroup === 'personal' && { 
+              selectedGroups.includes('personal') && { 
                 borderWidth: 1,
                 borderColor: colors.tint
               }
             ]}
-            onPress={() => setSelectedGroup('personal')}
+            onPress={() => handleGroupToggle('personal')}
           >
             <View 
               style={{
@@ -306,15 +364,15 @@ const EventForm = ({
               style={[
                 styles.groupOption,
                 { 
-                  backgroundColor: selectedGroup === group.id ? 
+                  backgroundColor: selectedGroups.includes(group.id) ? 
                     colors.secondary : colors.inputBackground
                 },
-                selectedGroup === group.id && { 
+                selectedGroups.includes(group.id) && { 
                   borderWidth: 1,
                   borderColor: group.color || colors.tint
                 }
               ]}
-              onPress={() => setSelectedGroup(group.id)}
+              onPress={() => handleGroupToggle(group.id)}
             >
               <View 
                 style={{
@@ -331,6 +389,15 @@ const EventForm = ({
             </TouchableOpacity>
           ))}
         </View>
+        
+        {/* 다중 그룹 선택 설명 추가 */}
+        {selectedGroups.length > 1 && (
+          <View style={styles.multiGroupInfoContainer}>
+            <Text style={[styles.multiGroupInfoText, { color: colors.lightGray }]}>
+              동일한 일정이 선택한 모든 그룹에 공유됩니다.
+            </Text>
+          </View>
+        )}
         
         {/* 여백 추가 */}
         <View style={{ height: 80 }} />
@@ -439,6 +506,10 @@ const EventDetailModal = ({
       eventData.notificationMinutesBefore = null;
       eventData.notificationId = null;
       
+      // 다중 그룹 처리를 위한 변수
+      const mainGroupId = eventData.groupId;
+      const targetGroupIds = eventData.targetGroupIds || [mainGroupId];
+      
       if (eventData.id) {
         // 기존 이벤트 수정 - userId 필드 추가
         const updatedEventData = {
@@ -459,27 +530,57 @@ const EventDetailModal = ({
           Alert.alert('오류', '일정 업데이트 중 오류가 발생했습니다.');
         }
       } else {
-        // 새 이벤트 추가 - id가 undefined인 경우 제거
-        const { id, ...newEventWithoutId } = eventData as any;
+        // 새 이벤트 추가 - 여러 그룹에 복제하여 저장
+        const createdEvents = [];
+        const { id, targetGroupIds: _, ...baseEventData } = eventData as any;
         
         // 실제 사용자 이름 사용
-        const newEventData = {
-          ...newEventWithoutId,
+        const baseEvent = {
+          ...baseEventData,
           userId,
-          // 그룹 일정인 경우에만 작성자 이름 설정
-          createdByName: newEventWithoutId.groupId !== 'personal' ? user?.displayName : null,
+          createdByName: baseEventData.groupId !== 'personal' ? user?.displayName : null,
         };
         
-        console.log('Adding new event:', newEventData);
-        result = await addEvent(newEventData);
-        if (result.success && result.eventId) {
-          const completedEvent = { 
-            ...newEventData, 
-            id: result.eventId 
+        let mainEventId = null;
+        
+        // 모든 선택된 그룹에 대해 이벤트 생성
+        for (const groupId of targetGroupIds) {
+          // 각 그룹별 이벤트 데이터 생성
+          const groupEventData = {
+            ...baseEvent,
+            groupId,
+            groupName: groupId === 'personal' 
+              ? '개인 일정' 
+              : groups.find(g => g.id === groupId)?.name || '그룹 일정',
+            color: groupId === 'personal' 
+              ? colors.tint 
+              : groups.find(g => g.id === groupId)?.color || '#4CAF50',
+            isSharedEvent: targetGroupIds.length > 1 // 공유 이벤트 여부 표시
           };
-          console.log('Event added successfully:', completedEvent);
           
-          onEventUpdated('add', completedEvent);
+          // 이벤트 생성
+          const result = await addEvent(groupEventData);
+          
+          if (result.success && result.eventId) {
+            createdEvents.push({
+              ...groupEventData,
+              id: result.eventId
+            });
+            
+            // 주 그룹의 이벤트 ID 저장
+            if (groupId === mainGroupId) {
+              mainEventId = result.eventId;
+            }
+          }
+        }
+        
+        if (createdEvents.length > 0) {
+          console.log(`Created ${createdEvents.length} events for ${targetGroupIds.length} groups`);
+          
+          // 모든 생성된 이벤트 중 주 그룹의 이벤트를 상위 컴포넌트에 전달
+          const mainEvent = createdEvents.find(e => e.groupId === mainGroupId) || createdEvents[0];
+          onEventUpdated('add', mainEvent);
+          
           // 추가 완료 후 모달 닫기
           onClose();
         } else {
@@ -734,21 +835,33 @@ const styles = StyleSheet.create({
     minHeight: 100
   },
   groupSelector: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: 'column', // 세로 방향으로 변경
     marginBottom: 10
   },
   groupOption: {
+    flexDirection: 'row', // 가로 방향
     borderRadius: 8,
-    paddingHorizontal: 10, // 패딩 감소
-    paddingVertical: 6, // 패딩 감소
-    marginRight: 6,
-    marginBottom: 6, 
-    paddingLeft: 14, // 여백 감소
-    position: 'relative'
+    paddingHorizontal: 10,
+    paddingVertical: 12, // 패딩 증가
+    marginBottom: 8, 
+    paddingLeft: 14,
+    position: 'relative',
+    alignItems: 'center'
   },
   groupOptionText: {
     fontSize: 14
+  },
+  // 다중 그룹 정보 스타일
+  multiGroupInfoContainer: {
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 5,
+    marginBottom: 15
+  },
+  multiGroupInfoText: {
+    fontSize: 12,
+    fontStyle: 'italic'
   },
   // 하단 고정 버튼 스타일
   stickyButtons: {

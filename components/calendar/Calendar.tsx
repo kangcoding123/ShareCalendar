@@ -12,7 +12,7 @@ import {
   UIManager,
   ColorSchemeName
 } from 'react-native';
-import { addMonths, subMonths } from 'date-fns';
+import { addMonths, subMonths, isSameMonth } from 'date-fns';
 
 // 유틸리티 함수
 import { 
@@ -48,16 +48,20 @@ interface CalendarProps {
   events?: Record<string, CalendarEvent[]>;
   onDayPress: (day: CalendarDay, events: CalendarEvent[]) => void;
   colorScheme: ColorSchemeName;
-  initialMonth?: Date; // 추가
-  onMonthChange?: (month: Date) => void; // 추가
+  initialMonth?: Date;
+  onMonthChange?: (direction: 'prev' | 'next') => void;
 }
+
+// 헤더와 요일 행 높이 고정
+const HEADER_HEIGHT = 45; // 헤더 높이
+const DAY_NAMES_HEIGHT = 30; // 요일 행 높이
 
 const Calendar = ({ 
   events = {}, 
   onDayPress, 
   colorScheme,
-  initialMonth,  // 추가된 prop
-  onMonthChange  // 추가된 prop
+  initialMonth,
+  onMonthChange
 }: CalendarProps) => {
   // 다크 모드 여부 확인
   const isDark = colorScheme === 'dark';
@@ -65,8 +69,8 @@ const Calendar = ({
   // 화면 크기 가져오기
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   
-  // 달력 가로 너비 계산 (화면 너비보다 약간 작게)
-  const calendarWidth = screenWidth - 20; // 양쪽 10px 여백
+  // 달력 가로 너비 계산 (화면 너비와 동일하게)
+  const calendarWidth = screenWidth;
   
   // 날짜 셀 너비 계산
   const dayWidth = calendarWidth / 7;
@@ -76,31 +80,40 @@ const Calendar = ({
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [holidays, setHolidays] = useState<Record<string, Holiday>>({});
   
-  // initialMonth prop이 변경되면 currentDate 업데이트
+  // initialMonth prop이 변경될 때 currentDate 업데이트
   useEffect(() => {
     if (initialMonth) {
-      setCurrentDate(initialMonth);
+      // 새로운 initialMonth가 현재 표시 중인 월과 다를 때만 업데이트
+      if (!isSameMonth(initialMonth, currentDate)) {
+        setCurrentDate(initialMonth);
+      }
     }
-  }, [initialMonth]);
+  }, [initialMonth, currentDate]);
   
   // 월 변경 핸들러
   const handlePrevMonth = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const newDate = subMonths(currentDate, 1);
-    setCurrentDate(newDate);
-    // onMonthChange 콜백 호출 추가
+    
+    // 상위 컴포넌트에 이벤트 전달
     if (onMonthChange) {
-      onMonthChange(newDate);
+      onMonthChange('prev');
+    } else {
+      // 기존 로직은 onMonthChange가 없을 때만 실행
+      const newDate = subMonths(currentDate, 1);
+      setCurrentDate(newDate);
     }
   };
   
   const handleNextMonth = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const newDate = addMonths(currentDate, 1);
-    setCurrentDate(newDate);
-    // onMonthChange 콜백 호출 추가
+    
+    // 상위 컴포넌트에 이벤트 전달
     if (onMonthChange) {
-      onMonthChange(newDate);
+      onMonthChange('next');
+    } else {
+      // 기존 로직은 onMonthChange가 없을 때만 실행
+      const newDate = addMonths(currentDate, 1);
+      setCurrentDate(newDate);
     }
   };
   
@@ -109,15 +122,17 @@ const Calendar = ({
     return Math.ceil(calendarDays.length / 7);
   }, [calendarDays]);
   
-  // 셀 높이 계산
+  // 남은 공간을 주 수로 균등하게 나누어 셀 높이 계산 (플랫폼 최적화)
   const cellHeight = useMemo(() => {
-    // 화면 높이의 75%에 주 수를 나누어 셀 높이 계산 (헤더 높이 고려)
-    const availableHeight = (screenHeight * 0.75 - 100); // 헤더, 요일 행 및 여백 고려
-    const heightPerWeek = availableHeight / weekCount;
+    // 플랫폼별 최적 비율 적용
+    const heightRatio = Platform.OS === 'ios' ? 0.78 : 0.87;
     
-    // 최소 높이는 dayWidth의 1.2배로 조정
-    return Math.max(heightPerWeek, dayWidth * 1.2);
-  }, [screenHeight, weekCount, dayWidth]);
+    // 사용 가능한 높이 계산
+    const availableHeight = screenHeight * heightRatio - HEADER_HEIGHT - DAY_NAMES_HEIGHT;
+    
+    // 주 수로 나누어 셀 높이 계산 (최소 높이 40px 보장)
+    return Math.max(availableHeight / weekCount, 40);
+  }, [screenHeight, weekCount]);
   
   // 달력 데이터 업데이트
   useEffect(() => {
@@ -140,7 +155,13 @@ const Calendar = ({
   // 달력 헤더 컴포넌트
   const CalendarHeader = () => {
     return (
-      <View style={[styles.headerContainer, { borderBottomColor: isDark ? '#333333' : '#eeeeee' }]}>
+      <View style={[
+        styles.headerContainer, 
+        { 
+          height: HEADER_HEIGHT, 
+          borderBottomColor: isDark ? '#333333' : '#eeeeee' 
+        }
+      ]}>
         <TouchableOpacity onPress={handlePrevMonth} style={styles.headerButton}>
           <Text style={[styles.headerButtonText, { color: isDark ? '#4e7bd4' : '#3c66af' }]}>{'<'}</Text>
         </TouchableOpacity>
@@ -161,10 +182,14 @@ const Calendar = ({
     const dayNames = Array.from({ length: 7 }, (_, i) => getKoreanDayName(i));
     
     return (
-      <View style={[styles.dayNamesContainer, { 
-        borderBottomColor: isDark ? '#333333' : '#eeeeee',
-        backgroundColor: isDark ? '#1e1e1e' : '#f9f9f9'
-      }]}>
+      <View style={[
+        styles.dayNamesContainer, 
+        { 
+          height: DAY_NAMES_HEIGHT,
+          borderBottomColor: isDark ? '#333333' : '#eeeeee',
+          backgroundColor: isDark ? '#1e1e1e' : '#f9f9f9'
+        }
+      ]}>
         {dayNames.map((day, index) => (
           <View key={index} style={[styles.dayNameCell, { width: dayWidth }]}>
             <Text style={[
@@ -195,6 +220,10 @@ const Calendar = ({
     
     // 해당 날짜의 이벤트 가져오기
     const dayEvents = events[formattedDate] || [];
+    
+    // 셀 높이에 따라 표시할 이벤트 수 조정
+    // 셀 높이가 작을 때는 더 적은 이벤트 표시
+    const maxEventsToShow = cellHeight < 55 ? 1 : (cellHeight < 70 ? 2 : 3);
     
     return (
       <TouchableOpacity
@@ -228,24 +257,11 @@ const Calendar = ({
             {dayOfMonth}
           </Text>
           
-          {holiday && (
-            <Text style={[
-              styles.holidayName, 
-              { color: isDark ? '#ff6b6b' : '#ff3b30' },
-              holiday.isAlternative && { 
-                color: isDark ? '#ff8a80' : '#ff6a4a' 
-              }
-            ]} numberOfLines={1} ellipsizeMode="tail">
-              {holiday.name}
-            </Text>
-          )}
-          
-          {/* 이벤트 표시 (최대 3개) */}
+          {/* 이벤트 표시 (동적으로 조정) */}
           <View style={styles.eventContainer}>
-            {dayEvents.slice(0, 3).map((calendarEvent, index) => (
+            {dayEvents.slice(0, maxEventsToShow).map((calendarEvent, index) => (
               <View 
                 key={index}
-
                 style={[
                   styles.eventIndicator,
                   { backgroundColor: calendarEvent.color || '#3c66af' }
@@ -258,9 +274,9 @@ const Calendar = ({
             ))}
             
             {/* 더 많은 이벤트가 있는 경우 +N 표시 */}
-            {dayEvents.length > 3 && (
+            {dayEvents.length > maxEventsToShow && (
               <Text style={[styles.moreEventsText, { color: isDark ? '#bbbbbb' : '#666666' }]}>
-                +{dayEvents.length - 3}
+                +{dayEvents.length - maxEventsToShow}
               </Text>
             )}
           </View>
@@ -273,45 +289,44 @@ const Calendar = ({
     <View style={[
       styles.container, 
       { 
-        width: calendarWidth, 
-        minHeight: cellHeight * weekCount + 100, // 헤더와 요일 행 포함한 최소 높이
-        backgroundColor: isDark ? '#1e1e1e' : '#ffffff',
-        shadowColor: isDark ? 'transparent' : '#000000'
+        width: calendarWidth,
+        backgroundColor: 'transparent', // 투명 배경
       }
     ]}>
       <CalendarHeader />
       <DayNames />
       
-      <FlatList
-        data={calendarDays}
-        renderItem={renderDay}
-        keyExtractor={(item) => item.formattedDate}
-        numColumns={7}
-        scrollEnabled={false}
-        contentContainerStyle={{ alignSelf: 'center' }}
-      />
+      <View style={styles.calendarBody}>
+        <FlatList
+          data={calendarDays}
+          renderItem={renderDay}
+          keyExtractor={(item) => item.formattedDate}
+          numColumns={7}
+          scrollEnabled={false}
+          contentContainerStyle={{ alignSelf: 'center' }}
+          initialNumToRender={42} // 최대 주 수 x 7 (모든 날짜 한 번에 렌더링)
+        />
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    // flex: 1 제거 - 필요한 크기만 차지하도록
+    borderRadius: 0,
+    shadowOffset: undefined,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
     overflow: 'hidden',
     alignSelf: 'center',
-    marginHorizontal: 10,
-    marginTop: 10,
-    marginBottom: 15
+    marginVertical: 0, // 마진 제거
   },
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
     paddingHorizontal: 10,
     borderBottomWidth: 1
   },
@@ -328,63 +343,45 @@ const styles = StyleSheet.create({
   },
   dayNamesContainer: {
     flexDirection: 'row',
-    borderBottomWidth: 1
+    borderBottomWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
   },
   dayNameCell: {
-    paddingVertical: 8,
+    justifyContent: 'center',
     alignItems: 'center'
   },
   dayNameText: {
     fontSize: 12,
     fontWeight: '600'
   },
+  calendarBody: {
+    // flex: 1 제거 - 필요한 크기만 차지하도록
+  },
   dayCell: {
-    padding: 2,
+    padding: 1,
     borderRightWidth: 0.5,
     borderBottomWidth: 0.5
   },
   dayContent: {
     flex: 1,
-    padding: 2
+    padding: 1
   },
   dayText: {
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: 1,
     fontWeight: '500'
-  },
-  outsideMonthCell: {
-  },
-  outsideMonthText: {
-  },
-  todayCell: {
-  },
-  todayText: {
-    fontWeight: 'bold'
-  },
-  sundayText: {
-  },
-  saturdayText: {
-  },
-  holidayText: {
-    fontWeight: 'bold'
-  },
-  holidayName: {
-    fontSize: 8,
-    marginBottom: 2,
-    textAlign: 'center'
-  },
-  alternativeHolidayName: {
-    fontStyle: 'italic'
   },
   eventContainer: {
     flex: 1,
-    marginTop: 2
+    marginTop: 1,
+    overflow: 'hidden'
   },
   eventIndicator: {
-    height: 14,
+    height: 13,
     borderRadius: 2,
-    marginBottom: 2,
+    marginBottom: 1,
     paddingHorizontal: 2,
     justifyContent: 'center'
   },
@@ -396,7 +393,7 @@ const styles = StyleSheet.create({
   moreEventsText: {
     fontSize: 8,
     textAlign: 'center',
-    marginTop: 2
+    marginTop: 1
   }
 });
 
