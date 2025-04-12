@@ -13,7 +13,6 @@
       "bundleIdentifier": "com.kangcoding.sharecalendar",
       "infoPlist": {
         "UIBackgroundModes": [
-          "remote-notification",
           "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
@@ -25,20 +24,9 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.kangcoding.sharecalendar",
-      "compileSdkVersion": 33,
-      "targetSdkVersion": 33,
-      "navigationBarColor": "#ffffff",
       "softwareKeyboardLayoutMode": "pan",
-      "androidNavigationBar": {
-        "backgroundColor": "#ffffff",
-        "barStyle": "dark-content"
-      },
       "googleServicesFile": "./google-services.json",
-      "useNextNotificationsApi": true,
-      "notification": {
-        "icon": "./assets/images/notification-icon.png",
-        "color": "#ffffff"
-      }
+      "permissions": ["NOTIFICATIONS"]
     },
     "web": {
       "bundler": "metro",
@@ -61,6 +49,14 @@
         {
           "icon": "./assets/images/notification-icon.png",
           "color": "#ffffff"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
         }
       ]
     ],

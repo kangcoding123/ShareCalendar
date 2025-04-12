@@ -9,22 +9,25 @@
       "distribution": "internal"
     },
     "preview": {
-      "distribution": "internal",
+      "distribution": "store",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
-      "autoIncrement": true,
-      "ios": {
-        "resourceClass": "m-medium",
-        "podfileProperties": {
-          "use_modular_headers": true
-        }
-      }
+      "autoIncrement": true
     }
   },
   "submit": {
-    "production": {}
+    "preview": {
+      "ios": {
+        "appleId": "gangseogju106@gmail.com",
+        "ascAppId": "6744455915",
+        "appleTeamId": "RT4A4DK429"
+      }
+    }
   }
 }
