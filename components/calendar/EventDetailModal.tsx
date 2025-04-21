@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { addEvent, updateEvent, deleteEvent, CalendarEvent } from '../../services/calendarService';
 import { Group } from '../../services/groupService';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, getMultiDayPosition } from '../../utils/dateUtils';
 import { scheduleEventNotification, cancelEventNotification } from '../../services/notificationService';
 import { TimeSlotPickerWithManual } from './TimeSlotPickerWithManual';
 
@@ -64,6 +64,9 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors }: EventItemProps) 
   // 현재 사용자가 작성자인지 확인
   const isCreator = event.userId === userId;
   
+  // 다일 일정인지 확인
+  const isMultiDay = event.isMultiDay && event.startDate !== event.endDate;
+  
   return (
     <View style={[styles.eventItem, { backgroundColor: colors.eventCardBackground }]}>
       <View style={[styles.eventColor, { backgroundColor: event.color || colors.tint }]} />
@@ -71,6 +74,13 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors }: EventItemProps) 
       <View style={styles.eventDetails}>
         <Text style={[styles.eventTitle, { color: colors.text }]}>{event.title}</Text>
         
+        {/* 다일 일정인 경우 기간 표시 */}
+        {isMultiDay && (
+          <Text style={[styles.eventDate, { color: colors.lightGray }]}>
+            {formatDate(new Date(event.startDate), 'yyyy-MM-dd')} ~ {formatDate(new Date(event.endDate), 'yyyy-MM-dd')}
+          </Text>
+        )}
+
         {/* 시간 표시 */}
         {event.time && (
           <Text style={[styles.eventTime, { color: colors.lightGray }]}>
@@ -90,6 +100,15 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors }: EventItemProps) 
               {event.groupName || '개인 일정'}
             </Text>
           </View>
+          
+          {/* 다일 일정 배지 추가 */}
+          {isMultiDay && (
+            <View style={[styles.eventBadge, { backgroundColor: colors.tint + '20' }]}>
+              <Text style={[styles.eventBadgeText, { color: colors.tint }]}>
+                다일 일정
+              </Text>
+            </View>
+          )}
           
           {/* 알림 표시 */}
           {event.notificationEnabled && (
@@ -152,6 +171,14 @@ const EventForm = ({
   const [timePickerVisible, setTimePickerVisible] = useState(false);
   const [time, setTime] = useState(event?.time || null);
   
+  // 날짜 관련 상태 추가 - 다일 일정 지원
+  const [startDate, setStartDate] = useState(event?.startDate || selectedDate.formattedDate);
+  const [endDate, setEndDate] = useState(event?.endDate || selectedDate.formattedDate);
+  const [isMultiDay, setIsMultiDay] = useState(event?.isMultiDay || false);
+  
+  // 날짜 선택 UI 상태
+  const [datePickerMode, setDatePickerMode] = useState<'start' | 'end' | null>(null);
+  
   // 그룹 선택 상태를 배열로 변경 (단순화)
   const [selectedGroups, setSelectedGroups] = useState<string[]>(
     event?.groupId ? [event.groupId] : ['personal']
@@ -159,6 +186,20 @@ const EventForm = ({
   
   // 알림 상태는 항상 비활성화
   const [enableNotification, setEnableNotification] = useState(false);
+  
+  // 간단한 날짜 증가/감소 함수 추가
+  const incrementDate = (date: string, days: number): string => {
+    const newDate = new Date(date);
+    newDate.setDate(newDate.getDate() + days);
+    return formatDate(newDate, 'yyyy-MM-dd');
+  };
+  
+  // 다일 일정 여부가 변경될 때 종료일 초기화
+  useEffect(() => {
+    if (!isMultiDay) {
+      setEndDate(startDate);
+    }
+  }, [isMultiDay, startDate]);
   
   // 시간 선택 핸들러
   const handleTimeSelected = (selectedTime: string | null) => {
@@ -186,6 +227,27 @@ const EventForm = ({
     });
   };
   
+  // 날짜 선택 핸들러
+  const handleDateSelect = (dateString: string) => {
+    if (datePickerMode === 'start') {
+      setStartDate(dateString);
+      // 시작일이 종료일보다 늦은 경우 종료일도 시작일로 설정
+      if (new Date(dateString) > new Date(endDate)) {
+        setEndDate(dateString);
+      }
+    } else if (datePickerMode === 'end') {
+      // 종료일이 시작일보다 빠른 경우 시작일로 설정
+      if (new Date(dateString) < new Date(startDate)) {
+        setEndDate(startDate);
+      } else {
+        setEndDate(dateString);
+      }
+    }
+    
+    // 날짜 선택 모드 초기화
+    setDatePickerMode(null);
+  };
+  
   const handleSubmit = () => {
     if (!title.trim()) {
       Alert.alert('알림', '일정 제목을 입력해주세요.');
@@ -197,6 +259,12 @@ const EventForm = ({
       return;
     }
     
+    // 종료일 검증
+    if (isMultiDay && new Date(endDate) < new Date(startDate)) {
+      Alert.alert('알림', '종료일은 시작일보다 빠를 수 없습니다.');
+      return;
+    }
+    
     // 기존 이벤트를 업데이트하는 경우
     if (event?.id) {
       // 단일 그룹만 편집 가능 (기존 구조 유지)
@@ -204,7 +272,9 @@ const EventForm = ({
         id: event.id,
         title: title.trim(),
         description: description.trim() || null,
-        date: selectedDate.formattedDate,
+        startDate: startDate,
+        endDate: isMultiDay ? endDate : startDate,
+        isMultiDay: isMultiDay,
         time: time || null,
         groupId: selectedGroups[0], // 첫 번째 선택된 그룹을 사용
         groupName: selectedGroups[0] === 'personal' 
@@ -228,7 +298,9 @@ const EventForm = ({
       const eventData: CalendarEvent = {
         title: title.trim(),
         description: description.trim() || null,
-        date: selectedDate.formattedDate,
+        startDate: startDate,
+        endDate: isMultiDay ? endDate : startDate,
+        isMultiDay: isMultiDay,
         time: time || null,
         groupId: mainGroupId,
         groupName: mainGroupId === 'personal' 
@@ -276,6 +348,89 @@ const EventForm = ({
           value={title}
           onChangeText={setTitle}
         />
+        
+        {/* 날짜 선택 UI - 다일 일정 지원 (수정됨) */}
+        <View style={styles.formGroup}>
+          <Text style={[styles.formLabel, { color: colors.text }]}>날짜</Text>
+          
+          <View style={styles.datePickerContainer}>
+            <View style={styles.dateField}>
+              <Text style={[styles.dateLabel, { color: colors.lightGray }]}>시작일</Text>
+              <View style={styles.dateControlRow}>
+                <TouchableOpacity
+                  style={[styles.dateControlButton, { backgroundColor: colors.secondary }]}
+                  onPress={() => setStartDate(incrementDate(startDate, -1))}
+                >
+                  <Text style={{ color: colors.text }}>-</Text>
+                </TouchableOpacity>
+                
+                <View
+                  style={[styles.dateButton, { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder }]}
+                >
+                  <Text style={[styles.dateButtonText, { color: colors.text }]}>
+                    {formatDate(new Date(startDate), 'yyyy년 MM월 dd일')}
+                  </Text>
+                </View>
+                
+                <TouchableOpacity
+                  style={[styles.dateControlButton, { backgroundColor: colors.secondary }]}
+                  onPress={() => setStartDate(incrementDate(startDate, 1))}
+                >
+                  <Text style={{ color: colors.text }}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            
+            {isMultiDay && (
+              <View style={styles.dateField}>
+                <Text style={[styles.dateLabel, { color: colors.lightGray }]}>종료일</Text>
+                <View style={styles.dateControlRow}>
+                  <TouchableOpacity
+                    style={[styles.dateControlButton, { backgroundColor: colors.secondary }]}
+                    onPress={() => {
+                      const newDate = incrementDate(endDate, -1);
+                      if (new Date(newDate) >= new Date(startDate)) {
+                        setEndDate(newDate);
+                      }
+                    }}
+                  >
+                    <Text style={{ color: colors.text }}>-</Text>
+                  </TouchableOpacity>
+                  
+                  <View
+                    style={[styles.dateButton, { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder }]}
+                  >
+                    <Text style={[styles.dateButtonText, { color: colors.text }]}>
+                      {formatDate(new Date(endDate), 'yyyy년 MM월 dd일')}
+                    </Text>
+                  </View>
+                  
+                  <TouchableOpacity
+                    style={[styles.dateControlButton, { backgroundColor: colors.secondary }]}
+                    onPress={() => setEndDate(incrementDate(endDate, 1))}
+                  >
+                    <Text style={{ color: colors.text }}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+          
+          <View style={styles.multiDayToggle}>
+            <Text style={[styles.toggleLabel, { color: colors.text }]}>다일 일정</Text>
+            <Switch
+              value={isMultiDay}
+              onValueChange={(value) => {
+                setIsMultiDay(value);
+                if (!value) {
+                  setEndDate(startDate); // 다일 일정이 아닌 경우 종료일을 시작일과 동일하게 설정
+                }
+              }}
+              trackColor={{ false: colors.inputBorder, true: colors.tint + '80' }}
+              thumbColor={isMultiDay ? colors.tint : colors.secondary}
+            />
+          </View>
+        </View>
         
         {/* 시간 선택 UI */}
         <Text style={[styles.formLabel, { color: colors.text }]}>일시</Text>
@@ -736,6 +891,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 3
   },
+  eventDate: {
+    fontSize: 14,
+    marginBottom: 3
+  },
   eventDescription: {
     fontSize: 14,
     marginBottom: 5
@@ -764,7 +923,7 @@ const styles = StyleSheet.create({
   eventCreatorText: {
     fontSize: 12
   },
-  // 알림 배지 스타일 추가
+  // 알림 배지 스타일
   notificationBadge: {
     borderRadius: 4,
     paddingHorizontal: 6,
@@ -773,6 +932,17 @@ const styles = StyleSheet.create({
     marginBottom: 4
   },
   notificationBadgeText: {
+    fontSize: 12,
+  },
+  // 다일 일정 배지 스타일
+  eventBadge: {
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginRight: 8,
+    marginBottom: 4
+  },
+  eventBadgeText: {
     fontSize: 12,
   },
   eventActions: {
@@ -819,6 +989,9 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 15
   },
+  formGroup: {
+    marginBottom: 15
+  },
   formLabel: {
     fontSize: 14,
     fontWeight: '600',
@@ -834,6 +1007,53 @@ const styles = StyleSheet.create({
   textArea: {
     minHeight: 100
   },
+  // 날짜 선택 스타일
+  datePickerContainer: {
+    flexDirection: 'column',
+    marginBottom: 10
+  },
+  dateField: {
+    marginBottom: 10
+  },
+  dateLabel: {
+    fontSize: 12,
+    marginBottom: 5
+  },
+  dateControlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  dateControlButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dateButton: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 10
+  },
+  dateButtonText: {
+    fontSize: 14
+  },
+  multiDayToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 5
+  },
+  toggleLabel: {
+    fontSize: 14,
+    fontWeight: '500'
+  },
+  // 그룹 선택 스타일
   groupSelector: {
     flexDirection: 'column', // 세로 방향으로 변경
     marginBottom: 10

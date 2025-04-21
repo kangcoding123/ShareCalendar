@@ -19,7 +19,8 @@ import {
   getCalendarDays, 
   formatDate, 
   getKoreanDayName,
-  CalendarDay
+  CalendarDay,
+  getMultiDayPosition
 } from '../../utils/dateUtils';
 
 // 타입 및 서비스 가져오기
@@ -221,9 +222,29 @@ const Calendar = ({
     // 해당 날짜의 이벤트 가져오기
     const dayEvents = events[formattedDate] || [];
     
+    // 각 이벤트에 다일 일정 위치 정보 추가
+    const eventsWithPositions = dayEvents.map(event => {
+      if (event.isMultiDay && event.startDate !== event.endDate) {
+        const position = getMultiDayPosition(formattedDate, event.startDate, event.endDate);
+        return {
+          ...event,
+          multiDayPosition: position
+        };
+      }
+      return {
+        ...event,
+        multiDayPosition: 'single'
+      };
+    });
+    
     // 셀 높이에 따라 표시할 이벤트 수 조정
     // 셀 높이가 작을 때는 더 적은 이벤트 표시
-    const maxEventsToShow = cellHeight < 55 ? 1 : (cellHeight < 70 ? 2 : 3);
+    const maxEventsToShow = cellHeight < 60 ? 2 : (cellHeight < 80 ? 3 : 5);
+    
+    // 디버깅 로그 (개발 중에만 사용)
+    if (__DEV__ && formattedDate === '2025-04-17' && dayEvents.length > 0) {
+      console.log(`셀 높이: ${cellHeight.toFixed(1)}px, 이벤트 수: ${dayEvents.length}, 표시: ${Math.min(maxEventsToShow, dayEvents.length)}`);
+    }
     
     return (
       <TouchableOpacity
@@ -259,11 +280,15 @@ const Calendar = ({
           
           {/* 이벤트 표시 (동적으로 조정) */}
           <View style={styles.eventContainer}>
-            {dayEvents.slice(0, maxEventsToShow).map((calendarEvent, index) => (
+            {eventsWithPositions.slice(0, maxEventsToShow).map((calendarEvent, index) => (
               <View 
                 key={index}
                 style={[
                   styles.eventIndicator,
+                  // 다일 일정 스타일 적용
+                  calendarEvent.isMultiDay && calendarEvent.multiDayPosition === 'start' && styles.eventStart,
+                  calendarEvent.isMultiDay && calendarEvent.multiDayPosition === 'middle' && styles.eventMiddle,
+                  calendarEvent.isMultiDay && calendarEvent.multiDayPosition === 'end' && styles.eventEnd,
                   { backgroundColor: calendarEvent.color || '#3c66af' }
                 ]}
               >
@@ -384,6 +409,30 @@ const styles = StyleSheet.create({
     marginBottom: 1,
     paddingHorizontal: 2,
     justifyContent: 'center'
+  },
+  // 다일 일정을 위한 스타일 추가
+  eventStart: {
+    borderTopLeftRadius: 2,
+    borderBottomLeftRadius: 2,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    marginRight: 0,
+    paddingRight: 4
+  },
+  eventMiddle: {
+    borderRadius: 0,
+    marginLeft: 0,
+    marginRight: 0,
+    paddingLeft: 4,
+    paddingRight: 4
+  },
+  eventEnd: {
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderTopRightRadius: 2,
+    borderBottomRightRadius: 2,
+    marginLeft: 0,
+    paddingLeft: 4
   },
   eventText: {
     fontSize: 8,

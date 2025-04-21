@@ -59,15 +59,36 @@ export const formatDate = (date: Date | string, formatStr = 'yyyy년 MM월 dd일
  * @param {Array} events - 이벤트 배열
  * @returns {Object} 날짜별 이벤트 맵
  */
-export const groupEventsByDate = <T extends { date: string }>(events: T[]): Record<string, T[]> => {
-  return events.reduce((acc: Record<string, T[]>, event) => {
-    const date = event.date.split('T')[0];
-    if (!acc[date]) {
-      acc[date] = [];
+export const groupEventsByDate = <T extends { startDate: string; endDate?: string; isMultiDay?: boolean }>(events: T[]): Record<string, T[]> => {
+  const result: Record<string, T[]> = {};
+  
+  events.forEach(event => {
+    // 기본값 설정
+    const startDate = event.startDate;
+    const endDate = event.endDate || event.startDate;
+    const isMultiDay = event.isMultiDay || (startDate !== endDate);
+    
+    if (isMultiDay) {
+      // 다일 일정인 경우 모든 날짜에 추가
+      const allDates = getDatesBetween(startDate, endDate);
+      
+      allDates.forEach(date => {
+        if (!result[date]) {
+          result[date] = [];
+        }
+        result[date].push(event);
+      });
+    } else {
+      // 단일 일정인 경우 시작일에만 추가
+      const date = startDate.split('T')[0]; // ISO 형식 지원
+      if (!result[date]) {
+        result[date] = [];
+      }
+      result[date].push(event);
     }
-    acc[date].push(event);
-    return acc;
-  }, {});
+  });
+  
+  return result;
 };
 
 /**
@@ -78,4 +99,55 @@ export const groupEventsByDate = <T extends { date: string }>(events: T[]): Reco
 export const getKoreanDayName = (dayIndex: number): string => {
   const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
   return dayNames[dayIndex];
+};
+
+/**
+ * 두 날짜 사이의 모든 날짜를 YYYY-MM-DD 형식의 문자열 배열로 반환
+ * @param startDate 시작일
+ * @param endDate 종료일
+ * @returns 날짜 문자열 배열
+ */
+export const getDatesBetween = (startDate: string, endDate: string): string[] => {
+  const dates: string[] = [];
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  
+  // 종료일이 시작일보다 빠르면 시작일만 반환
+  if (end < start) {
+    return [startDate];
+  }
+  
+  // 시작일부터 종료일까지 모든 날짜 추가
+  const current = new Date(start);
+  while (current <= end) {
+    dates.push(format(current, 'yyyy-MM-dd'));
+    current.setDate(current.getDate() + 1);
+  }
+  
+  return dates;
+};
+
+/**
+ * 다일 일정의 각 날짜에 대한 위치 정보 반환
+ * @param date 현재 날짜
+ * @param startDate 시작일
+ * @param endDate 종료일
+ * @returns 'start' | 'middle' | 'end' | 'single'
+ */
+export const getMultiDayPosition = (
+  date: string, 
+  startDate: string, 
+  endDate: string
+): 'start' | 'middle' | 'end' | 'single' => {
+  if (startDate === endDate) return 'single';
+  if (date === startDate) return 'start';
+  if (date === endDate) return 'end';
+  
+  const dateObj = new Date(date);
+  const startObj = new Date(startDate);
+  const endObj = new Date(endDate);
+  
+  if (dateObj > startObj && dateObj < endObj) return 'middle';
+  
+  return 'single'; // 기본값
 };

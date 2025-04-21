@@ -3,7 +3,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import 'react-native-reanimated';
 import { Platform, StatusBar as RNStatusBar, NativeModules, AppState, AppStateStatus, Alert } from 'react-native';
 import * as Notifications from 'expo-notifications'; 
@@ -14,6 +14,8 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { testLocalNotification } from '@/services/notificationService';
+import UpdatePopup from '../components/UpdatePopup';
+import { checkForUpdates } from '../services/updateService';
 
 // 알림 채널 생성 함수
 const createNotificationChannel = () => {
@@ -25,37 +27,7 @@ const createNotificationChannel = () => {
       lightColor: '#3c66af',
     });
     
-    // 테스트 알림 표시 함수 - 수정된 버전
-    const sendTestNotification = async () => {
-      try {
-        // 방법 1: 직접 import한 경우
-        const result = await testLocalNotification();
-        
-        // 또는 방법 2: 모듈 전체를 import한 경우
-        // const result = await NotificationService.testLocalNotification();
-        
-        console.log("테스트 알림 전송 결과:", result);
-      } catch (error) {
-        console.error("테스트 알림 전송 실패:", error);
-      }
-    };
-    
-    // 앱 설치 후 첫 실행 시에만 테스트 알림 보내기
-    const checkAndSendTestNotification = async () => {
-      try {
-        const { status } = await Notifications.getPermissionsAsync();
-        if (status === 'granted') {
-          // 설정에서 알림 상태를 확인할 수 있도록 테스트 알림 전송
-          setTimeout(() => {
-            sendTestNotification();
-          }, 3000); // 앱 실행 3초 후 테스트 알림 전송
-        }
-      } catch (error) {
-        console.error("알림 권한 확인 실패:", error);
-      }
-    };
-    
-    checkAndSendTestNotification();
+    // 테스트 알림 코드 제거됨
   }
 };
 
@@ -85,6 +57,41 @@ function RootLayoutNav() {
   
   // 앱 상태 관리 (추가)
   const appState = useRef(AppState.currentState);
+  
+  // 업데이트 관련 상태 추가
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [requiredUpdate, setRequiredUpdate] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<any>(null);
+  
+  // 앱 시작 시 업데이트 체크
+  useEffect(() => {
+    const checkAppUpdates = async () => {
+      try {
+        const result = await checkForUpdates();
+        
+        if (result.updateAvailable) {
+          setUpdateAvailable(true);
+          setRequiredUpdate(result.requiredUpdate);
+          setVersionInfo(result.versionInfo);
+          console.log('업데이트가 필요합니다:', result.versionInfo);
+        } else {
+          console.log('앱이 최신 버전입니다');
+        }
+      } catch (error) {
+        console.error('업데이트 체크 오류:', error);
+      }
+    };
+    
+    // 인증 완료 후 업데이트 체크 (선택적)
+    if (!authLoading) {
+      checkAppUpdates();
+    }
+  }, [authLoading]);
+  
+  // 함수 추가 - 업데이트 팝업 닫기
+  const handleCloseUpdatePopup = () => {
+    setUpdateAvailable(false);
+  };
 
   useEffect(() => {
     // 상태바 스타일 직접 설정
@@ -202,6 +209,16 @@ function RootLayoutNav() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
+      
+      {/* 업데이트 팝업 추가 */}
+      {updateAvailable && versionInfo && (
+        <UpdatePopup
+          visible={updateAvailable}
+          versionInfo={versionInfo}
+          isRequired={requiredUpdate}
+          onClose={handleCloseUpdatePopup}
+        />
+      )}
     </ThemeProvider>
   );
 }

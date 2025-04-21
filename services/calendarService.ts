@@ -1,4 +1,4 @@
-// services/calendarService.ts (단순화된 다중 그룹 지원)
+// services/calendarService.ts (다일 일정 지원 버전)
 import { 
   collection, 
   addDoc, 
@@ -14,13 +14,18 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { sendGroupNotification } from './notificationService';
+import { getDatesBetween } from '../utils/dateUtils';
 
-// 타입 정의 수정 - 다중 그룹 지원을 위한 필드 추가
+// 타입 정의 수정 - 다일 일정 지원을 위한 필드 추가
 export interface CalendarEvent {
   id?: string;
   title: string;
   description?: string | null;
-  date: string;
+  // 다일 일정을 위한 변경
+  startDate: string;           // 시작일 (YYYY-MM-DD 형식)
+  endDate: string;             // 종료일 (YYYY-MM-DD 형식)
+  isMultiDay?: boolean;        // 다일 일정 여부
+  // 기존 필드는 그대로 유지
   time?: string | null;
   userId?: string;
   groupId: string;
@@ -33,7 +38,7 @@ export interface CalendarEvent {
   notificationEnabled?: boolean | null;
   notificationMinutesBefore?: number | null;
   notificationId?: string | null;
-  // 다중 그룹 지원을 위한 필드 추가
+  // 다중 그룹 지원 필드
   targetGroupIds?: string[];    // 이벤트가 공유된 모든 그룹 ID
   isSharedEvent?: boolean;      // 여러 그룹에 공유된 이벤트인지 여부
 }
@@ -193,11 +198,28 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
     if (!eventData.title) {
       return { success: false, error: 'title is required' };
     }
-    if (!eventData.date) {
-      return { success: false, error: 'date is required' };
+    if (!eventData.startDate) {
+      return { success: false, error: 'startDate is required' };
     }
     if (!eventData.groupId) {
       return { success: false, error: 'groupId is required' };
+    }
+    
+    // 다일 일정 확인 및 endDate 설정
+    if (!eventData.endDate) {
+      eventData.endDate = eventData.startDate;
+      eventData.isMultiDay = false;
+    }
+    
+    // 종료일이 시작일보다 빠른 경우 시작일로 설정
+    if (new Date(eventData.endDate) < new Date(eventData.startDate)) {
+      eventData.endDate = eventData.startDate;
+      eventData.isMultiDay = false;
+    }
+    
+    // 다일 일정 여부 설정
+    if (eventData.startDate !== eventData.endDate) {
+      eventData.isMultiDay = true;
     }
     
     // id 필드가 있으면 제거
@@ -234,10 +256,16 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
           }
         }
         
-        // 알림 메시지 구성 - 다중 그룹 공유 정보 포함
+        // 알림 메시지 구성
         let notificationTitle = `새 일정: ${eventData.title}`;
         let notificationBody = `${creatorName}님이 ${groupName} 그룹에 새 일정을 추가했습니다.`;
         
+        // 다일 일정인 경우 메시지에 표시
+        if (eventData.isMultiDay) {
+          notificationBody += ` (${eventData.startDate} ~ ${eventData.endDate})`;
+        }
+        
+        // 다중 그룹 공유 메시지 추가
         if (eventData.isSharedEvent && eventData.targetGroupIds && eventData.targetGroupIds.length > 1) {
           notificationBody += ` (${eventData.targetGroupIds.length}개 그룹에 공유됨)`;
         }
@@ -251,7 +279,7 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
             type: 'new_event',
             eventId: docRef.id,
             groupId: eventData.groupId,
-            date: eventData.date
+            date: eventData.startDate
           },
           eventData.userId // 작성자는 알림에서 제외
         );
@@ -280,6 +308,25 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
     // 이전 이벤트 데이터 가져오기 (변경 내용 알림용)
     const eventDoc = await getDoc(eventRef);
     const oldEventData = eventDoc.exists() ? eventDoc.data() : null;
+    
+    // 다일 일정 처리
+    if (!eventData.endDate) {
+      eventData.endDate = eventData.startDate;
+      eventData.isMultiDay = false;
+    }
+    
+    // 종료일이 시작일보다 빠른 경우 시작일로 설정
+    if (new Date(eventData.endDate) < new Date(eventData.startDate)) {
+      eventData.endDate = eventData.startDate;
+      eventData.isMultiDay = false;
+    }
+    
+    // 다일 일정 여부 설정
+    if (eventData.startDate !== eventData.endDate) {
+      eventData.isMultiDay = true;
+    } else {
+      eventData.isMultiDay = false;
+    }
     
     // id 필드 제거
     const { id, ...dataToUpdate } = eventData;
@@ -319,14 +366,9 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
           } catch (error) {
             console.error('사용자 정보 가져오기 오류:', error);
           }
-        } else {
-          console.log('이벤트에 userId가 없음');
-          
-          // userId가 없는 경우 이벤트 생성자 정보 시도
-          if (eventData.createdByName) {
-            updaterName = eventData.createdByName;
-            console.log(`이벤트의 createdByName 사용: ${updaterName}`);
-          }
+        } else if (eventData.createdByName) {
+          updaterName = eventData.createdByName;
+          console.log(`이벤트의 createdByName 사용: ${updaterName}`);
         }
         
         // 변경된 내용 확인
@@ -334,8 +376,13 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
         if (oldEventData) {
           if (eventData.title !== oldEventData.title) {
             changeDescription = "제목이 변경되었습니다.";
-          } else if (eventData.date !== oldEventData.date) {
-            changeDescription = "날짜가 변경되었습니다.";
+          } else if (eventData.startDate !== oldEventData.startDate || eventData.endDate !== oldEventData.endDate) {
+            // 다일 일정 변경 설명 개선
+            if (eventData.isMultiDay) {
+              changeDescription = `기간이 변경되었습니다. (${eventData.startDate} ~ ${eventData.endDate})`;
+            } else {
+              changeDescription = `날짜가 변경되었습니다. (${eventData.startDate})`;
+            }
           } else if (eventData.time !== oldEventData.time) {
             changeDescription = "시간이 변경되었습니다.";
           } else if (eventData.description !== oldEventData.description) {
@@ -360,7 +407,7 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
             type: 'update_event',
             eventId: eventId,
             groupId: eventData.groupId,
-            date: eventData.date
+            date: eventData.startDate
           },
           eventData.userId // 수정한 사용자는 알림에서 제외
         );
@@ -417,15 +464,21 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
           console.log(`이벤트의 createdByName 사용: ${deleterName}`);
         }
         
+        // 다일 일정 정보 추가
+        let dateInfo = '';
+        if (eventData.isMultiDay) {
+          dateInfo = ` (${eventData.startDate} ~ ${eventData.endDate})`;
+        }
+        
         // 알림 전송
         await sendGroupNotification(
           eventData.groupId,
           `일정 삭제: ${eventData.title}`,
-          `${deleterName}님이 ${groupName} 그룹의 일정을 삭제했습니다.`,
+          `${deleterName}님이 ${groupName} 그룹의 일정을 삭제했습니다.${dateInfo}`,
           { 
             type: 'delete_event',
             groupId: eventData.groupId,
-            date: eventData.date
+            date: eventData.startDate
           },
           eventData.userId // 삭제한 사용자는 알림에서 제외
         );
@@ -495,10 +548,22 @@ export const getUserEvents = async (userId: string): Promise<EventResult> => {
           // 그룹 색상 적용 - 사용자별 설정 색상 사용
           const color = groupColors[groupId] || data.color || '#4CAF50';
           
+          // 다일 일정 데이터 검증 및 수정
+          let startDate = data.startDate || data.date || '';  // 이전 버전 호환성 (date 필드)
+          let endDate = data.endDate || startDate;
+          let isMultiDay = data.isMultiDay || startDate !== endDate;
+          
+          // 잘못된 날짜 데이터 수정
+          if (!startDate) startDate = endDate;
+          if (!endDate) endDate = startDate;
+          if (new Date(endDate) < new Date(startDate)) endDate = startDate;
+          
           eventMap[eventId] = {
             id: eventId,
             title: data.title || '',
-            date: data.date || '',
+            startDate,
+            endDate,
+            isMultiDay,
             groupId: data.groupId || 'personal',
             ...data,
             color // 사용자가 설정한 그룹 색상으로 덮어쓰기
@@ -522,10 +587,22 @@ export const getUserEvents = async (userId: string): Promise<EventResult> => {
       
       // 개인 일정은 그룹 일정과 중복되지 않음
       if (!eventMap[eventId]) {
+        // 다일 일정 데이터 검증 및 수정
+        let startDate = data.startDate || data.date || '';  // 이전 버전 호환성 (date 필드)
+        let endDate = data.endDate || startDate;
+        let isMultiDay = data.isMultiDay || startDate !== endDate;
+        
+        // 잘못된 날짜 데이터 수정
+        if (!startDate) startDate = endDate;
+        if (!endDate) endDate = startDate;
+        if (new Date(endDate) < new Date(startDate)) endDate = startDate;
+        
         eventMap[eventId] = {
           id: eventId,
           title: data.title || '',
-          date: data.date || '',
+          startDate,
+          endDate,
+          isMultiDay,
           groupId: data.groupId || 'personal',
           ...data
         } as CalendarEvent;
@@ -582,4 +659,37 @@ export const subscribeToUserEvents = (
     }
     unsubscribe();
   };
+};
+
+/**
+ * 다일 일정에 대한 각 날짜별 이벤트 데이터 생성
+ * @param event 원본 이벤트
+ * @returns 날짜별 이벤트 배열
+ */
+export const expandMultiDayEvent = (event: CalendarEvent): Record<string, CalendarEvent> => {
+  const result: Record<string, CalendarEvent> = {};
+  
+  if (!event.isMultiDay || !event.startDate || !event.endDate || event.startDate === event.endDate) {
+    // 단일 일정은 그대로 반환
+    result[event.startDate] = { ...event };
+    return result;
+  }
+  
+  // 시작일과 종료일 사이의 모든 날짜 가져오기
+  const dates = getDatesBetween(event.startDate, event.endDate);
+  
+  // 각 날짜에 대해 이벤트 복사본 생성
+  dates.forEach((date, index) => {
+    const position = 
+      index === 0 ? 'start' : 
+      index === dates.length - 1 ? 'end' : 'middle';
+    
+    result[date] = {
+      ...event,
+      // 각 날짜별 위치 정보 추가
+      multiDayPosition: position
+    } as CalendarEvent;
+  });
+  
+  return result;
 };
