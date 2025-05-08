@@ -19,6 +19,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { sendPasswordReset } from '../../services/authService';
+import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -39,6 +40,9 @@ export default function LoginScreen() {
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
   const [resetMessageType, setResetMessageType] = useState<'success' | 'error'>('success');
+  
+  // 개인정보처리방침 모달 상태 추가
+  const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
 
   // 디버깅용 정보 로그
   React.useEffect(() => {
@@ -198,6 +202,20 @@ export default function LoginScreen() {
                 <Text style={[styles.registerLink, { color: colors.tint }]}>회원가입</Text>
               </TouchableOpacity>
             </View>
+            
+            {/* 개인정보처리방침 안내 추가 */}
+            <View style={styles.privacyNotice}>
+              <Text style={[styles.privacyNoticeText, { color: colors.lightGray }]}>
+                계속 진행하면{' '}
+                <Text 
+                  style={{ color: colors.tint, textDecorationLine: 'underline' }}
+                  onPress={() => setPrivacyModalVisible(true)}
+                >
+                  개인정보처리방침
+                </Text>
+                에 동의하는 것으로 간주됩니다.
+              </Text>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -271,6 +289,12 @@ export default function LoginScreen() {
           </View>
         </View>
       </Modal>
+      
+      {/* 개인정보처리방침 모달 추가 */}
+      <PrivacyPolicyModal
+        visible={privacyModalVisible}
+        onClose={() => setPrivacyModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -410,5 +434,14 @@ const styles = StyleSheet.create({
   },
   submitButtonText: {
     fontWeight: '600'
-  }
+  },
+  // 개인정보처리방침 안내 스타일 추가
+  privacyNotice: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+  },
+  privacyNoticeText: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
 });

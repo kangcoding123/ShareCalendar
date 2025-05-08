@@ -12,7 +12,7 @@ import {
   Unsubscribe,
   getDoc
 } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { db, auth } from '../config/firebase';
 import { sendGroupNotification } from './notificationService';
 import { getDatesBetween } from '../utils/dateUtils';
 
@@ -58,6 +58,44 @@ const globalEventState = {
   subscription: null as Unsubscribe | null,
   lastUserId: null as string | null,
 };
+
+// 최근 제출 이벤트 캐시 (메모리 캐시)
+const recentSubmissions = new Map<string, number>();
+
+// 중복 이벤트 제출 감지 함수
+function isDuplicateSubmission(eventData: any): boolean {
+  // 필수 필드가 없으면 중복 체크 수행하지 않음
+  if (!eventData.userId || !eventData.groupId || !eventData.title || !eventData.startDate) {
+    return false;
+  }
+  
+  // 이벤트 데이터의 핵심 필드로 고유 키 생성
+  const key = `${eventData.userId}-${eventData.groupId}-${eventData.title}-${eventData.startDate}`;
+  const now = Date.now();
+  
+  // 최근 3초 이내 동일 키 제출 확인
+  if (recentSubmissions.has(key)) {
+    const lastSubmitTime = recentSubmissions.get(key) || 0;
+    if (now - lastSubmitTime < 3000) { // 3초 이내
+      console.log('중복 이벤트 감지, 제출 취소됨:', key);
+      return true;
+    }
+  }
+  
+  // 키 저장 및 오래된 항목 제거
+  recentSubmissions.set(key, now);
+  
+  // 맵 크기 제한 (메모리 사용량 관리)
+  if (recentSubmissions.size > 100) {
+    const oldestKey = recentSubmissions.keys().next().value;
+    // undefined 체크 추가
+    if (oldestKey !== undefined) {
+      recentSubmissions.delete(oldestKey);
+    }
+  }
+  
+  return false;
+}
 
 /**
  * 중앙 이벤트 구독 시스템
@@ -185,6 +223,72 @@ function removeUndefinedValues(data: Record<string, any>): Record<string, any> {
   }, {} as Record<string, any>);
 }
 
+// 알림 전송을 별도 비동기 함수로 분리
+async function sendEventNotificationsAsync(eventId: string, eventData: any) {
+  try {
+    // 필수 필드 확인
+    if (!eventData.groupId || !eventData.title) {
+      console.log('알림 전송에 필요한 필드가 없습니다:', { 
+        groupId: eventData.groupId, 
+        title: eventData.title 
+      });
+      return;
+    }
+    
+    // 그룹 정보 가져오기
+    const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
+    if (groupDoc.exists()) {
+      const groupName = groupDoc.data().name || '그룹';
+      
+      // 작성자 정보 가져오기
+      let creatorName = "회원";
+      if (eventData.userId) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', eventData.userId));
+          if (userDoc.exists()) {
+            creatorName = userDoc.data().displayName || creatorName;
+          }
+        } catch (error) {
+          console.error('사용자 정보 가져오기 오류:', error);
+        }
+      }
+      
+      // 알림 메시지 구성
+      let notificationTitle = `새 일정: ${eventData.title}`;
+      let notificationBody = `${creatorName}님이 ${groupName} 그룹에 새 일정을 추가했습니다.`;
+      
+      // 다일 일정인 경우 메시지에 표시
+      if (eventData.isMultiDay && eventData.startDate && eventData.endDate) {
+        notificationBody += ` (${eventData.startDate} ~ ${eventData.endDate})`;
+      }
+      
+      // 다중 그룹 공유 메시지 추가
+      if (eventData.isSharedEvent && eventData.targetGroupIds && eventData.targetGroupIds.length > 1) {
+        notificationBody += ` (${eventData.targetGroupIds.length}개 그룹에 공유됨)`;
+      }
+      
+      // 알림 전송
+      await sendGroupNotification(
+        eventData.groupId,
+        notificationTitle,
+        notificationBody,
+        { 
+          type: 'new_event',
+          eventId: eventId,
+          groupId: eventData.groupId,
+          date: eventData.startDate || ''
+        },
+        eventData.userId // 작성자는 알림에서 제외
+      );
+      
+      console.log('그룹 멤버들에게 새 일정 알림 전송 완료');
+    }
+  } catch (error) {
+    console.error('알림 전송 중 오류:', error);
+    // 알림 전송 실패해도 이벤트 추가는 성공한 것으로 간주
+  }
+}
+
 /**
  * 새 이벤트 추가
  * @param eventData - 이벤트 데이터 (id 제외)
@@ -194,36 +298,39 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
   try {
     console.log('Adding event to Firebase:', eventData);
     
-    // 필수 필드 확인
-    if (!eventData.title) {
-      return { success: false, error: 'title is required' };
-    }
-    if (!eventData.startDate) {
-      return { success: false, error: 'startDate is required' };
-    }
-    if (!eventData.groupId) {
-      return { success: false, error: 'groupId is required' };
+    // 필수 필드 확인 및 기본값 설정
+    const safeData = {
+      ...eventData,
+      title: eventData.title || '제목 없음',
+      startDate: eventData.startDate || new Date().toISOString().split('T')[0],
+      groupId: eventData.groupId || 'personal'
+    };
+    
+    // 중복 제출 감지
+    if (isDuplicateSubmission(safeData)) {
+      return { success: false, error: 'DUPLICATE_SUBMISSION' };
     }
     
     // 다일 일정 확인 및 endDate 설정
-    if (!eventData.endDate) {
-      eventData.endDate = eventData.startDate;
-      eventData.isMultiDay = false;
+    if (!safeData.endDate) {
+      safeData.endDate = safeData.startDate;
+      safeData.isMultiDay = false;
     }
     
     // 종료일이 시작일보다 빠른 경우 시작일로 설정
-    if (new Date(eventData.endDate) < new Date(eventData.startDate)) {
-      eventData.endDate = eventData.startDate;
-      eventData.isMultiDay = false;
+    if (new Date(safeData.endDate) < new Date(safeData.startDate)) {
+      safeData.endDate = safeData.startDate;
+      safeData.isMultiDay = false;
     }
     
     // 다일 일정 여부 설정
-    if (eventData.startDate !== eventData.endDate) {
-      eventData.isMultiDay = true;
+    if (safeData.startDate !== safeData.endDate) {
+      safeData.isMultiDay = true;
     }
     
+    
     // id 필드가 있으면 제거
-    const { id, ...dataWithoutId } = eventData as any;
+    const { id, ...dataWithoutId } = safeData as any;
     
     // undefined 값 제거 (Firestore에서 오류 방지)
     const cleanData = removeUndefinedValues(dataWithoutId);
@@ -237,55 +344,19 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
       cleanData.notificationId = null;
     }
     
+    // 작성자 이름이 없는 경우 현재 사용자의 이름으로 설정 (저장 전에 실행)
+    if (!cleanData.createdByName && auth.currentUser) {
+      cleanData.createdByName = auth.currentUser.displayName || '사용자';
+    }
+    
+    // Firestore에 저장
     const docRef = await addDoc(collection(db, 'events'), cleanData);
     console.log('Event added with ID:', docRef.id);
     
-    // 그룹 일정인 경우 멤버들에게 알림 전송
-    if (eventData.groupId && eventData.groupId !== 'personal') {
-      // 그룹 정보 가져오기
-      const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
-      if (groupDoc.exists()) {
-        const groupName = groupDoc.data().name || '그룹';
-        
-        // 작성자 정보 가져오기
-        let creatorName = "회원";
-        if (eventData.userId) {
-          const userDoc = await getDoc(doc(db, 'users', eventData.userId));
-          if (userDoc.exists()) {
-            creatorName = userDoc.data().displayName || creatorName;
-          }
-        }
-        
-        // 알림 메시지 구성
-        let notificationTitle = `새 일정: ${eventData.title}`;
-        let notificationBody = `${creatorName}님이 ${groupName} 그룹에 새 일정을 추가했습니다.`;
-        
-        // 다일 일정인 경우 메시지에 표시
-        if (eventData.isMultiDay) {
-          notificationBody += ` (${eventData.startDate} ~ ${eventData.endDate})`;
-        }
-        
-        // 다중 그룹 공유 메시지 추가
-        if (eventData.isSharedEvent && eventData.targetGroupIds && eventData.targetGroupIds.length > 1) {
-          notificationBody += ` (${eventData.targetGroupIds.length}개 그룹에 공유됨)`;
-        }
-        
-        // 알림 전송
-        await sendGroupNotification(
-          eventData.groupId,
-          notificationTitle,
-          notificationBody,
-          { 
-            type: 'new_event',
-            eventId: docRef.id,
-            groupId: eventData.groupId,
-            date: eventData.startDate
-          },
-          eventData.userId // 작성자는 알림에서 제외
-        );
-        
-        console.log('그룹 멤버들에게 새 일정 알림 전송 완료');
-      }
+    // 그룹 일정인 경우 알림 처리를 비동기로 실행
+    if (safeData.groupId && safeData.groupId !== 'personal') {
+      // 알림 전송을 별도 비동기 함수로 실행하고 기다리지 않음
+      sendEventNotificationsAsync(docRef.id, safeData);
     }
     
     return { success: true, eventId: docRef.id };
@@ -345,75 +416,77 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
     
     await updateDoc(eventRef, cleanData);
     
-    // 그룹 일정인 경우 멤버들에게 알림 전송 (수정된 부분)
+    // 그룹 일정인 경우 멤버들에게 알림 전송 (비동기 처리)
     if (eventData.groupId && eventData.groupId !== 'personal') {
-      // 그룹 정보 가져오기
-      const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
-      if (groupDoc.exists()) {
-        const groupName = groupDoc.data().name || '그룹';
-        
-        // 수정: 작성자 정보 가져오기 개선
-        let updaterName = "회원";
-        if (eventData.userId) {
-          try {
-            const userDoc = await getDoc(doc(db, 'users', eventData.userId));
-            if (userDoc.exists()) {
-              updaterName = userDoc.data().displayName || "회원";
-              console.log(`수정자 이름 가져옴: ${updaterName}`);
-            } else {
-              console.log(`사용자 문서가 존재하지 않음: ${eventData.userId}`);
+      // 비동기로 알림 처리를 위한 함수
+      (async () => {
+        try {
+          // 그룹 정보 가져오기
+          const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
+          if (groupDoc.exists()) {
+            const groupName = groupDoc.data().name || '그룹';
+            
+            // 수정: 작성자 정보 가져오기 개선
+            let updaterName = "회원";
+            if (eventData.userId) {
+              try {
+                const userDoc = await getDoc(doc(db, 'users', eventData.userId));
+                if (userDoc.exists()) {
+                  updaterName = userDoc.data().displayName || "회원";
+                }
+              } catch (error) {
+                console.error('사용자 정보 가져오기 오류:', error);
+              }
+            } else if (eventData.createdByName) {
+              updaterName = eventData.createdByName;
             }
-          } catch (error) {
-            console.error('사용자 정보 가져오기 오류:', error);
-          }
-        } else if (eventData.createdByName) {
-          updaterName = eventData.createdByName;
-          console.log(`이벤트의 createdByName 사용: ${updaterName}`);
-        }
-        
-        // 변경된 내용 확인
-        let changeDescription = "";
-        if (oldEventData) {
-          if (eventData.title !== oldEventData.title) {
-            changeDescription = "제목이 변경되었습니다.";
-          } else if (eventData.startDate !== oldEventData.startDate || eventData.endDate !== oldEventData.endDate) {
-            // 다일 일정 변경 설명 개선
-            if (eventData.isMultiDay) {
-              changeDescription = `기간이 변경되었습니다. (${eventData.startDate} ~ ${eventData.endDate})`;
-            } else {
-              changeDescription = `날짜가 변경되었습니다. (${eventData.startDate})`;
+            
+            // 변경된 내용 확인
+            let changeDescription = "";
+            if (oldEventData) {
+              if (eventData.title !== oldEventData.title) {
+                changeDescription = "제목이 변경되었습니다.";
+              } else if (eventData.startDate !== oldEventData.startDate || eventData.endDate !== oldEventData.endDate) {
+                // 다일 일정 변경 설명 개선
+                if (eventData.isMultiDay) {
+                  changeDescription = `기간이 변경되었습니다. (${eventData.startDate} ~ ${eventData.endDate})`;
+                } else {
+                  changeDescription = `날짜가 변경되었습니다. (${eventData.startDate})`;
+                }
+              } else if (eventData.time !== oldEventData.time) {
+                changeDescription = "시간이 변경되었습니다.";
+              } else if (eventData.description !== oldEventData.description) {
+                changeDescription = "내용이 변경되었습니다.";
+              } else {
+                changeDescription = "일정이 수정되었습니다.";
+              }
             }
-          } else if (eventData.time !== oldEventData.time) {
-            changeDescription = "시간이 변경되었습니다.";
-          } else if (eventData.description !== oldEventData.description) {
-            changeDescription = "내용이 변경되었습니다.";
-          } else {
-            changeDescription = "일정이 수정되었습니다.";
+            
+            // 다중 그룹 정보 표시
+            let groupInfo = "";
+            if (eventData.isSharedEvent && eventData.targetGroupIds && eventData.targetGroupIds.length > 1) {
+              groupInfo = ` (${eventData.targetGroupIds.length}개 그룹에 공유됨)`;
+            }
+            
+            // 알림 전송
+            await sendGroupNotification(
+              eventData.groupId,
+              `일정 수정: ${eventData.title}`,
+              `${updaterName}님이 ${groupName} 그룹의 일정을 수정했습니다.${groupInfo} ${changeDescription}`,
+              { 
+                type: 'update_event',
+                eventId: eventId,
+                groupId: eventData.groupId,
+                date: eventData.startDate || ''
+              },
+              eventData.userId // 수정한 사용자는 알림에서 제외
+            );
           }
+        } catch (error) {
+          console.error('알림 전송 중 오류:', error);
+          // 알림 실패해도 이벤트 업데이트는 성공으로 간주
         }
-        
-        // 다중 그룹 정보 표시
-        let groupInfo = "";
-        if (eventData.isSharedEvent && eventData.targetGroupIds && eventData.targetGroupIds.length > 1) {
-          groupInfo = ` (${eventData.targetGroupIds.length}개 그룹에 공유됨)`;
-        }
-        
-        // 알림 전송
-        await sendGroupNotification(
-          eventData.groupId,
-          `일정 수정: ${eventData.title}`,
-          `${updaterName}님이 ${groupName} 그룹의 일정을 수정했습니다.${groupInfo} ${changeDescription}`,
-          { 
-            type: 'update_event',
-            eventId: eventId,
-            groupId: eventData.groupId,
-            date: eventData.startDate
-          },
-          eventData.userId // 수정한 사용자는 알림에서 제외
-        );
-        
-        console.log('그룹 멤버들에게 일정 수정 알림 전송 완료');
-      }
+      })();
     }
     
     return { success: true };
@@ -438,53 +511,55 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
     // 삭제 실행
     await deleteDoc(eventRef);
     
-    // 그룹 일정인 경우 멤버들에게 알림 전송 (추가된 부분)
+    // 그룹 일정인 경우 멤버들에게 알림 전송 (비동기 처리)
     if (eventData && eventData.groupId && eventData.groupId !== 'personal') {
-      // 그룹 정보 가져오기
-      const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
-      if (groupDoc.exists()) {
-        const groupName = groupDoc.data().name || '그룹';
-        
-        // 삭제자 정보 가져오기
-        let deleterName = "회원";
-        if (eventData.userId) {
-          try {
-            const userDoc = await getDoc(doc(db, 'users', eventData.userId));
-            if (userDoc.exists()) {
-              deleterName = userDoc.data().displayName || "회원";
-              console.log(`삭제자 이름 가져옴: ${deleterName}`);
-            } else {
-              console.log(`사용자 문서가 존재하지 않음: ${eventData.userId}`);
+      // 비동기로 알림 처리
+      (async () => {
+        try {
+          // 그룹 정보 가져오기
+          const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
+          if (groupDoc.exists()) {
+            const groupName = groupDoc.data().name || '그룹';
+            
+            // 삭제자 정보 가져오기
+            let deleterName = "회원";
+            if (eventData.userId) {
+              try {
+                const userDoc = await getDoc(doc(db, 'users', eventData.userId));
+                if (userDoc.exists()) {
+                  deleterName = userDoc.data().displayName || "회원";
+                }
+              } catch (error) {
+                console.error('사용자 정보 가져오기 오류:', error);
+              }
+            } else if (eventData.createdByName) {
+              deleterName = eventData.createdByName;
             }
-          } catch (error) {
-            console.error('사용자 정보 가져오기 오류:', error);
+            
+            // 다일 일정 정보 추가
+            let dateInfo = '';
+            if (eventData.isMultiDay) {
+              dateInfo = ` (${eventData.startDate} ~ ${eventData.endDate})`;
+            }
+            
+            // 알림 전송
+            await sendGroupNotification(
+              eventData.groupId,
+              `일정 삭제: ${eventData.title}`,
+              `${deleterName}님이 ${groupName} 그룹의 일정을 삭제했습니다.${dateInfo}`,
+              { 
+                type: 'delete_event',
+                groupId: eventData.groupId,
+                date: eventData.startDate || ''
+              },
+              eventData.userId // 삭제한 사용자는 알림에서 제외
+            );
           }
-        } else if (eventData.createdByName) {
-          deleterName = eventData.createdByName;
-          console.log(`이벤트의 createdByName 사용: ${deleterName}`);
+        } catch (error) {
+          console.error('알림 전송 중 오류:', error);
+          // 알림 실패해도 이벤트 삭제는 성공으로 간주
         }
-        
-        // 다일 일정 정보 추가
-        let dateInfo = '';
-        if (eventData.isMultiDay) {
-          dateInfo = ` (${eventData.startDate} ~ ${eventData.endDate})`;
-        }
-        
-        // 알림 전송
-        await sendGroupNotification(
-          eventData.groupId,
-          `일정 삭제: ${eventData.title}`,
-          `${deleterName}님이 ${groupName} 그룹의 일정을 삭제했습니다.${dateInfo}`,
-          { 
-            type: 'delete_event',
-            groupId: eventData.groupId,
-            date: eventData.startDate
-          },
-          eventData.userId // 삭제한 사용자는 알림에서 제외
-        );
-        
-        console.log('그룹 멤버들에게 일정 삭제 알림 전송 완료');
-      }
+      })();
     }
     
     return { success: true };

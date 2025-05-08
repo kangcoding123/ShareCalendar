@@ -17,6 +17,7 @@ import { getDoc, doc, updateDoc } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
 import { db, auth } from '../../config/firebase';
 import { deleteAccount } from '../../services/authService';
+import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -38,6 +39,9 @@ export default function HomeScreen() {
   const [updatingProfile, setUpdatingProfile] = useState(false);
   const [userDetails, setUserDetails] = useState<any>(null);
   
+  // 개인정보처리방침 모달 상태 추가
+  const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+  
   // 이벤트 데이터 처리 함수 (분리된 로직)
   const processEvents = useCallback((events: CalendarEvent[]) => {
     if (!Array.isArray(events)) return;
@@ -50,16 +54,16 @@ export default function HomeScreen() {
     
     // 오늘 일정 필터링
     const todayEvts = events.filter((event: CalendarEvent) => {
-      return event.date === todayString;
+      return event.startDate === todayString;
     });
     
     setTodayEvents(todayEvts);
     
     // 다가오는 일정 필터링 (오늘 이후 날짜)
     const upcoming = events.filter((event: CalendarEvent) => {
-      return event.date > todayString;
+      return event.startDate > todayString;
     }).sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
+      new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
     );
     
     // 다가오는 일정 중 최대 5개만 표시
@@ -342,7 +346,7 @@ export default function HomeScreen() {
                 <View style={styles.eventInfo}>
                   <Text style={[styles.eventTitle, { color: colors.text }]}>{calendarEvent.title}</Text>
                   <Text style={[styles.eventDate, { color: colors.lightGray }]}>
-                    {formatDate(new Date(calendarEvent.date), 'MM월 dd일 (eee)')}
+                    {formatDate(new Date(calendarEvent.startDate), 'MM월 dd일 (eee)')}
                     {calendarEvent.time && ` ${calendarEvent.time}`} {/* 날짜와 시간 함께 표시 */}
                   </Text>
                   <Text style={[styles.eventGroup, { color: colors.darkGray }]}>{calendarEvent.groupName || '개인 일정'}</Text>
@@ -402,6 +406,19 @@ export default function HomeScreen() {
               </Text>
             </View>
             
+            {/* 개인정보처리방침 섹션 추가 */}
+            <TouchableOpacity 
+              style={styles.privacyPolicyContainer}
+              onPress={() => {
+                setProfileModalVisible(false);
+                setPrivacyModalVisible(true);
+              }}
+            >
+              <Text style={[styles.privacyPolicyText, { color: colors.tint }]}>
+                개인정보처리방침
+              </Text>
+            </TouchableOpacity>
+            
             <View style={styles.deleteAccountContainer}>
               <TouchableOpacity 
                 style={[styles.deleteAccountButton, updatingProfile && styles.disabledButton]}
@@ -418,7 +435,10 @@ export default function HomeScreen() {
             <View style={styles.modalActions}>
               <TouchableOpacity 
                 style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.secondary }]} 
-                onPress={() => setProfileModalVisible(false)}
+                onPress={() => {
+                  setProfileModalVisible(false);
+                  setPrivacyModalVisible(false);
+                }}
                 disabled={updatingProfile}
               >
                 <Text style={[styles.cancelButtonText, { color: colors.darkGray }]}>취소</Text>
@@ -443,6 +463,12 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
+      
+      {/* 개인정보처리방침 모달 추가 */}
+      <PrivacyPolicyModal
+        visible={privacyModalVisible}
+        onClose={() => setPrivacyModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -659,5 +685,16 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     opacity: 0.7,
+  },
+  // 개인정보처리방침 스타일 추가
+  privacyPolicyContainer: {
+    marginBottom: 20,
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  privacyPolicyText: {
+    fontSize: 16,
+    textAlign: 'center',
   },
 });

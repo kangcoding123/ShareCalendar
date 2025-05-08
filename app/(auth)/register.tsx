@@ -17,6 +17,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import PrivacyPolicyModal from '../../components/PrivacyPolicyModal';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -36,7 +37,14 @@ export default function RegisterScreen() {
     email?: string;
     password?: string;
     confirmPassword?: string;
+    agreement?: string;
   }>({});
+  
+  // 동의 관련 상태 추가
+  const [privacyAgreed, setPrivacyAgreed] = useState(false);
+  const [termsAgreed, setTermsAgreed] = useState(false);
+  const [ageAgreed, setAgeAgreed] = useState(false);
+  const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
 
   const validate = () => {
     const newErrors: {
@@ -44,6 +52,7 @@ export default function RegisterScreen() {
       email?: string;
       password?: string;
       confirmPassword?: string;
+      agreement?: string;
     } = {};
 
     // 이름 검증
@@ -70,6 +79,11 @@ export default function RegisterScreen() {
       newErrors.confirmPassword = '비밀번호 확인을 입력해주세요.';
     } else if (password !== confirmPassword) {
       newErrors.confirmPassword = '비밀번호가 일치하지 않습니다.';
+    }
+    
+    // 동의 항목 검증 추가
+    if (!privacyAgreed || !termsAgreed || !ageAgreed) {
+      newErrors.agreement = '모든 필수 항목에 동의해주세요.';
     }
 
     setErrors(newErrors);
@@ -214,6 +228,56 @@ export default function RegisterScreen() {
               )}
             </View>
             
+            {/* 약관 동의 섹션 */}
+            <View style={styles.agreementSection}>
+              <Text style={[styles.agreementTitle, { color: colors.text }]}>약관 동의</Text>
+              
+              <TouchableOpacity 
+                style={styles.agreementItem}
+                onPress={() => setTermsAgreed(!termsAgreed)}
+              >
+                <View style={[styles.checkbox, { borderColor: colors.inputBorder }]}>
+                  {termsAgreed && <Text style={{ color: colors.tint }}>✓</Text>}
+                </View>
+                <Text style={[styles.agreementText, { color: colors.text }]}>
+                  [필수] 이용약관에 동의합니다
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.agreementItem}
+                onPress={() => setPrivacyAgreed(!privacyAgreed)}
+              >
+                <View style={[styles.checkbox, { borderColor: colors.inputBorder }]}>
+                  {privacyAgreed && <Text style={{ color: colors.tint }}>✓</Text>}
+                </View>
+                <Text style={[styles.agreementText, { color: colors.text }]}>
+                  [필수] <Text 
+                    style={{ color: colors.tint, textDecorationLine: 'underline' }}
+                    onPress={() => setPrivacyModalVisible(true)}
+                  >
+                    개인정보처리방침
+                  </Text>에 동의합니다
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.agreementItem}
+                onPress={() => setAgeAgreed(!ageAgreed)}
+              >
+                <View style={[styles.checkbox, { borderColor: colors.inputBorder }]}>
+                  {ageAgreed && <Text style={{ color: colors.tint }}>✓</Text>}
+                </View>
+                <Text style={[styles.agreementText, { color: colors.text }]}>
+                  [필수] 만 14세 이상입니다
+                </Text>
+              </TouchableOpacity>
+              
+              {errors.agreement && (
+                <Text style={styles.errorText}>{errors.agreement}</Text>
+              )}
+            </View>
+            
             <TouchableOpacity
               style={[
                 styles.button, 
@@ -239,6 +303,12 @@ export default function RegisterScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      {/* 개인정보처리방침 모달 */}
+      <PrivacyPolicyModal
+        visible={privacyModalVisible}
+        onClose={() => setPrivacyModalVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -330,5 +400,32 @@ const styles = StyleSheet.create({
   loginLink: {
     fontWeight: '600',
     marginLeft: 5
-  }
+  },
+  // 동의 관련 스타일 추가
+  agreementSection: {
+    marginTop: 20,
+    marginBottom: 20,
+  },
+  agreementTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  agreementItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 1,
+    borderRadius: 4,
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  agreementText: {
+    fontSize: 14,
+  },
 });
