@@ -122,19 +122,18 @@ function RootLayoutNav() {
   }, [colorScheme]);
 
   useEffect(() => {
-    // 인증 상태에 따라 리다이렉트
+    // 인증 상태에 따른 리다이렉트 (수정됨)
     if (!authLoading) {
       const inAuthGroup = segments[0] === '(auth)';
       
-      if (!isAuthenticated && !inAuthGroup) {
-        // 인증되지 않은 상태에서 인증 화면 이외의 화면에 접근 시 로그인 화면으로 리다이렉트
-        router.replace('/(auth)/login');
-      } else if (isAuthenticated && inAuthGroup) {
+      // 인증된 사용자가 인증 화면에 접근할 때만 리다이렉트
+      if (isAuthenticated && inAuthGroup) {
         // 인증된 상태에서 인증 화면에 접근 시 메인 화면으로 리다이렉트
         router.replace('/(tabs)/calendar');
       }
+      // 비인증 사용자는 자유롭게 앱을 탐색할 수 있도록 리다이렉트 제거
     }
-  }, [isAuthenticated, segments, authLoading]);
+  }, [isAuthenticated, segments, authLoading, router]);
   
   // 알림 설정 (추가)
   useEffect(() => {

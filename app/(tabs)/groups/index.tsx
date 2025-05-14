@@ -210,7 +210,13 @@ export default function GroupListScreen() {
     try {
       setLoading(true);
       
-      if (!user || !user.uid) return;
+      if (!user || !user.uid) {
+        // 비로그인 사용자
+        setGroups([]);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
       
       console.log('[loadGroups] 그룹 데이터 로드 시작');
       const result = await getUserGroups(user.uid);
@@ -242,6 +248,8 @@ export default function GroupListScreen() {
   useEffect(() => {
     if (user) {
       loadGroups();
+    } else {
+      setLoading(false);
     }
   }, [user]);
 
@@ -252,6 +260,8 @@ export default function GroupListScreen() {
         console.log('그룹 목록 화면 포커스 - 데이터 새로고침');
         setRefreshing(true);
         loadGroups();
+      } else {
+        setRefreshing(false);
       }
       return () => {};
     }, [user])
@@ -266,6 +276,11 @@ export default function GroupListScreen() {
   // 그룹 선택 핸들러
   const handleGroupPress = (group: Group) => {
     router.push(`/groups/${group.id}`);
+  };
+  
+  // 로그인 화면으로 이동 핸들러
+  const handleNavigateToLogin = () => {
+    router.push('/(auth)/login');
   };
   
   // 그룹 초대 핸들러
@@ -354,7 +369,23 @@ export default function GroupListScreen() {
         <Text style={[styles.headerTitle, {color: colors.text}]}>내 그룹</Text>
       </View>
       
-      {loading && !refreshing ? (
+      {!user ? (
+        // 비로그인 사용자를 위한 UI
+        <View style={styles.guestModeContainer}>
+          <Text style={[styles.guestModeText, {color: colors.text}]}>
+            그룹 기능을 사용하려면 로그인이 필요합니다.
+          </Text>
+          <Text style={[styles.guestModeSubText, {color: colors.lightGray}]}>
+            로그인하여 그룹을 생성하고 팀원들과 일정을 공유해보세요.
+          </Text>
+          <TouchableOpacity
+            style={[styles.guestLoginButton, {backgroundColor: colors.tint}]}
+            onPress={handleNavigateToLogin}
+          >
+            <Text style={[styles.guestLoginButtonText, {color: colors.buttonText}]}>로그인하기</Text>
+          </TouchableOpacity>
+        </View>
+      ) : loading && !refreshing ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.tint} />
         </View>
@@ -646,4 +677,33 @@ const styles = StyleSheet.create({
   submitButtonText: {
     fontWeight: '600'
   },
+  // 비로그인 사용자 UI 스타일 추가
+  guestModeContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20
+  },
+  guestModeText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 10
+  },
+  guestModeSubText: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 30,
+    paddingHorizontal: 20
+  },
+  guestLoginButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    marginTop: 10
+  },
+  guestLoginButtonText: {
+    fontSize: 16,
+    fontWeight: '600'
+  }
 });

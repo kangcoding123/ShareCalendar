@@ -1,8 +1,0 @@
-{
-  "android_app_id": "ca-app-pub-7310506169021656~5261449392",
-  "ios_app_id": "ca-app-pub-7310506169021656~3738590521",
-  "delay_app_measurement_init": true,
-  "optimize_initialization": true,
-  "optimize_ad_loading": true,
-  "user_tracking_usage_description": "이 식별자는 기기에 더 관련성 높은 광고를 제공하는 데 사용됩니다."
-}

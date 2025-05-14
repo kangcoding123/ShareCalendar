@@ -11,9 +11,13 @@ import {
 } from '../services/authService';
 import { 
   registerForPushNotificationsAsync, 
-  saveUserPushToken  // 새로 추가된 함수 import
+  saveUserPushToken  
 } from '../services/notificationService';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// calendarService에서 전역 상태 import
+import { clearEventSubscriptions } from '../services/calendarService';
 
 // 사용자 타입 정의
 interface User {
@@ -38,6 +42,15 @@ interface AuthContextType {
 interface AuthProviderProps {
   children: ReactNode;
 }
+
+// AsyncStorage 키 정의
+const AUTH_CREDENTIALS_KEY = 'auth_credentials';
+const AUTH_USER_KEY = 'auth_user';
+const USER_SETTINGS_KEYS = [
+  'user_calendar_settings',
+  'recent_views',
+  'app_preferences'
+];
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -160,12 +173,35 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return result;
   };
 
+  // 개선된 로그아웃 함수
   const logout = async () => {
-    const result = await logoutUser();
-    if (result.success) {
-      setUser(null);
+    try {
+      console.log('로그아웃 시작 - 모든 구독 및 상태 초기화');
+      
+      // 1. 모든 이벤트 구독 해제 - 서비스 계층에 새로 추가된 함수 호출
+      clearEventSubscriptions();
+      
+      // 2. Firebase 로그아웃 실행
+      const result = await logoutUser();
+      
+      if (result.success) {
+        // 3. 사용자 상태 초기화
+        setUser(null);
+        
+        // 4. AsyncStorage에서 사용자 관련 데이터 모두 제거
+        const keysToRemove = [AUTH_CREDENTIALS_KEY, AUTH_USER_KEY, ...USER_SETTINGS_KEYS];
+        await AsyncStorage.multiRemove(keysToRemove);
+        
+        console.log('로그아웃 완료 - 모든 상태와 캐시 데이터 삭제됨');
+      } else {
+        console.error('Firebase 로그아웃 실패:', result.error);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('로그아웃 처리 중 오류 발생:', error);
+      return { success: false, error: '로그아웃 처리 중 오류가 발생했습니다.' };
     }
-    return result;
   };
 
   const register = async (email: string, password: string, displayName: string) => {

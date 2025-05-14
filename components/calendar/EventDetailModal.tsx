@@ -16,6 +16,7 @@ import { Group } from '../../services/groupService';
 import { formatDate } from '../../utils/dateUtils';
 import EventItem from './event/EventItem';
 import EventForm from './event/EventForm';
+import { useRouter } from 'expo-router';
 
 // 타입 정의 수정
 interface CalendarDay {
@@ -30,7 +31,7 @@ interface EventDetailModalProps {
   events: CalendarEvent[];
   groups: Group[];
   userId: string;
-  user: { displayName?: string | null } | null;
+  user: { displayName?: string | null; uid?: string } | null;
   onClose: () => void;
   onEventUpdated: (action: string, eventData: any) => void;
   colorScheme: ColorSchemeName;
@@ -52,18 +53,19 @@ const EventDetailModal = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const router = useRouter();
   
   // 일정이 없을 때 자동으로 추가 모드로 전환
   useEffect(() => {
-    if (visible && events && events.length === 0) {
-      // 일정이 없는 날짜가 선택되었을 때 자동으로 추가 모드로 전환
+    if (visible && events && events.length === 0 && user) {
+      // 로그인한 사용자이고 일정이 없는 날짜가 선택되었을 때 자동으로 추가 모드로 전환
       setIsEditing(true);
       setEditingEvent(null);
     } else if (visible && events && events.length > 0) {
       // 일정이 있을 때는 기본 보기 모드로 시작
       setIsEditing(false);
     }
-  }, [visible, events]);
+  }, [visible, events, user]);
   
   // 이벤트 ID 제거 핸들러 (추가)
   const handleRemoveEventId = () => {
@@ -75,16 +77,37 @@ const EventDetailModal = ({
   };
   
   const handleAddEvent = () => {
+    // 로그인하지 않은 사용자는 로그인 화면으로 이동
+    if (!user) {
+      onClose(); // 모달 닫기
+      router.push('/(auth)/login'); // 로그인 화면으로 이동
+      return;
+    }
+    
     setIsEditing(true);
     setEditingEvent(null);
   };
   
   const handleEditEvent = (event: CalendarEvent) => {
+    // 로그인하지 않은 사용자는 로그인 화면으로 이동
+    if (!user) {
+      onClose(); // 모달 닫기
+      router.push('/(auth)/login'); // 로그인 화면으로 이동
+      return;
+    }
+    
     setEditingEvent(event);
     setIsEditing(true);
   };
   
   const handleDeleteEvent = async (event: CalendarEvent) => {
+    // 로그인하지 않은 사용자는 로그인 화면으로 이동
+    if (!user) {
+      onClose(); // 모달 닫기
+      router.push('/(auth)/login'); // 로그인 화면으로 이동
+      return;
+    }
+    
     Alert.alert(
       '일정 삭제',
       '이 일정을 삭제하시겠습니까?',
@@ -225,11 +248,55 @@ const EventDetailModal = ({
           onSubmit={handleSubmitEvent}
           onCancel={onClose}
           colors={colors}
-          onRemoveEventId={handleRemoveEventId} // 추가된 부분
+          onRemoveEventId={handleRemoveEventId}
         />
       );
     }
     
+    // 비로그인 사용자를 위한 UI
+    if (!user) {
+      return (
+        <View style={styles.content}>
+          <Text style={[styles.dateHeader, { color: colors.text }]}>
+            {selectedDate ? formatDate(selectedDate.date, 'yyyy년 MM월 dd일 (eee)') : ''}
+          </Text>
+          
+          {events && events.length > 0 ? (
+            <FlatList
+              data={events}
+              renderItem={({ item }) => (
+                <EventItem
+                  event={item}
+                  onEdit={() => {}} // 편집 불가
+                  onDelete={() => {}} // 삭제 불가
+                  userId=""
+                  colors={colors}
+                  readOnly={true} // 읽기 전용
+                />
+              )}
+              keyExtractor={(item) => item.id || item.title}
+              style={styles.eventList}
+            />
+          ) : (
+            <View style={styles.noEventsContainer}>
+              <Text style={[styles.noEventsText, { color: colors.lightGray }]}>일정이 없습니다.</Text>
+            </View>
+          )}
+          
+          <TouchableOpacity 
+            style={[styles.loginButton, { backgroundColor: colors.tint }]} 
+            onPress={() => {
+              onClose(); // 모달 닫기
+              router.push('/(auth)/login'); // 로그인 화면으로 이동
+            }}
+          >
+            <Text style={[styles.loginButtonText, { color: colors.buttonText }]}>로그인하여 일정 관리하기</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    // 기존 로그인 사용자용 UI
     return (
       <View style={styles.content}>
         <Text style={[styles.dateHeader, { color: colors.text }]}>
@@ -352,6 +419,17 @@ const styles = StyleSheet.create({
     marginTop: 15
   },
   addButtonText: {
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  // 로그인 버튼 스타일 추가
+  loginButton: {
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+    marginTop: 15
+  },
+  loginButtonText: {
     fontSize: 16,
     fontWeight: '600'
   }

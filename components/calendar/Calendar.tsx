@@ -316,6 +316,17 @@ const Calendar = ({
       { 
         width: calendarWidth,
         backgroundColor: 'transparent', // 투명 배경
+        ...Platform.select({
+          ios: {
+            // iOS 전용 스타일
+            shadowOpacity: 0,
+            shadowRadius: 0,
+          },
+          android: {
+            // Android 전용 스타일
+            elevation: 0,
+          }
+        })
       }
     ]}>
       <CalendarHeader />
@@ -340,10 +351,6 @@ const styles = StyleSheet.create({
   container: {
     // flex: 1 제거 - 필요한 크기만 차지하도록
     borderRadius: 0,
-    shadowOffset: undefined,
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    elevation: 0,
     overflow: 'hidden',
     alignSelf: 'center',
     marginVertical: 0, // 마진 제거

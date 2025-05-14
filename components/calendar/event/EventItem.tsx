@@ -11,13 +11,14 @@ import { formatDate } from '../../../utils/dateUtils';
 
 interface EventItemProps {
   event: CalendarEvent;
-  onEdit: (event: CalendarEvent) => void;
-  onDelete: (event: CalendarEvent) => void;
+  onEdit: ((event: CalendarEvent) => void) | null;
+  onDelete: ((event: CalendarEvent) => void) | null;
   userId: string;
   colors: any;
+  readOnly?: boolean; // 읽기 전용 모드 추가
 }
 
-const EventItem = ({ event, onEdit, onDelete, userId, colors }: EventItemProps) => {
+const EventItem = ({ event, onEdit, onDelete, userId, colors, readOnly = false }: EventItemProps) => {
   // 이벤트가 그룹 일정인지 확인
   const isGroupEvent = event.groupId !== 'personal';
   // 현재 사용자가 작성자인지 확인
@@ -89,8 +90,8 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors }: EventItemProps) 
         </View>
       </View>
       
-      {/* 작성자만 편집/삭제 버튼 표시 */}
-      {isCreator ? (
+      {/* 읽기 전용 모드가 아니고 작성자인 경우에만 편집/삭제 버튼 표시 */}
+      {!readOnly && isCreator && onEdit && onDelete ? (
         <View style={styles.eventActions}>
           <TouchableOpacity 
             style={[styles.actionButton, { backgroundColor: colors.secondary }]} 
@@ -107,8 +108,13 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors }: EventItemProps) 
           </TouchableOpacity>
         </View>
       ) : (
+        // 읽기 전용이거나 작성자가 아닌 경우 메시지 표시
         <View style={styles.eventActionsDisabled}>
-          <Text style={[styles.eventCreatorOnlyText, { color: colors.lightGray }]}>작성자만 수정 가능</Text>
+          {readOnly ? (
+            <Text style={[styles.eventCreatorOnlyText, { color: colors.lightGray }]}>로그인 필요</Text>
+          ) : (
+            <Text style={[styles.eventCreatorOnlyText, { color: colors.lightGray }]}>작성자만 수정 가능</Text>
+          )}
         </View>
       )}
     </View>

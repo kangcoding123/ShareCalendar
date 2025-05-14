@@ -62,6 +62,34 @@ const globalEventState = {
 // 최근 제출 이벤트 캐시 (메모리 캐시)
 const recentSubmissions = new Map<string, number>();
 
+// 모든 이벤트 구독 해제 함수 추가
+export const clearEventSubscriptions = () => {
+  console.log('[GlobalEvents] 모든 이벤트 구독 및 상태 초기화 시작');
+  
+  // globalEventState 초기화
+  if (globalEventState.subscription) {
+    globalEventState.subscription();
+    globalEventState.subscription = null;
+  }
+  
+  globalEventState.events = [];
+  globalEventState.lastUserId = null;
+  globalEventState.callbacks.clear();
+  
+  // 기존 eventListeners도 모두 해제
+  eventListeners.forEach(unsubscribe => {
+    if (typeof unsubscribe === 'function') {
+      unsubscribe();
+    }
+  });
+  eventListeners.clear();
+  
+  // recentSubmissions 캐시 초기화
+  recentSubmissions.clear();
+  
+  console.log('[GlobalEvents] 모든 이벤트 구독 및 상태 초기화 완료');
+};
+
 // 중복 이벤트 제출 감지 함수
 function isDuplicateSubmission(eventData: any): boolean {
   // 필수 필드가 없으면 중복 체크 수행하지 않음

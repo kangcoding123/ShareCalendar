@@ -21,7 +21,7 @@ const AdBanner = ({ size = 'banner' }: AdBannerProps) => {
     );
   }
 
-  // 프로덕션 모드에서는 실제 카카오 애드핏 광고 표시
+  // 프로덕션 모드에서는 실제 카카오 애드핏 광고 표시 (비추적 모드로 설정)
   return (
     <View style={styles.container}>
       <WebView
@@ -30,6 +30,12 @@ const AdBanner = ({ size = 'banner' }: AdBannerProps) => {
         scrollEnabled={false}
         javaScriptEnabled={true}
         domStorageEnabled={true}
+        // 사용자 추적 비활성화
+        incognito={true} // 웹뷰 개인 정보 보호 모드
+        thirdPartyCookiesEnabled={false} // 서드파티 쿠키 비활성화
+        // 추가 개인정보 보호 옵션
+        allowFileAccessFromFileURLs={false}
+        allowUniversalAccessFromFileURLs={false}
       />
     </View>
   );

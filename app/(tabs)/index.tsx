@@ -42,6 +42,34 @@ export default function HomeScreen() {
   // 개인정보처리방침 모달 상태 추가
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
   
+  // 로딩 타임아웃 추가 - 무한 로딩 방지
+  useEffect(() => {
+    const loadingTimeout = setTimeout(() => {
+      if (loading) {
+        console.log('로딩 타임아웃 발생 - 강제 완료');
+        setLoading(false);
+      }
+    }, 10000); // 10초 후 타임아웃
+    
+    return () => clearTimeout(loadingTimeout);
+  }, [loading]);
+  
+  // 사용자 상태에 따른 데이터 초기화 처리 추가
+  useEffect(() => {
+    if (!user) {
+      console.log('비로그인 상태 감지 - 홈 화면 데이터 초기화');
+      setTodayEvents([]);
+      setUpcomingEvents([]);
+      setLoading(false);
+      
+      // 구독이 존재하면 해제
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
+    }
+  }, [user]);
+  
   // 이벤트 데이터 처리 함수 (분리된 로직)
   const processEvents = useCallback((events: CalendarEvent[]) => {
     if (!Array.isArray(events)) return;
@@ -160,16 +188,25 @@ export default function HomeScreen() {
         { 
           text: '로그아웃', 
           onPress: async () => {
+            setLoading(true); // 로그아웃 중 로딩 표시
             try {
               const result = await logout();
               if (result.success) {
+                // 명시적 데이터 초기화
+                setTodayEvents([]);
+                setUpcomingEvents([]);
+                
                 // 로그아웃 후 처리는 _layout.tsx에서 처리됨
+                // 명시적으로 로그인 화면으로 이동
+                router.replace('/(auth)/login');
               } else {
                 Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
               }
             } catch (error) {
               console.error('로그아웃 오류:', error);
               Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
+            } finally {
+              setLoading(false);
             }
           } 
         }
@@ -269,16 +306,19 @@ export default function HomeScreen() {
   }
   
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
-      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-        <View style={styles.headerTop}>
-          <Text style={[styles.headerTitle, { color: colors.tint }]}>WE:IN</Text>
-          
+  <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
+    <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+      <View style={styles.headerTop}>
+        <Text style={[styles.headerTitle, { color: colors.tint }]}>WE:IN</Text>
+        
+        {/* 로그인 상태에 따라 다른 UI 표시 */}
+        {user ? (
+          // 로그인 상태: 프로필 아바타와 로그아웃 버튼
           <View style={styles.profileContainer}>
             <TouchableOpacity onPress={handleOpenProfileModal} style={styles.avatarContainer}>
               <View style={[styles.profileAvatar, { backgroundColor: colors.tint }]}>
                 <Text style={styles.avatarText}>
-                  {user?.displayName ? user.displayName.charAt(0).toUpperCase() : '?'}
+                  {user.displayName ? user.displayName.charAt(0).toUpperCase() : '?'}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -287,14 +327,25 @@ export default function HomeScreen() {
               <Text style={[styles.logoutButtonText, { color: colors.darkGray }]}>로그아웃</Text>
             </TouchableOpacity>
           </View>
-        </View>
-        
-        <View style={styles.headerBottom}>
-          <Text style={[styles.headerSubtitle, { color: colors.lightGray }]}>
-            안녕하세요, {user?.displayName || '사용자'}님
-          </Text>
-        </View>
+        ) : (
+          // 비로그인 상태: 로그인 버튼
+          <TouchableOpacity 
+            onPress={() => router.push('/(auth)/login')} 
+            style={[styles.loginButton, { backgroundColor: colors.tint }]}
+          >
+            <Text style={[styles.loginButtonText, { color: '#fff' }]}>로그인</Text>
+          </TouchableOpacity>
+        )}
       </View>
+      
+      <View style={styles.headerBottom}>
+        <Text style={[styles.headerSubtitle, { color: colors.lightGray }]}>
+          {user 
+            ? `안녕하세요, ${user.displayName || '사용자'}님` 
+            : '로그인하여 개인 일정을 관리하세요'}
+        </Text>
+      </View>
+    </View>
       
       <ScrollView style={styles.content}>
         {/* 오늘 일정 섹션 */}
@@ -697,4 +748,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
   },
+  loginButton: {
+  paddingVertical: 8,
+  paddingHorizontal: 16,
+  borderRadius: 8,
+},
+loginButtonText: {
+  fontSize: 14,
+  fontWeight: '600',
+},
 });

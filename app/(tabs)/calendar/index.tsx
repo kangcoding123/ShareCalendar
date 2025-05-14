@@ -20,17 +20,17 @@ import { db } from '../../../config/firebase';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useRouter } from 'expo-router';
 
 // 컴포넌트
 import Calendar from '../../../components/calendar/Calendar';
 import CalendarPager from '../../../components/calendar/CalendarPager';
 import EventDetailModal from '../../../components/calendar/EventDetailModal';
-// AdBanner 컴포넌트 import 추가 - 이 부분 주석 처리
 import AdBanner from '@/components/AdBanner';
 
-// 함수 선언 변경: export default 구문 제거
 function CalendarScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   
   // 색상 테마 설정
   const colorScheme = useColorScheme();
@@ -111,7 +111,15 @@ function CalendarScreen() {
 
   // 이벤트 데이터 로드 함수 최적화
   const loadEvents = useCallback(async () => {
-    if (!user || !user.uid) return;
+    // 비로그인 상태일 경우에도 일부 공개 이벤트를 보여줄 수 있음
+    if (!user) {
+      // 비로그인 사용자용 이벤트 로드 (공휴일 또는 공개 이벤트만)
+      // 여기서는 임시로 빈 데이터 사용
+      setEvents({});
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     
     try {
       setLoading(true);
@@ -226,10 +234,10 @@ function CalendarScreen() {
         }
       };
     } else {
-      setLoading(false);
-      setRefreshing(false);
+      // 로그인하지 않은 경우 공개 이벤트만 표시하도록 설정
+      loadEvents();
     }
-  }, [user, loadGroupData, setupGroupMembershipListener]);
+  }, [user, loadGroupData, setupGroupMembershipListener, loadEvents]);
   
   // 사용자가 변경되거나 null이 될 때 상태 초기화
   useEffect(() => {
@@ -247,9 +255,11 @@ function CalendarScreen() {
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
     setLoadFailed(false);
-    loadGroupData();
+    if (user) {
+      loadGroupData();
+    }
     loadEvents();
-  }, [loadGroupData, loadEvents]);
+  }, [loadGroupData, loadEvents, user]);
   
   // 날짜 선택 핸들러
   const handleDayPress = useCallback((day: CalendarDay, dayEvents: CalendarEvent[]) => {
@@ -272,6 +282,11 @@ function CalendarScreen() {
     setModalVisible(false);
   }, []);
   
+  // 로그인 화면으로 이동 핸들러
+  const handleNavigateToLogin = useCallback(() => {
+    router.push('/(auth)/login');
+  }, [router]);
+  
   if (loading && !refreshing) {
     return (
       <SafeAreaView style={[styles.container, {backgroundColor: colors.secondary}]}>
@@ -288,9 +303,6 @@ function CalendarScreen() {
       edges={['top', 'right', 'left']}
     >
       <View style={[styles.header, {backgroundColor: colors.headerBackground, borderBottomColor: colors.border}]}>
-        {/* WE:IN 타이틀 제거 */}
-        {/* <Text style={[styles.headerTitle, {color: colors.text}]}>WE:IN</Text> */}
-        
         {/* 광고 배너 추가 */}
         <AdBanner size="banner" />
       </View>
@@ -339,6 +351,21 @@ function CalendarScreen() {
         </ScrollView>
       </View>
       
+      {/* 비로그인 사용자를 위한 로그인 유도 배너 추가 */}
+      {!user && (
+        <View style={[styles.loginPromptBanner, { backgroundColor: colors.tint }]}>
+          <Text style={[styles.loginPromptText, { color: colors.buttonText }]}>
+            로그인하여 모든 기능을 이용하세요
+          </Text>
+          <TouchableOpacity 
+            style={[styles.loginButton, { backgroundColor: colors.background }]}
+            onPress={handleNavigateToLogin}
+          >
+            <Text style={[styles.loginButtonText, { color: colors.tint }]}>로그인</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      
       {selectedDate && (
         <EventDetailModal
           visible={modalVisible}
@@ -365,8 +392,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 0, // 패딩 제거하여 배너가 꽉 차게
-    paddingVertical: 0,    // 패딩 제거
+    paddingHorizontal: 0,
+    paddingVertical: 0,
     borderBottomWidth: 1,
   },
   headerTitle: {
@@ -413,8 +440,31 @@ const styles = StyleSheet.create({
   adBanner: {
     alignSelf: 'center',
     width: '100%',
+  },
+  // 로그인 유도 배너 스타일 추가
+  loginPromptBanner: {
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+  },
+  loginPromptText: {
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+  },
+  loginButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    marginLeft: 10,
+  },
+  loginButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
   }
 });
 
-// 파일 마지막에 명시적으로 export
 export default CalendarScreen;

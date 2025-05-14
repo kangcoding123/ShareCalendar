@@ -16,8 +16,7 @@
         "UIBackgroundModes": [
           "remote-notification"
         ],
-        "ITSAppUsesNonExemptEncryption": false,
-        "NSUserTrackingUsageDescription": "이 식별자는 기기에 더 관련성 높은 광고를 제공하는 데 사용됩니다."
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

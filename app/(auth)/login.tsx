@@ -123,6 +123,11 @@ export default function LoginScreen() {
     }
   };
 
+  // 게스트로 계속하기 핸들러
+  const handleContinueAsGuest = () => {
+    router.replace("/(tabs)/calendar");
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
       <KeyboardAvoidingView
@@ -186,6 +191,17 @@ export default function LoginScreen() {
                 <Text style={[styles.buttonText, { color: colors.buttonText }]}>로그인</Text>
               )}
             </TouchableOpacity>
+            
+            {/* 게스트로 계속하기 버튼 추가 */}
+            <TouchableOpacity
+              style={[styles.guestButton, { backgroundColor: colors.secondary }]}
+              onPress={handleContinueAsGuest}
+            >
+              <Text style={[styles.guestButtonText, { color: colors.darkGray }]}>로그인 없이 계속하기</Text>
+            </TouchableOpacity>
+            <Text style={[styles.guestText, { color: colors.lightGray }]}>
+              로그인하지 않고도 캘린더 기능을 이용할 수 있습니다.
+            </Text>
             
             {/* 비밀번호 찾기 버튼 */}
             <View style={styles.forgotPasswordContainer}>
@@ -365,6 +381,26 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 16,
     fontWeight: '600'
+  },
+  // 게스트 버튼 스타일 추가
+  guestButton: {
+    height: 50,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)'
+  },
+  guestButtonText: {
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  guestText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 10
   },
   registerContainer: {
     flexDirection: 'row',
