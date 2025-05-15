@@ -17,7 +17,7 @@
     "preview": {
       "distribution": "store",
       "ios": {
-        "resourceClass": "m-medium",
+        "resourceClass": "medium",
         "autoIncrement": true
       },
       "android": {
@@ -34,6 +34,16 @@
         "appleId": "gangseogju106@gmail.com",
         "ascAppId": "6744455915",
         "appleTeamId": "RT4A4DK429"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./sharecalendar-c8a9b-d0fd2059ed50.json",
+        "track": "internal"
+      }
+    },
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./sharecalendar-c8a9b-d0fd2059ed50.json",
+        "track": "production"
       }
     }
   }

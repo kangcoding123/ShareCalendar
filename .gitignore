@@ -39,3 +39,6 @@ app-example
 
 # 환경 변수 파일
 .env
+
+# Google Play 서비스 계정 키
+sharecalendar-c8a9b-d0fd2059ed50.json
