@@ -2,7 +2,7 @@
   "expo": {
     "name": "WE:IN",
     "slug": "ShareCalendar",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weincalendar",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kangcoding.sharecalendar",
-      "buildNumber": "6",
+      "buildNumber": "14",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
