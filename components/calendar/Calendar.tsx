@@ -28,6 +28,7 @@ import { CalendarEvent } from '../../services/calendarService';
 
 // 한국 공휴일 데이터
 import { getHolidaysForYear } from '../../data/holidays';
+import { getAllHolidaysForYear } from '../../services/holidayService';
 
 // 레이아웃 애니메이션 활성화 (Android)
 if (Platform.OS === 'android') {
@@ -42,6 +43,7 @@ interface Holiday {
   isHoliday: boolean;
   date: string;
   isAlternative?: boolean;
+  isTemporary?: boolean;
   [key: string]: any;
 }
 
@@ -54,8 +56,8 @@ interface CalendarProps {
 }
 
 // 헤더와 요일 행 높이 고정
-const HEADER_HEIGHT = 45; // 헤더 높이
-const DAY_NAMES_HEIGHT = 30; // 요일 행 높이
+const HEADER_HEIGHT = 45;
+const DAY_NAMES_HEIGHT = 30;
 
 const Calendar = ({ 
   events = {}, 
@@ -70,21 +72,21 @@ const Calendar = ({
   // 화면 크기 가져오기
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   
-  // 달력 가로 너비 계산 (화면 너비와 동일하게)
+  // 달력 가로 너비 계산
   const calendarWidth = screenWidth;
   
   // 날짜 셀 너비 계산
   const dayWidth = calendarWidth / 7;
   
-  // initialMonth prop이 전달되면 사용, 아니면 현재 날짜 사용
+  // 상태 관리
   const [currentDate, setCurrentDate] = useState<Date>(initialMonth || new Date());
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [holidays, setHolidays] = useState<Record<string, Holiday>>({});
+  const [holidaysLoading, setHolidaysLoading] = useState(false);
   
   // initialMonth prop이 변경될 때 currentDate 업데이트
   useEffect(() => {
     if (initialMonth) {
-      // 새로운 initialMonth가 현재 표시 중인 월과 다를 때만 업데이트
       if (!isSameMonth(initialMonth, currentDate)) {
         setCurrentDate(initialMonth);
       }
@@ -95,11 +97,9 @@ const Calendar = ({
   const handlePrevMonth = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     
-    // 상위 컴포넌트에 이벤트 전달
     if (onMonthChange) {
       onMonthChange('prev');
     } else {
-      // 기존 로직은 onMonthChange가 없을 때만 실행
       const newDate = subMonths(currentDate, 1);
       setCurrentDate(newDate);
     }
@@ -108,11 +108,9 @@ const Calendar = ({
   const handleNextMonth = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     
-    // 상위 컴포넌트에 이벤트 전달
     if (onMonthChange) {
       onMonthChange('next');
     } else {
-      // 기존 로직은 onMonthChange가 없을 때만 실행
       const newDate = addMonths(currentDate, 1);
       setCurrentDate(newDate);
     }
@@ -123,34 +121,48 @@ const Calendar = ({
     return Math.ceil(calendarDays.length / 7);
   }, [calendarDays]);
   
-  // 남은 공간을 주 수로 균등하게 나누어 셀 높이 계산 (플랫폼 최적화)
+  // 셀 높이 계산
   const cellHeight = useMemo(() => {
-    // 플랫폼별 최적 비율 적용
     const heightRatio = Platform.OS === 'ios' ? 0.78 : 0.87;
-    
-    // 사용 가능한 높이 계산
     const availableHeight = screenHeight * heightRatio - HEADER_HEIGHT - DAY_NAMES_HEIGHT;
-    
-    // 주 수로 나누어 셀 높이 계산 (최소 높이 40px 보장)
     return Math.max(availableHeight / weekCount, 40);
   }, [screenHeight, weekCount]);
   
-  // 달력 데이터 업데이트
+  // 달력 데이터 업데이트 (비동기 처리 추가)
   useEffect(() => {
-    const days = getCalendarDays(currentDate);
-    setCalendarDays(days);
+    const loadCalendarData = async () => {
+      setHolidaysLoading(true);
+      
+      const days = getCalendarDays(currentDate);
+      setCalendarDays(days);
+      
+      // 표시되는 모든 날짜의 연도 가져오기
+      const years = [...new Set(days.map(day => day.date.getFullYear()))];
+      
+      // 모든 연도의 공휴일 가져오기 (임시 공휴일 포함)
+      const allHolidays: Record<string, Holiday> = {};
+      
+      // 비동기로 각 연도의 공휴일 로드
+      for (const year of years) {
+        try {
+          // getAllHolidaysForYear는 비동기 함수 - 정적 + 임시 공휴일 모두 포함
+          const yearHolidays = await getAllHolidaysForYear(year);
+          Object.assign(allHolidays, yearHolidays);
+          
+          console.log(`${year}년 공휴일 로드 완료:`, Object.keys(yearHolidays).length, '개');
+        } catch (error) {
+          console.error(`${year}년 공휴일 로드 오류:`, error);
+          // 오류 시 정적 공휴일만 가져오기
+          const staticHolidays = getHolidaysForYear(year);
+          Object.assign(allHolidays, staticHolidays);
+        }
+      }
+      
+      setHolidays(allHolidays);
+      setHolidaysLoading(false);
+    };
     
-    // 표시되는 모든 날짜의 연도 가져오기
-    const years = [...new Set(days.map(day => day.date.getFullYear()))];
-    
-    // 모든 연도의 공휴일 가져오기
-    const allHolidays: Record<string, Holiday> = {};
-    years.forEach(year => {
-      const yearHolidays = getHolidaysForYear(year);
-      Object.assign(allHolidays, yearHolidays);
-    });
-    
-    setHolidays(allHolidays);
+    loadCalendarData();
   }, [currentDate]);
   
   // 달력 헤더 컴포넌트
@@ -222,6 +234,11 @@ const Calendar = ({
     // 해당 날짜의 이벤트 가져오기
     const dayEvents = events[formattedDate] || [];
     
+    // 디버깅: 임시 공휴일 확인
+    if (holiday && holiday.isTemporary) {
+      console.log(`임시 공휴일 발견: ${formattedDate} - ${holiday.name}`);
+    }
+    
     // 각 이벤트에 다일 일정 위치 정보 추가
     const eventsWithPositions = dayEvents.map(event => {
       if (event.isMultiDay && event.startDate !== event.endDate) {
@@ -237,14 +254,8 @@ const Calendar = ({
       };
     });
     
-    // 셀 높이에 따라 표시할 이벤트 수 조정
-    // 셀 높이가 작을 때는 더 적은 이벤트 표시
+    // 표시할 이벤트 수 조정
     const maxEventsToShow = cellHeight < 60 ? 2 : (cellHeight < 80 ? 3 : 5);
-    
-    // 디버깅 로그 (개발 중에만 사용)
-    if (__DEV__ && formattedDate === '2025-04-17' && dayEvents.length > 0) {
-      console.log(`셀 높이: ${cellHeight.toFixed(1)}px, 이벤트 수: ${dayEvents.length}, 표시: ${Math.min(maxEventsToShow, dayEvents.length)}`);
-    }
     
     return (
       <TouchableOpacity
@@ -272,20 +283,29 @@ const Calendar = ({
             !isCurrentMonth && { color: isDark ? '#666666' : '#bbbbbb' },
             isSunday && { color: isDark ? '#ff6b6b' : '#ff3b30' },
             isSaturday && { color: isDark ? '#63a4ff' : '#007aff' },
-            holiday && { color: isDark ? '#ff6b6b' : '#ff3b30' },
+            holiday && holiday.isHoliday && { color: isDark ? '#ff6b6b' : '#ff3b30' }, // 공휴일 색상
             isToday && { color: isDark ? '#4e7bd4' : '#3c66af' }
           ]}>
             {dayOfMonth}
           </Text>
           
-          {/* 이벤트 표시 (동적으로 조정) */}
+          {/* 공휴일 이름 표시 (선택사항) */}
+          {holiday && holiday.isHoliday && (
+            <Text style={[
+              styles.holidayNameText,
+              { color: isDark ? '#ff6b6b' : '#ff3b30' }
+            ]} numberOfLines={1}>
+              {holiday.name}
+            </Text>
+          )}
+          
+          {/* 이벤트 표시 */}
           <View style={styles.eventContainer}>
             {eventsWithPositions.slice(0, maxEventsToShow).map((calendarEvent, index) => (
               <View 
                 key={index}
                 style={[
                   styles.eventIndicator,
-                  // 다일 일정 스타일 적용
                   calendarEvent.isMultiDay && calendarEvent.multiDayPosition === 'start' && styles.eventStart,
                   calendarEvent.isMultiDay && calendarEvent.multiDayPosition === 'middle' && styles.eventMiddle,
                   calendarEvent.isMultiDay && calendarEvent.multiDayPosition === 'end' && styles.eventEnd,
@@ -298,7 +318,6 @@ const Calendar = ({
               </View>
             ))}
             
-            {/* 더 많은 이벤트가 있는 경우 +N 표시 */}
             {dayEvents.length > maxEventsToShow && (
               <Text style={[styles.moreEventsText, { color: isDark ? '#bbbbbb' : '#666666' }]}>
                 +{dayEvents.length - maxEventsToShow}
@@ -315,15 +334,13 @@ const Calendar = ({
       styles.container, 
       { 
         width: calendarWidth,
-        backgroundColor: 'transparent', // 투명 배경
+        backgroundColor: 'transparent',
         ...Platform.select({
           ios: {
-            // iOS 전용 스타일
             shadowOpacity: 0,
             shadowRadius: 0,
           },
           android: {
-            // Android 전용 스타일
             elevation: 0,
           }
         })
@@ -340,7 +357,7 @@ const Calendar = ({
           numColumns={7}
           scrollEnabled={false}
           contentContainerStyle={{ alignSelf: 'center' }}
-          initialNumToRender={42} // 최대 주 수 x 7 (모든 날짜 한 번에 렌더링)
+          initialNumToRender={42}
         />
       </View>
     </View>
@@ -349,11 +366,10 @@ const Calendar = ({
 
 const styles = StyleSheet.create({
   container: {
-    // flex: 1 제거 - 필요한 크기만 차지하도록
     borderRadius: 0,
     overflow: 'hidden',
     alignSelf: 'center',
-    marginVertical: 0, // 마진 제거
+    marginVertical: 0,
   },
   headerContainer: {
     flexDirection: 'row',
@@ -388,7 +404,6 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   calendarBody: {
-    // flex: 1 제거 - 필요한 크기만 차지하도록
   },
   dayCell: {
     padding: 1,
@@ -405,6 +420,11 @@ const styles = StyleSheet.create({
     marginBottom: 1,
     fontWeight: '500'
   },
+  holidayNameText: {
+    fontSize: 8,
+    textAlign: 'center',
+    marginBottom: 1,
+  },
   eventContainer: {
     flex: 1,
     marginTop: 1,
@@ -417,7 +437,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     justifyContent: 'center'
   },
-  // 다일 일정을 위한 스타일 추가
   eventStart: {
     borderTopLeftRadius: 2,
     borderBottomLeftRadius: 2,

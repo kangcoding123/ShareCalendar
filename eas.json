@@ -25,9 +25,13 @@
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "distribution": "store", 
+      "ios": {
+        "resourceClass": "medium" 
     }
-  },
+  }
+},
   "submit": {
     "preview": {
       "ios": {

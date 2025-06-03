@@ -9,6 +9,7 @@ export interface Holiday {
   duration?: number;
   isAlternative?: boolean; // 대체공휴일 여부
   originalDate?: string;   // 대체 발생 원본 날짜
+  isTemporary?: boolean;   // 추가: 임시 공휴일 여부
 }
 
 // 양력 공휴일 (고정 공휴일)
@@ -262,9 +263,9 @@ export const getHolidaysForYear = (year: number): Record<string, Holiday> => {
 /**
  * 특정 날짜가 공휴일인지 확인
  * @param {Date} date - 확인할 날짜
- * @returns {Holiday|null} 공휴일 정보 또는 null
+ * @returns {Promise<Holiday|null>} 공휴일 정보 또는 null
  */
-export const isHoliday = (date: Date): Holiday | null => {
+export const isHoliday = async (date: Date): Promise<Holiday | null> => {
   // YYYY-MM-DD 형식
   const dateString = formatDateToString(date);
   
@@ -282,12 +283,25 @@ export const isHoliday = (date: Date): Holiday | null => {
     };
   }
   
-  // 해당 연도의 모든 공휴일 가져오기
-  const allHolidays = getHolidaysForYear(year);
-  
-  // 해당 날짜가 공휴일인지 확인
-  if (allHolidays[dateString]) {
-    return allHolidays[dateString];
+  // 해당 연도의 모든 공휴일 가져오기 (임시 공휴일 포함)
+  try {
+    const { getAllHolidaysForYear } = require('../services/holidayService');
+    const allHolidays = await getAllHolidaysForYear(year);
+    
+    // 해당 날짜가 공휴일인지 확인
+    if (allHolidays[dateString]) {
+      return allHolidays[dateString];
+    }
+  } catch (error) {
+    console.error('임시 공휴일 확인 오류:', error);
+    
+    // 오류 시 기존 로직으로 정적 공휴일만 확인
+    const allHolidays = getHolidaysForYear(year);
+    
+    // 해당 날짜가 공휴일인지 확인
+    if (allHolidays[dateString]) {
+      return allHolidays[dateString];
+    }
   }
   
   return null;

@@ -18,6 +18,7 @@ import { updateProfile } from 'firebase/auth';
 import { db, auth } from '../../config/firebase';
 import { deleteAccount } from '../../services/authService';
 import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
+import { isCurrentUserAdmin } from '@/services/adminService';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -41,6 +42,9 @@ export default function HomeScreen() {
   
   // 개인정보처리방침 모달 상태 추가
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+  
+  // 관리자 모드 관련 상태 추가
+  const [isAdmin, setIsAdmin] = useState(false);
   
   // 로딩 타임아웃 추가 - 무한 로딩 방지
   useEffect(() => {
@@ -68,6 +72,26 @@ export default function HomeScreen() {
         unsubscribeRef.current = null;
       }
     }
+  }, [user]);
+  
+  // 관리자 상태 확인
+  useEffect(() => {
+    const checkAdmin = async () => {
+      if (user) {
+        try {
+          const adminStatus = await isCurrentUserAdmin();
+          console.log('관리자 상태 확인:', adminStatus);
+          setIsAdmin(adminStatus);
+        } catch (error) {
+          console.error('관리자 상태 확인 오류:', error);
+          setIsAdmin(false);
+        }
+      } else {
+        setIsAdmin(false);
+      }
+    };
+    
+    checkAdmin();
   }, [user]);
   
   // 이벤트 데이터 처리 함수 (분리된 로직)
@@ -178,6 +202,11 @@ export default function HomeScreen() {
     router.push('/(tabs)/calendar');
   };
   
+  // 관리자 모드로 이동
+  const navigateToAdmin = () => {
+    router.push('/admin' as any);
+  };
+  
   // 로그아웃 처리 함수
   const handleLogout = async () => {
     Alert.alert(
@@ -198,7 +227,7 @@ export default function HomeScreen() {
                 
                 // 로그아웃 후 처리는 _layout.tsx에서 처리됨
                 // 명시적으로 로그인 화면으로 이동
-                router.replace('/(auth)/login');
+                router.replace('/(auth)/login' as any);
               } else {
                 Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
               }
@@ -306,48 +335,58 @@ export default function HomeScreen() {
   }
   
   return (
-  <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
-    <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-      <View style={styles.headerTop}>
-        <Text style={[styles.headerTitle, { color: colors.tint }]}>WE:IN</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <View style={styles.headerTop}>
+          <Text style={[styles.headerTitle, { color: colors.tint }]}>WE:IN</Text>
+          
+          {/* 로그인 상태에 따라 다른 UI 표시 */}
+          {user ? (
+            // 로그인 상태: 프로필 아바타와 로그아웃 버튼
+            <View style={styles.profileContainer}>
+              <TouchableOpacity onPress={handleOpenProfileModal} style={styles.avatarContainer}>
+                <View style={[styles.profileAvatar, { backgroundColor: colors.tint }]}>
+                  <Text style={styles.avatarText}>
+                    {user.displayName ? user.displayName.charAt(0).toUpperCase() : '?'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              
+              <TouchableOpacity onPress={handleLogout} style={[styles.logoutButton, { backgroundColor: colors.secondary }]}>
+                <Text style={[styles.logoutButtonText, { color: colors.darkGray }]}>로그아웃</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            // 비로그인 상태: 로그인 버튼
+            <TouchableOpacity 
+              onPress={() => router.push('/(auth)/login' as any)} 
+              style={[styles.loginButton, { backgroundColor: colors.tint }]}
+            >
+              <Text style={[styles.loginButtonText, { color: '#fff' }]}>로그인</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         
-        {/* 로그인 상태에 따라 다른 UI 표시 */}
-        {user ? (
-          // 로그인 상태: 프로필 아바타와 로그아웃 버튼
-          <View style={styles.profileContainer}>
-            <TouchableOpacity onPress={handleOpenProfileModal} style={styles.avatarContainer}>
-              <View style={[styles.profileAvatar, { backgroundColor: colors.tint }]}>
-                <Text style={styles.avatarText}>
-                  {user.displayName ? user.displayName.charAt(0).toUpperCase() : '?'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-            
-            <TouchableOpacity onPress={handleLogout} style={[styles.logoutButton, { backgroundColor: colors.secondary }]}>
-              <Text style={[styles.logoutButtonText, { color: colors.darkGray }]}>로그아웃</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          // 비로그인 상태: 로그인 버튼
-          <TouchableOpacity 
-            onPress={() => router.push('/(auth)/login')} 
-            style={[styles.loginButton, { backgroundColor: colors.tint }]}
-          >
-            <Text style={[styles.loginButtonText, { color: '#fff' }]}>로그인</Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.headerBottom}>
+          <Text style={[styles.headerSubtitle, { color: colors.lightGray }]}>
+            {user 
+              ? `안녕하세요, ${user.displayName || '사용자'}님` 
+              : '로그인하여 개인 일정을 관리하세요'}
+          </Text>
+        </View>
       </View>
-      
-      <View style={styles.headerBottom}>
-        <Text style={[styles.headerSubtitle, { color: colors.lightGray }]}>
-          {user 
-            ? `안녕하세요, ${user.displayName || '사용자'}님` 
-            : '로그인하여 개인 일정을 관리하세요'}
-        </Text>
-      </View>
-    </View>
       
       <ScrollView style={styles.content}>
+        {/* 관리자 모드 버튼 (관리자만 표시) */}
+        {isAdmin && (
+          <TouchableOpacity
+            style={[styles.adminButton, { backgroundColor: colors.tint }]}
+            onPress={navigateToAdmin}
+          >
+            <Text style={styles.adminButtonText}>👑 관리자 모드</Text>
+          </TouchableOpacity>
+        )}
+        
         {/* 오늘 일정 섹션 */}
         <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>오늘 일정</Text>
@@ -580,6 +619,23 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 15
+  },
+  // 관리자 버튼 스타일 추가
+  adminButton: {
+    marginBottom: 15,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3
+  },
+  adminButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold'
   },
   section: {
     borderRadius: 10,
