@@ -2,7 +2,7 @@
 import { Feather } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TextInput } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
@@ -32,6 +32,9 @@ export default function HomeScreen() {
   // 색상 테마 설정
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
+  
+  // Safe Area Insets 추가
+  const insets = useSafeAreaInsets();
   
   // 구독 취소 함수 참조 저장을 위한 ref 추가
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -392,9 +395,15 @@ export default function HomeScreen() {
         </View>
       </View>
       
-      <ScrollView style={styles.content}>
-        {/* 오늘 일정 섹션 */}
-        <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
+      <ScrollView 
+          style={styles.content}
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{
+            paddingBottom: Platform.OS === 'ios' ? 80 : 60
+          }}
+        >
+          {/* 오늘 일정 섹션 */}
+          <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>오늘 일정</Text>
           <Text style={[styles.dateText, { color: colors.lightGray }]}>{formatDate(new Date(), 'yyyy년 MM월 dd일 (eee)')}</Text>
           

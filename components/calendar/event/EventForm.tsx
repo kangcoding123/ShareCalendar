@@ -9,8 +9,11 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Switch
+  Switch,
+  Platform,
+  KeyboardAvoidingView
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Group } from '../../../services/groupService';
 import { CalendarEvent, deleteEvent } from '../../../services/calendarService';
 import { TimeSlotPickerWithManual } from '../TimeSlotPickerWithManual';
@@ -45,6 +48,7 @@ const EventForm = ({
   const [title, setTitle] = useState(event?.title || '');
   const [description, setDescription] = useState(event?.description || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const insets = useSafeAreaInsets(); // 추가
   
   // 시간 관련 상태 변경
   const [timePickerVisible, setTimePickerVisible] = useState(false);
@@ -260,7 +264,12 @@ const EventForm = ({
     }
   };
   
-  return (
+return (
+  <KeyboardAvoidingView 
+    style={{ flex: 1 }}
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    keyboardVerticalOffset={100}
+  >
     <View style={{ flex: 1 }}>
       <ScrollView style={styles.formContainer}>
         <Text style={[styles.formLabel, { color: colors.text }]}>일정 제목</Text>
@@ -299,7 +308,7 @@ const EventForm = ({
               onValueChange={(value) => {
                 setIsMultiDay(value);
                 if (!value) {
-                  setEndDate(startDate); // 다일 일정이 아닌 경우 종료일을 시작일과 동일하게 설정
+                  setEndDate(startDate);
                 }
               }}
               trackColor={{ false: colors.inputBorder, true: colors.tint + '80' }}
@@ -368,14 +377,15 @@ const EventForm = ({
           isExistingEvent={isExistingEvent}
         />
         
-        {/* 여백 추가 */}
+        {/* 버튼 높이만큼 여백 추가 */}
         <View style={{ height: 80 }} />
       </ScrollView>
       
-      {/* 하단 고정 버튼 */}
+      {/* 하단 고정 버튼 - KeyboardAvoidingView 안에 배치 */}
       <View style={[styles.stickyButtons, { 
         backgroundColor: colors.card,
-        borderTopColor: colors.border
+        borderTopColor: colors.border,
+        paddingBottom: Platform.OS === 'ios' ? 0 : 15  
       }]}>
         <TouchableOpacity 
           style={[styles.cancelButton, { backgroundColor: colors.secondary }]} 
@@ -407,7 +417,8 @@ const EventForm = ({
         </TouchableOpacity>
       </View>
     </View>
-  );
+  </KeyboardAvoidingView>
+);
 };
 
 const styles = StyleSheet.create({

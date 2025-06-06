@@ -12,6 +12,7 @@ import {
   UIManager,
   ColorSchemeName
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addMonths, subMonths, isSameMonth } from 'date-fns';
 
 // 유틸리티 함수
@@ -53,6 +54,7 @@ interface CalendarProps {
   colorScheme: ColorSchemeName;
   initialMonth?: Date;
   onMonthChange?: (direction: 'prev' | 'next') => void;
+  containerHeight?: number;  // 추가
 }
 
 // 헤더와 요일 행 높이 고정
@@ -64,10 +66,14 @@ const Calendar = ({
   onDayPress, 
   colorScheme,
   initialMonth,
-  onMonthChange
+  onMonthChange,
+  containerHeight  // 추가
 }: CalendarProps) => {
   // 다크 모드 여부 확인
   const isDark = colorScheme === 'dark';
+  
+  // Safe Area Insets 추가
+  const insets = useSafeAreaInsets();
   
   // 화면 크기 가져오기
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -121,12 +127,25 @@ const Calendar = ({
     return Math.ceil(calendarDays.length / 7);
   }, [calendarDays]);
   
-  // 셀 높이 계산
-  const cellHeight = useMemo(() => {
-    const heightRatio = Platform.OS === 'ios' ? 0.78 : 0.87;
-    const availableHeight = screenHeight * heightRatio - HEADER_HEIGHT - DAY_NAMES_HEIGHT;
-    return Math.max(availableHeight / weekCount, 40);
-  }, [screenHeight, weekCount]);
+ // 셀 높이 계산
+const cellHeight = useMemo(() => {
+  // 화면 크기에 따른 동적 계산
+  const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 80 : 60;
+  const AD_BANNER_HEIGHT = 50;
+  const EXTRA_PADDING = 10; // 최소한의 여유 공간만
+  
+  // 전체 사용 가능한 높이 계산
+  const availableHeight = screenHeight - 
+    insets.top -           // 상단 Safe Area
+    TAB_BAR_HEIGHT -       // 탭바
+    AD_BANNER_HEIGHT -     // 광고 배너
+    HEADER_HEIGHT -        // 캘린더 헤더 (45)
+    DAY_NAMES_HEIGHT -     // 요일 행 (30)
+    EXTRA_PADDING;         // 여유 공간
+  
+  // 주 수로 나누어 셀 높이 계산
+  return Math.max(availableHeight / weekCount, 50); // 최소 높이를 50으로 증가
+}, [screenHeight, weekCount, insets]);
   
   // 달력 데이터 업데이트 (비동기 처리 추가)
   useEffect(() => {

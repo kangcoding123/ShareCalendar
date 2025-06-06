@@ -211,21 +211,21 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   
   // 캘린더 항목 렌더링 함수 - 중앙 정렬을 위한 컨테이너 추가
   const renderCalendarItem = ({ item }: { item: { date: Date; id: string } }) => {
-    return (
-      <View style={[styles.pageContainer, { width: SCREEN_WIDTH }]}>
-        <View style={styles.calendarWrapper}>
-          <Calendar
-            key={item.id}
-            events={events}
-            onDayPress={onDayPress}
-            colorScheme={colorScheme}
-            initialMonth={item.date}
-            onMonthChange={handleArrowNavigate}
-          />
-        </View>
+  return (
+    <View style={[styles.pageContainer, { width: SCREEN_WIDTH }]}>
+      <View style={styles.calendarWrapper}>
+        <Calendar
+          key={item.id}
+          events={events}
+          onDayPress={onDayPress}
+          colorScheme={colorScheme}
+          initialMonth={item.date}
+          onMonthChange={handleArrowNavigate}
+        />
       </View>
-    );
-  };
+    </View>
+  );
+};
   
   // 아이템 키 추출 함수
   const keyExtractor = (item: { date: Date; id: string }) => item.id;

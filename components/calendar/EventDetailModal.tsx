@@ -9,8 +9,10 @@ import {
   FlatList,
   Alert,
   ActivityIndicator,
-  ColorSchemeName
+  ColorSchemeName,
+  Platform
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addEvent, updateEvent, deleteEvent, CalendarEvent } from '../../services/calendarService';
 import { Group } from '../../services/groupService';
 import { formatDate } from '../../utils/dateUtils';
@@ -54,6 +56,7 @@ const EventDetailModal = ({
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
+  const insets = useSafeAreaInsets(); // 추가
   
   // 일정이 없을 때 자동으로 추가 모드로 전환
   useEffect(() => {
@@ -342,7 +345,7 @@ const EventDetailModal = ({
       onRequestClose={onClose}
     >
       <View style={styles.modalContainer}>
-        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+        <View style={[styles.modalContent, { backgroundColor: colors.card, paddingBottom: insets.bottom}]}>
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>
               {isEditing ? (editingEvent?.id ? '일정 편집' : '새 일정') : '일정 상세'}

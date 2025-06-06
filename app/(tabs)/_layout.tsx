@@ -22,19 +22,22 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
         tabBarStyle: {
-          backgroundColor: colors.background,
-          ...Platform.select({
-            ios: {
-              // iOS에서는 블러 효과를 위해 투명 배경 유지
-              position: 'absolute',
-            },
-            android: {
-              // Android에서는 테마에 맞는 배경색
-              backgroundColor: colors.background,
-              elevation: 8, // Android 그림자 효과
-            },
-          }),
-        },
+        backgroundColor: colors.background,
+        ...Platform.select({
+          ios: {
+            // iOS에서는 블러 효과를 위해 투명 배경 유지
+            position: 'absolute',
+            // 탭바 높이를 명시적으로 설정
+            height: 80,
+            paddingBottom: 25,
+          },
+          android: {
+            // Android에서는 테마에 맞는 배경색
+            backgroundColor: colors.background,
+            elevation: 8, // Android 그림자 효과
+          },
+        }),
+      },
       }}>
       <Tabs.Screen
         name="index"
