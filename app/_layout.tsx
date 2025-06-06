@@ -16,6 +16,7 @@ import { Colors } from '@/constants/Colors';
 import { testLocalNotification } from '@/services/notificationService';
 import UpdatePopup from '../components/UpdatePopup';
 import { checkForUpdates } from '../services/updateService';
+import { initializeAdConfig } from '../services/adConfigService'; // 새로 추가
 
 // 알림 채널 생성 함수
 const createNotificationChannel = () => {
@@ -63,7 +64,7 @@ function RootLayoutNav() {
   const [requiredUpdate, setRequiredUpdate] = useState(false);
   const [versionInfo, setVersionInfo] = useState<any>(null);
   
-  // 앱 시작 시 업데이트 체크
+  // 앱 시작 시 업데이트 체크 및 광고 설정 초기화
   useEffect(() => {
     const checkAppUpdates = async () => {
       try {
@@ -82,9 +83,22 @@ function RootLayoutNav() {
       }
     };
     
-    // 인증 완료 후 업데이트 체크 (선택적)
+    // 광고 설정 초기화
+    const initAds = async () => {
+      try {
+        const success = await initializeAdConfig();
+        if (success) {
+          console.log('광고 설정 초기화 완료');
+        }
+      } catch (error) {
+        console.error('광고 설정 초기화 오류:', error);
+      }
+    };
+    
+    // 인증 완료 후 업데이트 체크 및 광고 설정 초기화
     if (!authLoading) {
       checkAppUpdates();
+      initAds();
     }
   }, [authLoading]);
   

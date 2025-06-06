@@ -1,4 +1,5 @@
 // app/(tabs)/index.tsx
+import { Feather } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +20,7 @@ import { db, auth } from '../../config/firebase';
 import { deleteAccount } from '../../services/authService';
 import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 import { isCurrentUserAdmin } from '@/services/adminService';
+import { IconSymbol } from '@/components/ui/IconSymbol';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -342,8 +344,22 @@ export default function HomeScreen() {
           
           {/* 로그인 상태에 따라 다른 UI 표시 */}
           {user ? (
-            // 로그인 상태: 프로필 아바타와 로그아웃 버튼
+            // 로그인 상태: 관리자 아이콘, 프로필 아바타와 로그아웃 버튼
             <View style={styles.profileContainer}>
+              {/* 관리자인 경우만 톱니바퀴 아이콘 표시 */}
+              {isAdmin && (
+                <TouchableOpacity 
+                  onPress={navigateToAdmin}
+                  style={styles.adminIconContainer}
+                >
+                  <Feather 
+                    name="settings" 
+                    size={22} 
+                    color={colors.tint} 
+                  />
+                </TouchableOpacity>
+              )}
+              
               <TouchableOpacity onPress={handleOpenProfileModal} style={styles.avatarContainer}>
                 <View style={[styles.profileAvatar, { backgroundColor: colors.tint }]}>
                   <Text style={styles.avatarText}>
@@ -377,16 +393,6 @@ export default function HomeScreen() {
       </View>
       
       <ScrollView style={styles.content}>
-        {/* 관리자 모드 버튼 (관리자만 표시) */}
-        {isAdmin && (
-          <TouchableOpacity
-            style={[styles.adminButton, { backgroundColor: colors.tint }]}
-            onPress={navigateToAdmin}
-          >
-            <Text style={styles.adminButtonText}>👑 관리자 모드</Text>
-          </TouchableOpacity>
-        )}
-        
         {/* 오늘 일정 섹션 */}
         <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>오늘 일정</Text>
@@ -620,22 +626,10 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 15
   },
-  // 관리자 버튼 스타일 추가
-  adminButton: {
-    marginBottom: 15,
-    padding: 12,
-    borderRadius: 10,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 3
-  },
-  adminButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold'
+  // 관리자 아이콘 스타일 추가
+  adminIconContainer: {
+    marginRight: 12,
+    padding: 4,
   },
   section: {
     borderRadius: 10,
@@ -805,12 +799,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   loginButton: {
-  paddingVertical: 8,
-  paddingHorizontal: 16,
-  borderRadius: 8,
-},
-loginButtonText: {
-  fontSize: 14,
-  fontWeight: '600',
-},
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  loginButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });

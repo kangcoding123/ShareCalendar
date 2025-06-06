@@ -26,6 +26,7 @@ import {
   updateTemporaryHoliday,
   deleteTemporaryHoliday
 } from '@/services/holidayService';
+import AdminHeader from '@/components/AdminHeader';
 
 export default function HolidaysScreen() {
   const router = useRouter();
@@ -234,7 +235,10 @@ export default function HolidaysScreen() {
   };
   
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      {/* 관리자 헤더 추가 */}
+      <AdminHeader title="공휴일 관리" />
+      
       <View style={styles.yearSelector}>
         <TouchableOpacity 
           style={[styles.yearButton, { backgroundColor: colors.card }]}

@@ -1,11 +1,12 @@
 // app/admin/_layout.tsx
 import React, { useEffect, useState } from 'react';
-import { Stack, useRouter } from 'expo-router';
-import { View, Text, ActivityIndicator, Alert } from 'react-native';
+import { Stack, useRouter, Slot } from 'expo-router';
+import { View, Text, ActivityIndicator, Alert, StyleSheet } from 'react-native';
 import { useAuth } from '../../context/AuthContext';
 import { isCurrentUserAdmin } from '@/services/adminService';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 export default function AdminLayout() {
   const { user } = useAuth();
@@ -45,7 +46,7 @@ export default function AdminLayout() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.tint} />
         <Text style={{ marginTop: 10, color: colors.text }}>관리자 권한 확인 중...</Text>
       </View>
@@ -54,26 +55,24 @@ export default function AdminLayout() {
 
   if (!isAdmin) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Text style={{ color: colors.text }}>관리자 권한이 필요합니다.</Text>
       </View>
     );
   }
 
+  // Stack Navigator 대신 Slot을 사용하여 기본 헤더를 완전히 제거
   return (
-    <Stack
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: colors.tint,
-        },
-        headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: 'bold',
-        },
-      }}
-    >
-      <Stack.Screen name="index" options={{ title: "관리자 메뉴" }} />
-      <Stack.Screen name="holidays" options={{ title: "공휴일 관리" }} />
-    </Stack>
+    <SafeAreaProvider>
+      <Slot />
+    </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  }
+});

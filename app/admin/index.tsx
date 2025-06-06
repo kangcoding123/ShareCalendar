@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import AdminHeader from '@/components/AdminHeader';
 
 export default function AdminIndexScreen() {
   const { user } = useAuth();
@@ -23,14 +24,21 @@ export default function AdminIndexScreen() {
       route: '/admin/holidays',
       icon: '🗓️'
     },
+    {
+      title: '광고 설정',
+      description: '카카오애드핏 광고 설정을 관리합니다.',
+      route: '/admin/ads',
+      icon: '📊'
+    }
     // 필요한 경우 추가 관리자 메뉴 항목 여기에 추가
   ];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      <AdminHeader title="관리자 메뉴" />
+      
       <ScrollView style={styles.content}>
         <View style={styles.headerContainer}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>관리자 메뉴</Text>
           <Text style={[styles.headerSubtitle, { color: colors.lightGray }]}>
             {user?.displayName || '관리자'}님, 환영합니다.
           </Text>
