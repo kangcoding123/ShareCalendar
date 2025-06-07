@@ -21,6 +21,10 @@ import { deleteAccount } from '../../services/authService';
 import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 import { isCurrentUserAdmin } from '@/services/adminService';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import UpdatePopup from '@/components/UpdatePopup';
+import { checkForUpdates } from '@/services/updateService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -51,6 +55,17 @@ export default function HomeScreen() {
   // 관리자 모드 관련 상태 추가
   const [isAdmin, setIsAdmin] = useState(false);
   
+  // 업데이트 관련 상태 추가
+  const [updateInfo, setUpdateInfo] = useState<{
+    visible: boolean;
+    versionInfo: any;
+    isRequired: boolean;
+  }>({
+    visible: false,
+    versionInfo: null,
+    isRequired: false
+  });
+
   // 로딩 타임아웃 추가 - 무한 로딩 방지
   useEffect(() => {
     const loadingTimeout = setTimeout(() => {
@@ -98,6 +113,46 @@ export default function HomeScreen() {
     
     checkAdmin();
   }, [user]);
+
+  // 하루에 한 번 업데이트 체크
+    useEffect(() => {
+      const checkForDailyUpdate = async () => {
+        if (!user) return;
+        
+        try {
+          const today = new Date().toDateString();
+          const lastCheckDate = await AsyncStorage.getItem('lastUpdateCheck');
+          
+          // 오늘 이미 체크했으면 패스
+          if (lastCheckDate === today) {
+            return;
+          }
+          
+          console.log('업데이트 체크 시작...');
+          const updateResult = await checkForUpdates();
+          
+          if (updateResult.updateAvailable) {
+            setUpdateInfo({
+              visible: true,
+              versionInfo: updateResult.versionInfo,
+              isRequired: updateResult.requiredUpdate
+            });
+          }
+          
+          // 체크 날짜 저장
+          await AsyncStorage.setItem('lastUpdateCheck', today);
+        } catch (error) {
+          console.error('업데이트 체크 오류:', error);
+        }
+      };
+      
+      checkForDailyUpdate();
+    }, [user]);
+
+  // 업데이트 팝업 닫기
+    const handleCloseUpdatePopup = () => {
+      setUpdateInfo(prev => ({ ...prev, visible: false }));
+    };  
   
   // 이벤트 데이터 처리 함수 (분리된 로직)
   const processEvents = useCallback((events: CalendarEvent[]) => {
@@ -343,7 +398,12 @@ export default function HomeScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
       <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.headerTop}>
-          <Text style={[styles.headerTitle, { color: colors.tint }]}>WE:IN</Text>
+          <View style={styles.titleContainer}>
+            <Text style={[styles.headerTitle, { color: colors.tint }]}>WE:IN</Text>
+            <Text style={[styles.headerVersion, { color: colors.lightGray }]}>
+              v{Constants.expoConfig?.version || '1.0.0'}
+            </Text>
+          </View>
           
           {/* 로그인 상태에 따라 다른 UI 표시 */}
           {user ? (
@@ -470,7 +530,15 @@ export default function HomeScreen() {
           <Text style={[styles.calendarButtonText, { color: colors.buttonText }]}>캘린더 보기</Text>
         </TouchableOpacity>
       </ScrollView>
-      
+
+    {/* UpdatePopup 컴포넌트 추가 */}
+    <UpdatePopup
+      visible={updateInfo.visible}
+      versionInfo={updateInfo.versionInfo}
+      isRequired={updateInfo.isRequired}
+      onClose={handleCloseUpdatePopup}
+    />   
+
       {/* 프로필 수정 모달 */}
       <Modal
         visible={profileModalVisible}
@@ -597,9 +665,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
+  },
+  headerVersion: {
+    fontSize: 12,
+    marginLeft: 8,
+    fontStyle: 'italic',
   },
   headerSubtitle: {
     fontSize: 14,

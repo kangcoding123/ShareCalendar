@@ -113,7 +113,7 @@ export const downloadAndInstallApk = async (apkUrl: string): Promise<boolean> =>
   }
 };
 
-// 업데이트 체크 함수
+// 업데이트 체크 함수 - 수정된 부분
 export const checkForUpdates = async (): Promise<{
   updateAvailable: boolean;
   requiredUpdate: boolean;
@@ -123,15 +123,36 @@ export const checkForUpdates = async (): Promise<{
     const currentVersion = getCurrentAppVersion();
     const versionResult = await getLatestVersionInfo();
     
+    console.log('현재 버전:', currentVersion);
+    console.log('버전 결과:', versionResult);
+    
     if (!versionResult.success) {
+      console.log('버전 정보 가져오기 실패:', versionResult.error);
       return { updateAvailable: false, requiredUpdate: false };
     }
     
     const versionInfo = versionResult.data;
+    
+    // versionInfo가 null이거나 undefined인지 체크
+    if (!versionInfo) {
+      console.log('버전 정보가 없습니다');
+      return { updateAvailable: false, requiredUpdate: false };
+    }
+    
+    // 플랫폼별 버전 정보 안전하게 가져오기
     const platformVersion = Platform.OS === 'ios' ? 
       versionInfo.ios_version : versionInfo.android_version;
     
+    // 플랫폼 버전이 존재하는지 체크
+    if (!platformVersion) {
+      console.log(`${Platform.OS} 버전 정보가 없습니다`);
+      return { updateAvailable: false, requiredUpdate: false };
+    }
+    
+    console.log('플랫폼 버전:', platformVersion);
+    
     const comparisonResult = compareVersions(currentVersion, platformVersion);
+    console.log('버전 비교 결과:', comparisonResult);
     
     return {
       updateAvailable: comparisonResult < 0,

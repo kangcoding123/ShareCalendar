@@ -24,19 +24,33 @@ const UpdatePopup = ({ visible, versionInfo, isRequired, onClose }: UpdatePopupP
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
 
+  // versionInfo가 null이거나 undefined인 경우 렌더링하지 않음
+  if (!versionInfo || !visible) {
+    return null;
+  }
+
   const handleUpdate = async () => {
     if (Platform.OS === 'ios') {
       // iOS는 TestFlight 링크로 이동
       await openUpdateLink(versionInfo.ios_testflight_url);
     } else {
       // Android는 APK 직접 다운로드 또는 링크 열기
-      if (versionInfo.android_download_url.endsWith('.apk')) {
+      if (versionInfo.android_download_url?.endsWith('.apk')) {
         await downloadAndInstallApk(versionInfo.android_download_url);
       } else {
         await openUpdateLink(versionInfo.android_download_url);
       }
     }
   };
+
+  // 플랫폼별 버전 정보 안전하게 가져오기
+  const platformVersion = Platform.OS === 'ios' ? 
+    versionInfo.ios_version : versionInfo.android_version;
+
+  // 플랫폼 버전이 없으면 렌더링하지 않음
+  if (!platformVersion) {
+    return null;
+  }
 
   return (
     <Modal
@@ -54,7 +68,7 @@ const UpdatePopup = ({ visible, versionInfo, isRequired, onClose }: UpdatePopupP
           </Text>
           
           <Text style={[styles.version, { color: colors.tint }]}>
-            버전 {Platform.OS === 'ios' ? versionInfo.ios_version : versionInfo.android_version}
+            버전 {platformVersion}
           </Text>
           
           <ScrollView style={styles.releaseNotesContainer}>

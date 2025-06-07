@@ -21,7 +21,8 @@
         "autoIncrement": true
       },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "autoIncrement": true
       }
     },
     "production": {
@@ -29,9 +30,12 @@
       "distribution": "store", 
       "ios": {
         "resourceClass": "medium" 
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
-  }
-},
+  },
   "submit": {
     "preview": {
       "ios": {
@@ -45,6 +49,11 @@
       }
     },
     "production": {
+      "ios": {
+        "appleId": "gangseogju106@gmail.com",
+        "ascAppId": "6744455915",
+        "appleTeamId": "RT4A4DK429"
+      },
       "android": {
         "serviceAccountKeyPath": "./sharecalendar-c8a9b-d0fd2059ed50.json",
         "track": "production"
