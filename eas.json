@@ -21,7 +21,7 @@
         "autoIncrement": true
       },
       "android": {
-        "buildType": "app-bundle",
+        "buildType": "apk",
         "autoIncrement": true
       }
     },
@@ -56,7 +56,7 @@
       },
       "android": {
         "serviceAccountKeyPath": "./sharecalendar-c8a9b-d0fd2059ed50.json",
-        "track": "production"
+        "track": "internal"
       }
     }
   }
