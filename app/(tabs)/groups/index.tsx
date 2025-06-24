@@ -421,6 +421,13 @@ export default function GroupListScreen() {
           />
           
           <TouchableOpacity
+            style={[styles.joinButton, {backgroundColor: colors.secondary, borderColor: colors.tint}]}
+            onPress={() => router.push('/groups/join')}
+          >
+            <Text style={[styles.joinButtonText, {color: colors.tint}]}>🎟️ 초대 코드로 가입</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={[styles.createButton, {backgroundColor: colors.buttonBackground, zIndex: 100}]}
             onPress={() => {
               console.log("그룹 생성 버튼 클릭됨");
@@ -610,7 +617,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold'
   },
-  
+  joinButton: {
+    position: 'absolute',
+    bottom: 150,  // createButton보다 위에 위치
+    left: 20,
+    right: 20,
+    borderRadius: 10,
+    padding: 15,
+    alignItems: 'center',
+    borderWidth: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 3
+  },
+  joinButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold'
+  },
+
+
   // 모달 스타일
   modalOverlay: {
     flex: 1,

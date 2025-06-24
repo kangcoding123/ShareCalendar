@@ -21,7 +21,8 @@ export const Colors = {
     disabledButton: '#a0a0a0',
     eventCardBackground: '#f9f9f9',
     lightGray: '#666666',
-    darkGray: '#495057'
+    darkGray: '#495057',
+    danger: '#808080'
   },
   dark: {
     text: '#ffffff',
@@ -41,6 +42,7 @@ export const Colors = {
     disabledButton: '#555555',
     eventCardBackground: '#2c2c2c',
     lightGray: '#bbbbbb',
-    darkGray: '#aaaaaa'
+    darkGray: '#aaaaaa',
+    danger: '#808080'
   }
 };

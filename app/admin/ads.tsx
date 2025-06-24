@@ -6,12 +6,16 @@ import { getAdConfig, updateAdUnitId, toggleAdEnabled, setTestMode } from '../..
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import AdminHeader from '@/components/AdminHeader';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../../config/firebase';
 
 export default function AdSettingsScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
   
   const [unitId, setUnitId] = useState('');
+  const [iosUnitId, setIosUnitId] = useState('');
+  const [androidUnitId, setAndroidUnitId] = useState('');
   const [enabled, setEnabled] = useState(false);
   const [testMode, setTestModeState] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -27,6 +31,8 @@ export default function AdSettingsScreen() {
       const result = await getAdConfig();
       if (result.success && result.config) {
         setUnitId(result.config.banner_unit_id || '');
+        setIosUnitId(result.config.ios_banner_unit_id || '');
+        setAndroidUnitId(result.config.android_banner_unit_id || '');
         setEnabled(result.config.ad_enabled || false);
         setTestModeState(result.config.test_mode || false);
       }
@@ -39,30 +45,46 @@ export default function AdSettingsScreen() {
   };
 
   const handleSave = async () => {
-    if (!unitId.trim()) {
-      Alert.alert('오류', '광고 단위 ID를 입력해주세요.');
-      return;
+  if (!iosUnitId.trim() && !androidUnitId.trim() && !unitId.trim()) {
+    Alert.alert('오류', '최소 하나의 광고 단위 ID를 입력해주세요.');
+    return;
+  }
+  
+  setSaving(true);
+  try {
+    // 플랫폼별 광고 ID 업데이트
+    const updates = [];
+    
+    if (unitId.trim()) {
+      updates.push(updateAdUnitId(unitId));
     }
     
-    setSaving(true);
-    try {
-      // 광고 단위 ID 업데이트
-      await updateAdUnitId(unitId);
-      
-      // 광고 활성화 상태 업데이트
-      await toggleAdEnabled(enabled);
-      
-      // 테스트 모드 상태 업데이트
-      await setTestMode(testMode);
-      
-      Alert.alert('성공', '광고 설정이 업데이트되었습니다.');
-    } catch (error) {
-      console.error('광고 설정 저장 오류:', error);
-      Alert.alert('오류', '광고 설정을 저장하는 중 오류가 발생했습니다.');
-    } finally {
-      setSaving(false);
+    if (iosUnitId.trim()) {
+      updates.push(updateDoc(doc(db, 'app_config', 'ad_settings'), {
+        ios_banner_unit_id: iosUnitId,
+        updated_at: new Date().toISOString()
+      }));
     }
-  };
+    
+    if (androidUnitId.trim()) {
+      updates.push(updateDoc(doc(db, 'app_config', 'ad_settings'), {
+        android_banner_unit_id: androidUnitId,
+        updated_at: new Date().toISOString()
+      }));
+    }
+    
+    await Promise.all(updates);
+    await toggleAdEnabled(enabled);
+    await setTestMode(testMode);
+    
+    Alert.alert('성공', '광고 설정이 업데이트되었습니다.');
+  } catch (error) {
+    console.error('광고 설정 저장 오류:', error);
+    Alert.alert('오류', '광고 설정을 저장하는 중 오류가 발생했습니다.');
+  } finally {
+    setSaving(false);
+  }
+};
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
@@ -79,7 +101,37 @@ export default function AdSettingsScreen() {
             <Text style={[styles.title, { color: colors.text }]}>카카오애드핏 설정</Text>
             
             <View style={styles.formGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>배너 광고 단위 ID</Text>
+              <Text style={[styles.label, { color: colors.text }]}>iOS 배너 광고 단위 ID</Text>
+              <TextInput
+                style={[styles.input, { 
+                  backgroundColor: colors.inputBackground, 
+                  borderColor: colors.border,
+                  color: colors.text 
+                }]}
+                value={iosUnitId}
+                onChangeText={setIosUnitId}
+                placeholder="예: DAN-8aVOoPPWLxqWQXF8"
+                placeholderTextColor={colors.lightGray}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={[styles.label, { color: colors.text }]}>Android 배너 광고 단위 ID</Text>
+              <TextInput
+                style={[styles.input, { 
+                  backgroundColor: colors.inputBackground, 
+                  borderColor: colors.border,
+                  color: colors.text 
+                }]}
+                value={androidUnitId}
+                onChangeText={setAndroidUnitId}
+                placeholder="예: DAN-tEpg4818iiZARMn2"
+                placeholderTextColor={colors.lightGray}
+              />
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={[styles.label, { color: colors.text }]}>기본 배너 광고 단위 ID (선택)</Text>
               <TextInput
                 style={[styles.input, { 
                   backgroundColor: colors.inputBackground, 
@@ -88,9 +140,12 @@ export default function AdSettingsScreen() {
                 }]}
                 value={unitId}
                 onChangeText={setUnitId}
-                placeholder="예: DAN-tEpg4818iiZARMn2"
+                placeholder="플랫폼별 ID가 없을 때 사용"
                 placeholderTextColor={colors.lightGray}
               />
+              <Text style={[styles.helperText, { color: colors.lightGray }]}>
+                플랫폼별 광고 ID가 설정되지 않은 경우 사용됩니다.
+              </Text>
             </View>
             
             <View style={styles.formGroup}>

@@ -11,7 +11,8 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
-  RefreshControl
+  RefreshControl,
+  Share
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -25,8 +26,15 @@ import {
   deleteGroup, 
   inviteToGroup,
   setUserGroupColor,
-  leaveGroup
+  leaveGroup,
+  removeMemberFromGroup,
+  getBannedMembers, 
+  unbanMember       
 } from '../../../services/groupService';
+import { 
+  generateInviteForGroup, 
+  createInviteMessage 
+} from '../../../services/inviteService';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
@@ -40,14 +48,16 @@ const COLOR_OPTIONS = [
   { name: '검정색', value: '#333333' }  // 검정
 ];
 
-// 멤버 항목 컴포넌트
+
 interface MemberItemProps {
   member: GroupMember;
   isCurrentUser: boolean;
   colors: any;
+  isOwner: boolean; // 추가: 현재 사용자가 관리자인지
+  onRemove?: (member: GroupMember) => void; // 추가: 강퇴 핸들러
 }
 
-const MemberItem = ({ member, isCurrentUser, colors }: MemberItemProps) => {
+const MemberItem = ({ member, isCurrentUser, colors, isOwner, onRemove }: MemberItemProps) => {
   return (
     <View style={[styles.memberItem, { backgroundColor: colors.card }]}>
       <View style={styles.memberInfo}>
@@ -58,15 +68,27 @@ const MemberItem = ({ member, isCurrentUser, colors }: MemberItemProps) => {
         <Text style={[styles.memberEmail, { color: colors.lightGray }]}>{member.email}</Text>
       </View>
       
-      <View style={[styles.memberRole, { backgroundColor: colors.secondary }]}>
-        <Text style={[
-          styles.roleText,
-          member.role === 'owner' ? 
-            [styles.ownerRoleText, { color: colors.tint }] : 
-            [styles.memberRoleText, { color: colors.darkGray }]
-        ]}>
-          {member.role === 'owner' ? '관리자' : '멤버'}
-        </Text>
+      <View style={styles.memberActions}>
+        <View style={[styles.memberRole, { backgroundColor: colors.secondary }]}>
+          <Text style={[
+            styles.roleText,
+            member.role === 'owner' ? 
+              [styles.ownerRoleText, { color: colors.tint }] : 
+              [styles.memberRoleText, { color: colors.darkGray }]
+          ]}>
+            {member.role === 'owner' ? '관리자' : '멤버'}
+          </Text>
+        </View>
+        
+        {/* 추가: 강퇴 버튼 (관리자만, 본인과 다른 관리자는 제외) */}
+        {isOwner && !isCurrentUser && member.role !== 'owner' && onRemove && (
+          <TouchableOpacity
+            style={[styles.removeButton, { backgroundColor: colors.danger }]}
+            onPress={() => onRemove(member)}
+          >
+            <Text style={styles.removeButtonText}>강퇴</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -120,10 +142,10 @@ const InviteModal = ({ visible, onClose, onSubmit, loading, colors }: InviteModa
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-          <Text style={[styles.modalTitle, { color: colors.text }]}>멤버 초대</Text>
+          <Text style={[styles.modalTitle, { color: colors.text }]}>이메일로 초대하기</Text>
           
           <View style={styles.formGroup}>
-            <Text style={[styles.label, { color: colors.text }]}>초대할 사용자 이메일</Text>
+            <Text style={[styles.label, { color: colors.text }]}>초대할 사용자 로그인 이메일</Text>
             <TextInput
               style={[
                 styles.input, 
@@ -309,10 +331,18 @@ export default function GroupDetailScreen() {
   const [deleting, setDeleting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [leavingGroup, setLeavingGroup] = useState(false);
+  const [removingMember, setRemovingMember] = useState(false); 
+  const [bannedMembers, setBannedMembers] = useState<any[]>([]);  
+  const [showBannedList, setShowBannedList] = useState(false);    
+  const [unbanning, setUnbanning] = useState(false);              
   
   // 색상 선택 관련 상태
-  const [selectedColor, setSelectedColor] = useState<string>('#4CAF50'); // 기본 색상
-  const [savingColor, setSavingColor] = useState(false);
+const [selectedColor, setSelectedColor] = useState<string>('#4CAF50');
+const [savingColor, setSavingColor] = useState(false);
+
+// ⭐ 초대 코드 관련 상태 추가
+const [inviteCode, setInviteCode] = useState<string | null>(null);
+const [generatingInvite, setGeneratingInvite] = useState(false);
 
   // 관리자 권한 확인 (소유자인 경우) - 타입 체크 및 대소문자 구분 없이 확인
   const isOwner = typeof group?.role === 'string' && 
@@ -347,6 +377,48 @@ export default function GroupDetailScreen() {
       setSavingColor(false);
     }
   };
+
+  // 초대 코드 생성 핸들러
+const handleGenerateInviteCode = async () => {
+  if (!groupId) return;
+  
+  try {
+    setGeneratingInvite(true);
+    const result = await generateInviteForGroup(groupId);
+    
+    if (result.success && result.inviteCode) {
+      setInviteCode(result.inviteCode);
+      Alert.alert('성공', '초대 코드가 생성되었습니다.');
+    } else {
+      Alert.alert('오류', result.error || '초대 코드 생성에 실패했습니다.');
+    }
+  } catch (error) {
+    console.error('초대 코드 생성 오류:', error);
+    Alert.alert('오류', '초대 코드 생성 중 오류가 발생했습니다.');
+  } finally {
+    setGeneratingInvite(false);
+  }
+};
+
+// 초대 코드 공유 핸들러
+const handleShareInviteCode = async () => {
+  if (!group || !inviteCode) return;
+  
+  try {
+    const message = createInviteMessage(
+      group.name,
+      inviteCode,
+      `weincalendar://invite/${inviteCode}`
+    );
+    
+    await Share.share({
+      message: message,
+      title: `${group.name} 그룹 초대`
+    });
+  } catch (error) {
+    console.error('공유 오류:', error);
+  }
+};  
   
   // 그룹 탈퇴 핸들러
   const handleLeaveGroup = () => {
@@ -395,6 +467,84 @@ export default function GroupDetailScreen() {
       ]
     );
   };
+
+  // 멤버 강퇴 핸들러
+const handleRemoveMember = (member: GroupMember) => {
+  Alert.alert(
+    '멤버 강퇴',
+    `정말로 ${member.displayName}님을 그룹에서 강퇴하시겠습니까?`,
+    [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '강퇴',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setRemovingMember(true);
+            
+            if (!groupId || !user?.uid) {
+              console.error('그룹 ID 또는 사용자 ID가 없습니다.');
+              setRemovingMember(false);
+              return;
+            }
+            
+            const result = await removeMemberFromGroup(groupId, member.userId, user.uid);
+            
+            if (result.success) {
+              Alert.alert('성공', '멤버가 강퇴되었습니다.');
+              // 멤버 목록 새로고침
+              loadGroupData();
+              // 차단 목록도 새로고침
+              loadBannedMembers();
+            } else {
+              Alert.alert('오류', result.error || '멤버 강퇴 중 오류가 발생했습니다.');
+            }
+          } catch (error) {
+            console.error('멤버 강퇴 중 오류:', error);
+            Alert.alert('오류', '멤버 강퇴 중 오류가 발생했습니다.');
+          } finally {
+            setRemovingMember(false);
+          }
+        }
+      }
+    ]
+  );
+};
+
+// 차단 해제 핸들러
+const handleUnbanMember = (bannedMember: any) => {
+  Alert.alert(
+    '차단 해제',
+    `${bannedMember.email}님의 차단을 해제하시겠습니까?`,
+    [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '해제',
+        style: 'default',
+        onPress: async () => {
+          try {
+            setUnbanning(true);
+            
+            const result = await unbanMember(groupId, bannedMember.userId);
+            
+            if (result.success) {
+              Alert.alert('성공', '차단이 해제되었습니다.');
+              // 차단 목록 새로고침
+              loadBannedMembers();
+            } else {
+              Alert.alert('오류', result.error || '차단 해제 중 오류가 발생했습니다.');
+            }
+          } catch (error) {
+            console.error('차단 해제 오류:', error);
+            Alert.alert('오류', '차단 해제 중 오류가 발생했습니다.');
+          } finally {
+            setUnbanning(false);
+          }
+        }
+      }
+    ]
+  );
+};
   
   // 그룹 및 멤버 데이터 로드
   const loadGroupData = async () => {
@@ -411,6 +561,11 @@ export default function GroupDetailScreen() {
       if (groupResult.success && groupResult.group) {
         const groupData = groupResult.group as Group;
         console.log('[loadGroupData] 그룹 정보 로드 성공:', groupData.name);
+        
+        // ⭐ 초대 코드 설정
+        if (groupData.inviteCode) {
+          setInviteCode(groupData.inviteCode);
+  }
         
         // 추가: 그룹 멤버 목록에서 사용자의 역할 가져오기
         const membersResult = await getGroupMembers(groupId);
@@ -466,6 +621,27 @@ export default function GroupDetailScreen() {
       setRefreshing(false);
     }
   };
+
+  // 차단된 멤버 목록 로드
+const loadBannedMembers = async () => {
+  if (!groupId || !isOwner) return;
+  
+  try {
+    const result = await getBannedMembers(groupId);
+    if (result.success && result.bannedMembers) {
+      setBannedMembers(result.bannedMembers);
+    }
+  } catch (error) {
+    console.error('차단 목록 로드 오류:', error);
+  }
+};
+
+// useEffect 추가 - 관리자일 때 차단 목록 로드
+useEffect(() => {
+  if (isOwner && groupId) {
+    loadBannedMembers();
+  }
+}, [isOwner, groupId]);
 
   // 초기 데이터 로드
   useEffect(() => {
@@ -705,8 +881,44 @@ export default function GroupDetailScreen() {
             {savingColor && (
               <Text style={[styles.savingText, { color: colors.lightGray }]}>색상 저장 중...</Text>
             )}
-          </View>
-        </View>
+
+            {/* ⭐ 초대 코드 섹션 추가 */}
+            {isOwner && (
+              <>
+                <View style={styles.divider} />
+                <Text style={[styles.infoLabel, { color: colors.lightGray }]}>초대 코드</Text>
+                
+                {inviteCode ? (
+                  <View style={styles.inviteCodeContainer}>
+                    <Text style={[styles.inviteCode, { color: colors.tint }]}>{inviteCode}</Text>
+                    <TouchableOpacity
+                      style={[styles.shareButton, { backgroundColor: colors.tint }]}
+                      onPress={handleShareInviteCode}
+                    >
+                      <Text style={[styles.shareButtonText, { color: colors.buttonText }]}>초대 코드로 초대하기</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.generateButton, { backgroundColor: colors.secondary }]}
+                    onPress={handleGenerateInviteCode}
+                    disabled={generatingInvite}
+                  >
+                    {generatingInvite ? (
+                      <ActivityIndicator size="small" color={colors.tint} />
+                    ) : (
+                      <Text style={[styles.generateButtonText, { color: colors.tint }]}>초대 코드 생성</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+                
+                <Text style={[styles.inviteHelp, { color: colors.lightGray }]}>
+                  초대 코드를 공유하면 다른 사람이 쉽게 그룹에 참여할 수 있습니다.
+                </Text>
+              </>
+            )}
+            </View>
+            </View>
         
         <View style={styles.membersSection}>
           <View style={styles.sectionHeader}>
@@ -718,7 +930,7 @@ export default function GroupDetailScreen() {
                   style={[styles.inviteButton, { backgroundColor: colors.tint }]}
                   onPress={() => setInviteModalVisible(true)}
                 >
-                  <Text style={[styles.inviteButtonText, { color: colors.buttonText }]}>멤버 초대</Text>
+                  <Text style={[styles.inviteButtonText, { color: colors.buttonText }]}>이메일로 바로 초대하기</Text>
                 </TouchableOpacity>
               )}
               
@@ -745,6 +957,8 @@ export default function GroupDetailScreen() {
                   member={item} 
                   isCurrentUser={item.userId === user?.uid}
                   colors={colors}
+                  isOwner={isOwner} // 추가
+                  onRemove={handleRemoveMember} // 추가
                 />
               )}
               keyExtractor={(item) => item.id || item.userId}
@@ -775,6 +989,59 @@ export default function GroupDetailScreen() {
           </View>
         )}
         
+        {/* 차단 목록 섹션 (관리자만) */}
+{isOwner && (
+  <View style={styles.bannedSection}>
+    <TouchableOpacity
+      style={styles.bannedHeader}
+      onPress={() => setShowBannedList(!showBannedList)}
+    >
+      <Text style={[styles.sectionTitle, { color: colors.text }]}>
+        차단된 사용자 ({bannedMembers.length})
+      </Text>
+      <Text style={[styles.toggleIcon, { color: colors.lightGray }]}>
+        {showBannedList ? '▼' : '▶'}
+      </Text>
+    </TouchableOpacity>
+    
+    {showBannedList && (
+      <View style={[styles.bannedListContainer, { backgroundColor: colors.card }]}>
+        {bannedMembers.length > 0 ? (
+          bannedMembers.map((banned) => (
+            <View key={banned.id} style={styles.bannedItem}>
+              <View style={styles.bannedInfo}>
+                <Text style={[styles.bannedEmail, { color: colors.text }]}>
+                  {banned.email}
+                </Text>
+                <Text style={[styles.bannedDate, { color: colors.lightGray }]}>
+                  차단일: {new Date(banned.bannedAt).toLocaleDateString()}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.unbanButton, { backgroundColor: colors.secondary }]}
+                onPress={() => handleUnbanMember(banned)}
+                disabled={unbanning}
+              >
+                {unbanning ? (
+                  <ActivityIndicator size="small" color={colors.tint} />
+                ) : (
+                  <Text style={[styles.unbanButtonText, { color: colors.tint }]}>
+                    차단 해제
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ))
+        ) : (
+          <Text style={[styles.emptyBannedText, { color: colors.lightGray }]}>
+            차단된 사용자가 없습니다.
+          </Text>
+        )}
+      </View>
+    )}
+  </View>
+)}
+
         {/* 관리자가 아닌 경우에만 그룹 탈퇴 UI 표시 */}
         {!isOwner && (
           <View style={styles.leaveGroupContainer}>
@@ -935,8 +1202,8 @@ const styles = StyleSheet.create({
     marginBottom: 20
   },
   inviteButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: 16,  // 12 → 16으로 증가
+    paddingVertical: 8,     // 6 → 8로 증가
     borderRadius: 20,
     marginRight: 8
   },
@@ -1122,5 +1389,116 @@ const styles = StyleSheet.create({
   },
   submitButtonText: {
     fontWeight: '600'
-  }
+  },
+  // 초대 코드 관련 스타일
+divider: {
+  height: 1,
+  backgroundColor: '#e0e0e0',
+  marginVertical: 15
+},
+inviteCodeContainer: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginBottom: 10
+},
+inviteCode: {
+  fontSize: 24,
+  fontWeight: 'bold',
+  letterSpacing: 2
+},
+shareButton: {
+  paddingHorizontal: 16,
+  paddingVertical: 8,
+  borderRadius: 20
+},
+shareButtonText: {
+  fontSize: 14,
+  fontWeight: '600'
+},
+generateButton: {
+  paddingVertical: 10,
+  paddingHorizontal: 20,
+  borderRadius: 8,
+  alignItems: 'center',
+  marginBottom: 10
+},
+generateButtonText: {
+  fontSize: 14,
+  fontWeight: '500'
+},
+inviteHelp: {
+  fontSize: 12,
+  fontStyle: 'italic',
+  marginBottom: 15
+},
+// 멤버 액션 영역
+memberActions: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 8
+},
+// 강퇴 버튼
+removeButton: {
+  paddingHorizontal: 12,
+  paddingVertical: 4,
+  borderRadius: 4,
+  marginLeft: 8
+},
+removeButtonText: {
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: '600'
+},
+// 차단 목록 관련 스타일
+bannedSection: {
+  marginTop: 20,
+  marginBottom: 20
+},
+bannedHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingVertical: 10
+},
+toggleIcon: {
+  fontSize: 14
+},
+bannedListContainer: {
+  borderRadius: 10,
+  padding: 15,
+  marginTop: 10
+},
+bannedItem: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingVertical: 12,
+  borderBottomWidth: 1,
+  borderBottomColor: '#e0e0e0'
+},
+bannedInfo: {
+  flex: 1
+},
+bannedEmail: {
+  fontSize: 16,
+  marginBottom: 4
+},
+bannedDate: {
+  fontSize: 12
+},
+unbanButton: {
+  paddingHorizontal: 16,
+  paddingVertical: 8,
+  borderRadius: 20
+},
+unbanButtonText: {
+  fontSize: 14,
+  fontWeight: '500'
+},
+emptyBannedText: {
+  textAlign: 'center',
+  fontSize: 14,
+  paddingVertical: 20
+}
 });

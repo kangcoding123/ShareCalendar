@@ -12,6 +12,7 @@ import {
   DocumentData
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { createUniqueInviteCode } from './inviteService';
 
 // 타입 정의 수정
 export interface Group {
@@ -113,6 +114,128 @@ export const leaveGroup = async (
 };
 
 /**
+ * 그룹에서 멤버 강퇴 (관리자 권한 필요)
+ * @param {string} groupId - 그룹 ID
+ * @param {string} targetUserId - 강퇴할 사용자 ID
+ * @param {string} adminUserId - 관리자 사용자 ID
+ * @returns {Promise<GroupResult>} 강퇴 결과
+ */
+export const removeMemberFromGroup = async (
+  groupId: string,
+  targetUserId: string,
+  adminUserId: string
+): Promise<GroupResult> => {
+  try {
+    // 관리자 권한 확인
+    const adminQuery = query(
+      collection(db, 'groupMembers'),
+      where('groupId', '==', groupId),
+      where('userId', '==', adminUserId),
+      where('role', '==', 'owner')
+    );
+    
+    const adminSnapshot = await getDocs(adminQuery);
+    
+    if (adminSnapshot.empty) {
+      return { success: false, error: '관리자 권한이 없습니다.' };
+    }
+    
+    // 강퇴할 멤버 찾기
+    const memberQuery = query(
+      collection(db, 'groupMembers'),
+      where('groupId', '==', groupId),
+      where('userId', '==', targetUserId)
+    );
+    
+    const memberSnapshot = await getDocs(memberQuery);
+    
+    if (memberSnapshot.empty) {
+      return { success: false, error: '해당 멤버를 찾을 수 없습니다.' };
+    }
+    
+    const memberDoc = memberSnapshot.docs[0];
+    const memberData = memberDoc.data();
+    
+    // 관리자는 강퇴할 수 없음
+    if (memberData.role === 'owner') {
+      return { success: false, error: '관리자는 강퇴할 수 없습니다.' };
+    }
+    
+    // 멤버 삭제
+    await deleteDoc(doc(db, 'groupMembers', memberDoc.id));
+    
+    // 차단 목록에 추가
+    await addDoc(collection(db, 'groupBannedMembers'), {
+      groupId,
+      userId: targetUserId,
+      bannedBy: adminUserId,
+      bannedAt: new Date().toISOString(),
+      email: memberData.email // 이메일도 저장 (이메일로도 차단 확인)
+    });
+
+    // 그룹의 memberCount 업데이트
+    const groupRef = doc(db, 'groups', groupId);
+    const groupDoc = await getDoc(groupRef);
+    
+    if (groupDoc.exists()) {
+      const groupData = groupDoc.data();
+      const currentCount = groupData.memberCount || 0;
+      
+      if (currentCount > 0) {
+        await updateDoc(groupRef, {
+          memberCount: currentCount - 1
+        });
+      }
+    }
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error('멤버 강퇴 오류:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * 사용자가 그룹에서 차단되었는지 확인
+ * @param {string} groupId - 그룹 ID
+ * @param {string} userId - 사용자 ID
+ * @param {string} email - 사용자 이메일
+ * @returns {Promise<boolean>} 차단 여부
+ */
+export const isUserBannedFromGroup = async (
+  groupId: string,
+  userId: string,
+  email: string
+): Promise<boolean> => {
+  try {
+    // userId로 확인
+    const bannedByIdQuery = query(
+      collection(db, 'groupBannedMembers'),
+      where('groupId', '==', groupId),
+      where('userId', '==', userId)
+    );
+    
+    const bannedByIdSnapshot = await getDocs(bannedByIdQuery);
+    if (!bannedByIdSnapshot.empty) {
+      return true;
+    }
+    
+    // email로도 확인 (계정을 다시 만든 경우 대비)
+    const bannedByEmailQuery = query(
+      collection(db, 'groupBannedMembers'),
+      where('groupId', '==', groupId),
+      where('email', '==', email)
+    );
+    
+    const bannedByEmailSnapshot = await getDocs(bannedByEmailQuery);
+    return !bannedByEmailSnapshot.empty;
+  } catch (error) {
+    console.error('차단 확인 오류:', error);
+    return false;
+  }
+};
+
+/**
  * 사용자별 그룹 색상 설정
  * @param userId 사용자 ID
  * @param groupId 그룹 ID
@@ -157,9 +280,18 @@ export const setUserGroupColor = async (
  */
 export const createGroup = async (groupData: Omit<Group, 'id'>): Promise<GroupResult> => {
   try {
+    // ⭐ 초대 코드 생성
+    const inviteCode = await createUniqueInviteCode();
+    const inviteLink = `weincalendar://invite/${inviteCode}`;
+    
     const docRef = await addDoc(collection(db, 'groups'), {
       ...groupData,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      // ⭐ 초대 정보 추가
+      inviteCode,
+      inviteLink,
+      inviteCreatedAt: new Date().toISOString(),
+      inviteUsageCount: 0
     });
     
     // 그룹 생성자를 첫 번째 멤버로 추가
@@ -218,20 +350,7 @@ export const inviteToGroup = async (
       return { success: false, error: '그룹 ID 또는 이메일이 유효하지 않습니다.' };
     }
     
-    // 이미 그룹 멤버인지 확인
-    const existingMemberQuery = query(
-      collection(db, 'groupMembers'),
-      where('groupId', '==', groupId),
-      where('email', '==', email)
-    );
-    
-    const existingMemberSnapshot = await getDocs(existingMemberQuery);
-    if (!existingMemberSnapshot.empty) {
-      console.log(`[inviteToGroup] 이미 멤버로 존재함: ${email}`);
-      return { success: false, error: '이미 그룹에 속해 있는 사용자입니다.' };
-    }
-    
-    // 사용자 이메일로 사용자 찾기
+     // 사용자 찾기
     const usersQuery = query(
       collection(db, 'users'),
       where('email', '==', email)
@@ -247,8 +366,26 @@ export const inviteToGroup = async (
     const userData = usersSnapshot.docs[0].data();
     const userId = usersSnapshot.docs[0].id;
     
-    console.log(`[inviteToGroup] 사용자 찾음. 사용자 ID: ${userId}`);
+    // 차단된 사용자인지 확인
+    const isBanned = await isUserBannedFromGroup(groupId, userId, email);
+    if (isBanned) {
+      return { success: false, error: '이 사용자는 그룹에 초대할 수 없습니다.' };
+    }
+
+    // 이미 그룹 멤버인지 확인
+    const existingMemberQuery = query(
+      collection(db, 'groupMembers'),
+      where('groupId', '==', groupId),
+      where('email', '==', email)
+    );
     
+    const existingMemberSnapshot = await getDocs(existingMemberQuery);
+    if (!existingMemberSnapshot.empty) {
+      console.log(`[inviteToGroup] 이미 멤버로 존재함: ${email}`);
+      return { success: false, error: '이미 그룹에 속해 있는 사용자입니다.' };
+    }
+    
+
     // 멤버로 추가
     const memberData = {
       groupId,
@@ -460,6 +597,69 @@ export const deleteGroup = async (groupId: string): Promise<GroupResult> => {
     // 모든 삭제 작업 완료 후 그룹 삭제
     await Promise.all(deletePromises);
     await deleteDoc(doc(db, 'groups', groupId));
+    
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// services/groupService.ts에 추가
+/**
+ * 차단된 사용자 목록 가져오기
+ */
+export const getBannedMembers = async (groupId: string): Promise<{
+  success: boolean;
+  bannedMembers?: Array<{
+    id: string;
+    userId: string;
+    email: string;
+    bannedAt: string;
+    bannedBy: string;
+  }>;
+  error?: string;
+}> => {
+  try {
+    const bannedQuery = query(
+      collection(db, 'groupBannedMembers'),
+      where('groupId', '==', groupId)
+    );
+    
+    const snapshot = await getDocs(bannedQuery);
+    const bannedMembers = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    })) as any[];
+    
+    return { success: true, bannedMembers };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * 차단 해제
+ */
+export const unbanMember = async (
+  groupId: string,
+  userId: string
+): Promise<GroupResult> => {
+  try {
+    const bannedQuery = query(
+      collection(db, 'groupBannedMembers'),
+      where('groupId', '==', groupId),
+      where('userId', '==', userId)
+    );
+    
+    const snapshot = await getDocs(bannedQuery);
+    
+    if (snapshot.empty) {
+      return { success: false, error: '차단된 사용자를 찾을 수 없습니다.' };
+    }
+    
+    // 차단 기록 삭제
+    const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+    await Promise.all(deletePromises);
     
     return { success: true };
   } catch (error: any) {

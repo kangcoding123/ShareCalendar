@@ -14,7 +14,7 @@ import {
   Modal
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -24,6 +24,7 @@ import PrivacyPolicyModal from '@/components/PrivacyPolicyModal';
 export default function LoginScreen() {
   const router = useRouter();
   const { login } = useAuth();
+  const { inviteCode } = useLocalSearchParams(); // ⭐ 초대 코드 파라미터 받기
   
   // 색상 테마 설정
   const colorScheme = useColorScheme();
@@ -78,8 +79,12 @@ export default function LoginScreen() {
       const { success, error } = await login(email, password);
       
       if (success) {
-        // 로그인 성공: 홈 화면(캘린더)으로 이동
-        router.replace("/(tabs)");
+        // ⭐ 초대 코드가 있으면 초대 처리 화면으로, 없으면 메인으로
+        if (inviteCode && typeof inviteCode === 'string') {
+          router.replace(`/invite/${inviteCode}`);
+        } else {
+          router.replace('/(tabs)');
+        }
       } else {
         Alert.alert('로그인 실패', error || '이메일 또는 비밀번호가 올바르지 않습니다.');
       }

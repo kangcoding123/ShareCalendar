@@ -5,6 +5,8 @@ import { db } from '../config/firebase';
 // 광고 설정 타입 정의
 export interface AdConfig {
   banner_unit_id: string;
+  ios_banner_unit_id?: string;      // iOS 전용 추가
+  android_banner_unit_id?: string;  // Android 전용 추가
   ad_enabled: boolean;
   test_mode: boolean;
   updated_at: string;
@@ -21,11 +23,14 @@ export const initializeAdConfig = async (): Promise<boolean> => {
     if (!docSnap.exists()) {
       // 문서가 없으면 새로 생성
       await setDoc(adConfigRef, {
-        banner_unit_id: 'DAN-tEpg4818iiZARMn2',
-        ad_enabled: true,  // 심사 중에는 false로 설정
-        test_mode: false,  // 테스트 중에는 true로 설정
-        updated_at: new Date().toISOString()
-      });
+      banner_unit_id: 'DAN-tEpg4818iiZARMn2',
+      ios_banner_unit_id: 'DAN-8aVOoPPWLxqWQXF8',      // iOS용 새 ID
+      android_banner_unit_id: 'DAN-tEpg4818iiZARMn2',  // Android용 기존 ID
+      ad_enabled: true,
+      test_mode: false,  // false로 유지
+      show_placeholder: true,  // 추가: 심사용 플레이스홀더 표시
+      updated_at: new Date().toISOString()
+    });
       console.log('광고 설정이 초기화되었습니다.');
     }
     
