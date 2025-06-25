@@ -98,7 +98,7 @@ export default function AdSettingsScreen() {
       ) : (
         <View style={styles.content}>
           <View style={[styles.card, { backgroundColor: colors.card }]}>
-            <Text style={[styles.title, { color: colors.text }]}>카카오애드핏 설정</Text>
+            <Text style={[styles.title, { color: colors.text }]}>구글 애드몹 설정</Text>
             
             <View style={styles.formGroup}>
               <Text style={[styles.label, { color: colors.text }]}>iOS 배너 광고 단위 ID</Text>
@@ -110,7 +110,7 @@ export default function AdSettingsScreen() {
                 }]}
                 value={iosUnitId}
                 onChangeText={setIosUnitId}
-                placeholder="예: DAN-8aVOoPPWLxqWQXF8"
+                placeholder="예: ca-app-pub-xxxxx/xxxxx"
                 placeholderTextColor={colors.lightGray}
               />
             </View>
@@ -125,7 +125,7 @@ export default function AdSettingsScreen() {
                 }]}
                 value={androidUnitId}
                 onChangeText={setAndroidUnitId}
-                placeholder="예: DAN-tEpg4818iiZARMn2"
+                placeholder="예: ca-app-pub-xxxxx/xxxxx"
                 placeholderTextColor={colors.lightGray}
               />
             </View>

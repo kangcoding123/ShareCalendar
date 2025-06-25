@@ -26,7 +26,7 @@ import { useRouter } from 'expo-router';
 import Calendar from '../../../components/calendar/Calendar';
 import CalendarPager from '../../../components/calendar/CalendarPager';
 import EventDetailModal from '../../../components/calendar/EventDetailModal';
-import AdBanner from '@/components/AdBanner';
+import AdMobBanner from '@/components/AdMobBanner';
 
 function CalendarScreen() {
   const { user } = useAuth();
@@ -304,7 +304,7 @@ function CalendarScreen() {
     >
       <View style={[styles.header, {backgroundColor: colors.headerBackground, borderBottomColor: colors.border}]}>
         {/* 광고 배너 추가 */}
-        <AdBanner size="banner" />
+        <AdMobBanner size="banner" />
       </View>
       
       <View style={styles.calendarWrapper}>

@@ -16,7 +16,15 @@ import { Colors } from '@/constants/Colors';
 import { testLocalNotification } from '@/services/notificationService';
 import UpdatePopup from '../components/UpdatePopup';
 import { checkForUpdates } from '../services/updateService';
-import { initializeAdConfig } from '../services/adConfigService'; // 새로 추가
+import { initializeAdConfig } from '../services/adConfigService'; 
+import mobileAds from 'react-native-google-mobile-ads';
+
+// 애드몹 초기화
+mobileAds()
+  .initialize()
+  .then(adapterStatuses => {
+    console.log('AdMob 초기화 완료:', adapterStatuses);
+  });
 
 // 알림 채널 생성 함수
 const createNotificationChannel = () => {
