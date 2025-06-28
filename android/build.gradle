@@ -1,0 +1,16 @@
+// android/build.gradle
+buildscript {
+    ext {
+        // 이 부분이 중요! rootProject.ext에 kotlinVersion을 설정
+        kotlinVersion = "1.7.20"
+    }
+}
+
+allprojects {
+    // 모든 프로젝트에 kotlinVersion 강제 적용
+    afterEvaluate { project ->
+        if (project.hasProperty("android")) {
+            project.ext.set("kotlinVersion", "1.7.20")
+        }
+    }
+}

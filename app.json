@@ -39,6 +39,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "./plugins/force-kotlin-version.js", 
       "expo-router",
       [
         "expo-splash-screen",
@@ -62,8 +63,17 @@
           "ios": {
             "useFrameworks": "static"
           },
-          "android": {
-            "kotlinVersion": "1.7.20"
+           "android": {
+            "kotlinVersion": "1.7.20",
+            "packagingOptions": {
+              "pickFirst": ["**/libc++_shared.so"]
+            },
+            "kotlinOptions": {
+              "freeCompilerArgs": [
+                "-P",
+                "plugin:androidx.compose.compiler.plugins.kotlin:suppressKotlinVersionCompatibilityCheck=true"
+              ]
+            }
           }
         }
       ],
