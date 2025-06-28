@@ -63,7 +63,7 @@
             "useFrameworks": "static"
           },
           "android": {
-            "kotlinVersion": "1.8.10"
+            "kotlinVersion": "1.7.20"
           }
         }
       ],
