@@ -49,4 +49,5 @@ ios/Podfile.lock
 ios/WEIN.xcodeproj/
 ios/WEIN.xcworkspace/
 ios/WEIN/
-ios/Podfile.properties.json
+ios/Podfile.properties.jsonandroid/
+ios/
