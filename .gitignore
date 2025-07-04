@@ -43,11 +43,9 @@ app-example
 # Google Play 서비스 계정 키
 sharecalendar-c8a9b-d0fd2059ed50.json
 
-# iOS 개발 파일
-ios/.xcode.env
-ios/Podfile.lock
-ios/WEIN.xcodeproj/
-ios/WEIN.xcworkspace/
-ios/WEIN/
-ios/Podfile.properties.jsonandroid/
+# Native folders (Managed Workflow)
+android/
 ios/
+
+# Patches (이 폴더는 포함!)
+!patches/
