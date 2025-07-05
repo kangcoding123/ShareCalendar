@@ -58,20 +58,15 @@
         }
       ],
       [
-        "expo-build-properties",
-        {
-          "ios": {
-            "useFrameworks": "static"
-          },
-          "android": {
-            "kotlinVersion": "1.7.20",
-            "compileSdkVersion": 35,
-            "targetSdkVersion": 34,
-            "minSdkVersion": 24,
-            "buildToolsVersion": "35.0.0",
-            "ndkVersion": "26.1.10909125",
-            "packagingOptions": {
-              "pickFirst": ["**/libc++_shared.so"]
+         "expo-build-properties",
+          {
+            "ios": {
+              "useFrameworks": "static"
+            },
+            "android": {
+              "kotlinVersion": "1.7.20",
+              "packagingOptions": {
+                "pickFirst": ["**/libc++_shared.so"]
             }
           }
         }
