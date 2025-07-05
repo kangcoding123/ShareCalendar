@@ -36,7 +36,7 @@
     "expo-haptics": "~14.0.1",
     "expo-intent-launcher": "~12.0.2",
     "expo-linking": "~7.0.5",
-    "expo-modules-core": "^2.4.2",
+    "expo-modules-core": "^2.3.0",
     "expo-notifications": "~0.29.14",
     "expo-router": "~4.0.21",
     "expo-splash-screen": "~0.29.24",
