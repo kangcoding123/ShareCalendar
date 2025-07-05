@@ -1,46 +1,63 @@
-const { withDangerousMod, withProjectBuildGradle } = require('@expo/config-plugins');
-const { readFileSync, writeFileSync } = require('fs');
-const path = require('path');
+const { withProjectBuildGradle, withAppBuildGradle } = require('@expo/config-plugins');
 
 module.exports = function withForceKotlinVersion(config) {
-  return withDangerousMod(config, [
-    'android',
-    async (config) => {
-      const projectRoot = config.modRequest.projectRoot;
-      const buildGradlePath = path.join(projectRoot, 'android', 'build.gradle');
-      
-      // build.gradle 내용 생성
-      const buildGradleContent = `
-// Force Kotlin version
-buildscript {
+  // Project-level build.gradle 수정
+  config = withProjectBuildGradle(config, (config) => {
+    let { contents } = config.modResults;
+    
+    // ext 블록 찾기 또는 생성
+    if (!contents.includes('ext {')) {
+      contents = contents.replace(
+        'buildscript {',
+        `buildscript {
     ext {
+        buildToolsVersion = "35.0.0"
+        minSdkVersion = 24
+        compileSdkVersion = 35
+        targetSdkVersion = 34
+        ndkVersion = "26.1.10909125"
         kotlinVersion = "1.7.20"
+        kspVersion = "1.7.20-1.0.8"
+    }`
+      );
+    } else {
+      // ext 블록이 있으면 필요한 속성들 추가/수정
+      contents = contents.replace(/ext\s*{/, `ext {
+        buildToolsVersion = findProperty("buildToolsVersion") ?: "35.0.0"
+        minSdkVersion = Integer.parseInt(findProperty("minSdkVersion") ?: "24")
+        compileSdkVersion = Integer.parseInt(findProperty("compileSdkVersion") ?: "35")
+        targetSdkVersion = Integer.parseInt(findProperty("targetSdkVersion") ?: "34")
+        ndkVersion = findProperty("ndkVersion") ?: "26.1.10909125"
+        kotlinVersion = findProperty("kotlinVersion") ?: "1.7.20"
+        kspVersion = findProperty("kspVersion") ?: "1.7.20-1.0.8"
+        `);
     }
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.20")
-    }
-}
 
+    // Kotlin 버전 강제 변경
+    contents = contents.replace(
+      /kotlinVersion\s*=\s*["'][\d.]+["']/g,
+      'kotlinVersion = "1.7.20"'
+    );
+
+    // allprojects 블록 추가 (없으면)
+    if (!contents.includes('allprojects {')) {
+      contents += `
 allprojects {
     repositories {
         google()
         mavenCentral()
     }
     
-    // Force kotlinVersion for all subprojects
     afterEvaluate { project ->
-        if (project.hasProperty("ext")) {
-            project.ext.set("kotlinVersion", "1.7.20")
+        if (project.hasProperty("android")) {
+            project.android {
+                ndkVersion rootProject.ext.ndkVersion
+                compileSdkVersion rootProject.ext.compileSdkVersion
+                buildToolsVersion rootProject.ext.buildToolsVersion
+            }
         }
     }
-}
-
-// Force resolution strategy
-subprojects {
+    
     configurations.all {
         resolutionStrategy {
             force "org.jetbrains.kotlin:kotlin-stdlib:1.7.20"
@@ -48,12 +65,30 @@ subprojects {
             force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.7.20"
         }
     }
-}
-`;
-      
-      writeFileSync(buildGradlePath, buildGradleContent);
-      
-      return config;
+}`;
     }
-  ]);
+
+    config.modResults.contents = contents;
+    return config;
+  });
+
+  // App-level build.gradle 수정
+  config = withAppBuildGradle(config, (config) => {
+    let { contents } = config.modResults;
+    
+    // android 블록에 필요한 설정 추가
+    contents = contents.replace(
+      /android\s*{/,
+      `android {
+    ndkVersion rootProject.ext.ndkVersion
+    compileSdkVersion rootProject.ext.compileSdkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    `
+    );
+
+    config.modResults.contents = contents;
+    return config;
+  });
+
+  return config;
 };
