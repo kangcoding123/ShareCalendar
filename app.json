@@ -39,7 +39,6 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "./plugins/force-kotlin-version.js", 
       "expo-router",
       [
         "expo-splash-screen",
@@ -65,6 +64,7 @@
             },
             "android": {
               "kotlinVersion": "1.7.20",
+              "kspVersion": "1.7.20-1.0.8",
               "packagingOptions": {
                 "pickFirst": ["**/libc++_shared.so"]
             }
