@@ -39,16 +39,22 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "expo-router",
       [
-        "expo-splash-screen",
+        "expo-build-properties",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "ios": {
+            "useFrameworks": "static"
+          },
+          "android": {
+            "kotlinVersion": "1.7.20",
+            "kspVersion": "1.7.20-1.0.8",
+            "packagingOptions": {
+              "pickFirst": ["**/libc++_shared.so"]
+            }
+          }
         }
       ],
+      "expo-router",
       [
         "expo-notifications",
         {
@@ -57,18 +63,12 @@
         }
       ],
       [
-         "expo-build-properties",
-          {
-            "ios": {
-              "useFrameworks": "static"
-            },
-            "android": {
-              "kotlinVersion": "1.7.20",
-              "kspVersion": "1.7.20-1.0.8",
-              "packagingOptions": {
-                "pickFirst": ["**/libc++_shared.so"]
-            }
-          }
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
         }
       ],
       [
