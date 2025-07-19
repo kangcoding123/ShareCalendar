@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "weincalendar",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kangcoding.sharecalendar",
@@ -46,14 +46,16 @@
             "useFrameworks": "static"
           },
           "android": {
-            "kotlinVersion": "1.7.20",
-            "kspVersion": "1.7.20-1.0.8",
+            "kotlinVersion": "1.8.10",
+            "kspVersion": "1.8.10-1.0.9",
             "packagingOptions": {
               "pickFirst": ["**/libc++_shared.so"]
-            }
+            },
+            "enableProguardInReleaseBuilds": false
           }
         }
       ],
+      "./plugins/withAndroidKotlinVersion",
       "expo-router",
       [
         "expo-notifications",

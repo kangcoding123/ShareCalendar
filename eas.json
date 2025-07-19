@@ -13,8 +13,9 @@
       "android": {
         "buildType": "apk",
         "env": {
-          "ANDROID_KOTLIN_VERSION": "1.7.20",
-          "EXPO_ANDROID_KOTLIN_VERSION": "1.7.20"
+          "ANDROID_KOTLIN_VERSION": "1.8.10",
+          "EXPO_ANDROID_KOTLIN_VERSION": "1.8.10",
+          "ORG_GRADLE_PROJECT_kspVersion": "1.8.10-1.0.9"
         }
       }
     },
@@ -28,7 +29,9 @@
         "buildType": "apk",
         "autoIncrement": true,
         "env": {
-          "ANDROID_KOTLIN_VERSION": "1.7.20"
+          "ANDROID_KOTLIN_VERSION": "1.8.10",
+          "EXPO_ANDROID_KOTLIN_VERSION": "1.8.10",
+          "ORG_GRADLE_PROJECT_kspVersion": "1.8.10-1.0.9"
         }
       }
     },
@@ -41,7 +44,11 @@
       "android": {
         "buildType": "app-bundle",
         "env": {
-          "ANDROID_KOTLIN_VERSION": "1.7.20"
+          "ANDROID_KOTLIN_VERSION": "1.8.10",
+          "EXPO_ANDROID_KOTLIN_VERSION": "1.8.10",
+          "ORG_GRADLE_PROJECT_kotlinVersion": "1.8.10",
+          "ORG_GRADLE_PROJECT_kspVersion": "1.8.10-1.0.9",
+          "KOTLIN_VERSION": "1.8.10"
         }
       }
     }
