@@ -30,23 +30,35 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
 *.tsbuildinfo
 
+# app-example
 app-example
 
-# 환경 변수 파일
-.env
-
-# Google Play 서비스 계정 키
+# Credentials and sensitive files
+credentials/
+credentials.json
 sharecalendar-c8a9b-d0fd2059ed50.json
 
-# Native folders (Managed Workflow)
-android/
-ios/
+# Native folders (로컬 빌드 시 주석 처리 필요)
+# android/
+# ios/
 
-# Patches (이 폴더는 포함!)
-!patches/credentials/
-credentials.json
+# User preferences
+Preferences
+Settings
+
+# VSCode
+.vscode/
+
+# Temporary files
+*.log
+tmp/
+temp/
+
+# Patches - DO NOT IGNORE (필요한 패치 파일)
+# patches/
