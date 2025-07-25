@@ -302,7 +302,14 @@ function CalendarScreen() {
       style={[styles.container, {backgroundColor: colors.secondary}]} 
       edges={['top', 'right', 'left']}
     >
-      <View style={[styles.header, {backgroundColor: colors.headerBackground, borderBottomColor: colors.border}]}>
+      <View style={[
+        styles.header, 
+        {
+          backgroundColor: colors.headerBackground, 
+          borderBottomColor: colors.border,
+          overflow: 'hidden'
+        }
+      ]}>
         {/* 광고 배너 추가 */}
         <AdMobBanner size="banner" />
       </View>
@@ -392,8 +399,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 0,
-    paddingVertical: 0,
+    paddingHorizontal: 5,
+    paddingVertical: 4,
     borderBottomWidth: 1,
   },
   headerTitle: {
@@ -412,7 +419,7 @@ const styles = StyleSheet.create({
   },
   scrollContainer: {
     flexGrow: 1,
-    paddingVertical: 5,
+    paddingVertical: 0,
     paddingHorizontal: 0,
   },
   emptyStateContainer: {

@@ -131,8 +131,8 @@ const Calendar = ({
 const cellHeight = useMemo(() => {
   // 화면 크기에 따른 동적 계산
   const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 80 : 60;
-  const AD_BANNER_HEIGHT = 50;
-  const EXTRA_PADDING = 10; // 최소한의 여유 공간만
+  const AD_BANNER_HEIGHT = 60;
+  const EXTRA_PADDING = 0; // 최소한의 여유 공간만
   
   // 전체 사용 가능한 높이 계산
   const availableHeight = screenHeight - 
@@ -144,7 +144,7 @@ const cellHeight = useMemo(() => {
     EXTRA_PADDING;         // 여유 공간
   
   // 주 수로 나누어 셀 높이 계산
-  return Math.max(availableHeight / weekCount, 50); // 최소 높이를 50으로 증가
+  return Math.max(availableHeight / weekCount, 60); // 최소 높이를 50으로 증가
 }, [screenHeight, weekCount, insets]);
   
   // 달력 데이터 업데이트 (비동기 처리 추가)

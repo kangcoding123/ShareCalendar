@@ -1,7 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
-import { BannerAd, BannerAdSize, TestIds } from 'react-native-google-mobile-ads';
+import { View, StyleSheet, Platform, Text } from 'react-native';
+import Constants from 'expo-constants';
 import { getAdConfig } from '../services/adConfigService';
+
+// AdMob 모듈 조건부 import with TypeScript ignore
+let BannerAd: any;
+let BannerAdSize: any;
+let TestIds: any;
+
+try {
+  const admob = require('react-native-google-mobile-ads');
+  BannerAd = admob.BannerAd;
+  BannerAdSize = admob.BannerAdSize;
+  TestIds = admob.TestIds;
+} catch (error) {
+  console.log('AdMob not available in Expo Go');
+}
 
 // 애드몹 광고 ID
 const adUnitIds = {
@@ -33,12 +47,22 @@ const AdMobBanner = ({ size = 'banner' }: AdMobBannerProps) => {
     }
   };
 
+  // Expo Go에서는 placeholder 표시
+  if (!BannerAd || Constants.appOwnership === 'expo') {
+    return (
+      <View style={styles.placeholder}>
+        <Text style={styles.placeholderText}>광고 영역</Text>
+      </View>
+    );
+  }
+
+  // 광고가 비활성화된 경우
   if (!isEnabled) {
     return null;
   }
 
-  // 테스트 모드일 때는 테스트 광고 ID 사용
-  const unitId = isTestMode 
+  // 개발 모드이거나 테스트 모드일 때는 테스트 광고 ID 사용
+  const unitId = (__DEV__ || isTestMode)
     ? TestIds.BANNER 
     : Platform.select({
         ios: adUnitIds.ios,
@@ -47,23 +71,39 @@ const AdMobBanner = ({ size = 'banner' }: AdMobBannerProps) => {
 
   return (
     <View style={styles.container}>
-      <BannerAd
-        unitId={unitId}
-        size={size === 'largeBanner' ? BannerAdSize.LARGE_BANNER : BannerAdSize.BANNER}
-        requestOptions={{
-          requestNonPersonalizedAdsOnly: true,
-        }}
-        onAdLoaded={() => console.log('광고 로드 완료')}
-        onAdFailedToLoad={(error) => console.error('광고 로드 실패:', error)}
-      />
-    </View>
+    <BannerAd
+      unitId={unitId}
+      size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}  // 변경: 화면 너비에 맞춤
+      requestOptions={{
+        requestNonPersonalizedAdsOnly: true,
+      }}
+      onAdLoaded={() => console.log('광고 로드 완료')}
+      onAdFailedToLoad={(error: any) => console.error('광고 로드 실패:', error)}
+    />
+  </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+   container: {
     alignItems: 'center',
-    marginVertical: 5,
+    marginVertical: 0,
+    paddingHorizontal: 10,
+    width: '100%',
+    backgroundColor: 'transparent',  // 투명 배경
+    overflow: 'hidden',  // 오버플로우 숨김
+  },
+  placeholder: {
+    alignItems: 'center',
+    marginVertical: 1,
+    marginHorizontal: 10,  // 좌우 여백 추가
+    padding: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,  // 모서리 둥글게
+  },
+  placeholderText: {
+    color: '#666',
+    fontSize: 12,
   },
 });
 

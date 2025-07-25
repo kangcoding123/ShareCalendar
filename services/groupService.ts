@@ -9,7 +9,8 @@ import {
   where, 
   getDocs,
   getDoc,
-  DocumentData
+  DocumentData,
+  writeBatch  // 추가
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { createUniqueInviteCode } from './inviteService';
@@ -55,6 +56,80 @@ interface MemberResult {
   members?: GroupMember[];
   error?: string;
 }
+
+/**
+ * 그룹 관리자 권한 위임
+ * @param {string} groupId - 그룹 ID
+ * @param {string} currentOwnerId - 현재 관리자 ID
+ * @param {string} newOwnerId - 새 관리자 ID
+ * @returns {Promise<GroupResult>} 위임 결과
+ */
+export const transferOwnership = async (
+  groupId: string,
+  currentOwnerId: string,
+  newOwnerId: string
+): Promise<GroupResult> => {
+  try {
+    // 1. 현재 관리자 확인
+    const currentOwnerQuery = query(
+      collection(db, 'groupMembers'),
+      where('groupId', '==', groupId),
+      where('userId', '==', currentOwnerId),
+      where('role', '==', 'owner')
+    );
+    
+    const currentOwnerSnapshot = await getDocs(currentOwnerQuery);
+    
+    if (currentOwnerSnapshot.empty) {
+      return { success: false, error: '현재 사용자가 관리자가 아닙니다.' };
+    }
+    
+    // 2. 새 관리자가 멤버인지 확인
+    const newOwnerQuery = query(
+      collection(db, 'groupMembers'),
+      where('groupId', '==', groupId),
+      where('userId', '==', newOwnerId)
+    );
+    
+    const newOwnerSnapshot = await getDocs(newOwnerQuery);
+    
+    if (newOwnerSnapshot.empty) {
+      return { success: false, error: '선택한 사용자가 그룹 멤버가 아닙니다.' };
+    }
+    
+    // 3. 트랜잭션으로 권한 변경
+    const batch = writeBatch(db);
+    
+    // 현재 관리자를 일반 멤버로 변경
+    const currentOwnerDoc = currentOwnerSnapshot.docs[0];
+    batch.update(doc(db, 'groupMembers', currentOwnerDoc.id), {
+      role: 'member',
+      updatedAt: new Date().toISOString()
+    });
+    
+    // 새 관리자로 변경
+    const newOwnerDoc = newOwnerSnapshot.docs[0];
+    batch.update(doc(db, 'groupMembers', newOwnerDoc.id), {
+      role: 'owner',
+      updatedAt: new Date().toISOString()
+    });
+    
+    // 그룹 문서에도 소유자 변경 기록
+    batch.update(doc(db, 'groups', groupId), {
+      createdBy: newOwnerId,
+      ownershipTransferredAt: new Date().toISOString(),
+      ownershipTransferredFrom: currentOwnerId,
+      updatedAt: new Date().toISOString()
+    });
+    
+    await batch.commit();
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error('권한 위임 오류:', error);
+    return { success: false, error: error.message };
+  }
+};
 
 /**
  * 그룹 탈퇴 함수

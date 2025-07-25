@@ -1,26 +1,26 @@
 const fs = require('fs');
 const path = require('path');
 
-console.log('🔧 Fixing Kotlin and KSP versions to compatible version 1.8.10...');
+console.log('🔧 Fixing Kotlin and KSP versions to compatible version 1.9.0...');
 
 const fixes = [
   {
     file: 'node_modules/react-native/gradle/libs.versions.toml',
     search: /kotlin = ".*"/g,
-    replace: 'kotlin = "1.8.10"'
+    replace: 'kotlin = "1.9.0"'
   },
   {
     file: 'node_modules/@react-native/gradle-plugin/gradle/libs.versions.toml',
     search: /kotlin = ".*"/g,
-    replace: 'kotlin = "1.8.10"'
+    replace: 'kotlin = "1.9.0"'
   },
   {
     file: 'node_modules/expo-modules-core/android/build.gradle',
     search: /buildscript\s*{/,
     replace: `buildscript {
   ext {
-    kotlin_version = '1.8.10'
-    compose_compiler_version = '1.4.3'
+    kotlin_version = '1.9.0'
+    compose_compiler_version = '1.5.1'
   }`
   }
 ];
@@ -46,21 +46,21 @@ if (fs.existsSync(expoModulesBuildGradle)) {
   // compose_compiler_version 변수 수정
   content = content.replace(
     /compose_compiler_version\s*=\s*["'][\d.]+["']/g,
-    'compose_compiler_version = "1.4.3"'
+    'compose_compiler_version = "1.5.1"'
   );
   
   // composeOptions 블록 수정
   content = content.replace(
     /composeOptions\s*{\s*kotlinCompilerExtensionVersion\s*=?\s*["']?[\d.]+["']?\s*}/gs,
     `composeOptions {
-        kotlinCompilerExtensionVersion = "1.4.3"
+        kotlinCompilerExtensionVersion = "1.5.1"
     }`
   );
   
   // androidx.compose.compiler:compiler 직접 참조 수정
   content = content.replace(
     /androidx\.compose\.compiler:compiler:[\d.]+/g,
-    'androidx.compose.compiler:compiler:1.4.3'
+    'androidx.compose.compiler:compiler:1.5.1'
   );
   
   // compose BOM 버전도 호환되는 버전으로 변경
@@ -74,7 +74,7 @@ if (fs.existsSync(expoModulesBuildGradle)) {
     content = content.replace(
       /ext\s*{/,
       `ext {
-        compose_compiler_version = '1.4.3'`
+        compose_compiler_version = '1.5.1'`
     );
   }
   
@@ -101,18 +101,18 @@ if (fs.existsSync(expoModulesBuildGradle)) {
   );
   
   fs.writeFileSync(expoModulesBuildGradle, content);
-  console.log('✅ Updated expo-modules-core build.gradle with Compose Compiler 1.4.3');
+  console.log('✅ Updated expo-modules-core build.gradle with Compose Compiler 1.5.1');
 }
 
 // expo-modules-core의 gradle.properties 생성/수정
 const expoModulesGradleProps = path.join(__dirname, '../node_modules/expo-modules-core/android/gradle.properties');
 const expoGradlePropsContent = `
-kotlin.version=1.8.10
-kspVersion=1.8.10-1.0.9
+kotlin.version=1.9.0
+kspVersion=1.9.0-1.0.12
 android.jetpack.compose.suppressKotlinVersionCompatibilityCheck=true
 kotlin.suppressKotlinVersionCompatibilityCheck=true
 kotlin.jvm.target=11
-compose.compiler.version=1.4.3
+compose.compiler.version=1.5.1
 `;
 
 fs.writeFileSync(expoModulesGradleProps, expoGradlePropsContent);
@@ -124,12 +124,12 @@ if (fs.existsSync(googleAdsGradlePath)) {
   let content = fs.readFileSync(googleAdsGradlePath, 'utf8');
   
   // buildscript에 kotlin 버전 고정
-  if (!content.includes("kotlin_version = '1.8.10'")) {
+  if (!content.includes("kotlin_version = '1.9.0'")) {
     content = content.replace(
       /buildscript\s*{/,
       `buildscript {
   ext {
-    kotlin_version = '1.8.10'
+    kotlin_version = '1.9.0'
   }`
     );
   }
@@ -137,7 +137,7 @@ if (fs.existsSync(googleAdsGradlePath)) {
   // KSP 버전 설정
   content = content.replace(
     /kspVersion\s*=\s*["'][\d.-]+["']/g,
-    "kspVersion = '1.8.10-1.0.9'"
+    "kspVersion = '1.9.0-1.0.12'"
   );
   
   fs.writeFileSync(googleAdsGradlePath, content);
@@ -152,12 +152,12 @@ if (fs.existsSync(gradlePropertiesPath)) {
   // Compose Compiler 버전 설정 추가
   if (!content.includes('compose.compiler.version')) {
     content += '\n# Compose Compiler version override\n';
-    content += 'compose.compiler.version=1.4.3\n';
+    content += 'compose.compiler.version=1.5.1\n';
   }
   
   if (!content.includes('kspVersion')) {
     content += '\n# KSP version\n';
-    content += 'kspVersion=1.8.10-1.0.9\n';
+    content += 'kspVersion=1.9.0-1.0.12\n';
   }
   
   if (!content.includes('suppressKotlinVersionCompatibilityCheck')) {
@@ -178,7 +178,7 @@ const checkAndFixComposeReferences = (filePath) => {
     
     // Compose 버전 1.3.x 참조를 1.4.3으로 변경
     if (content.includes('1.3.')) {
-      content = content.replace(/1\.3\.\d+/g, '1.4.3');
+      content = content.replace(/1\.3\.\d+/g, '1.5.1');
       modified = true;
     }
     
@@ -186,7 +186,7 @@ const checkAndFixComposeReferences = (filePath) => {
     if (content.includes('ksp')) {
       content = content.replace(
         /kspVersion\s*=\s*["'][\d.-]+["']/g,
-        "kspVersion = '1.8.10-1.0.9'"
+        "kspVersion = '1.9.0-1.0.12'"
       );
       modified = true;
     }
@@ -207,7 +207,7 @@ const gradleFiles = [
 
 gradleFiles.forEach(checkAndFixComposeReferences);
 
-console.log('\n✅ Kotlin 1.8.10 and KSP compatibility fixes applied!');
+console.log('\n✅ Kotlin 1.9.0 and KSP compatibility fixes applied!');
 console.log('📌 Compose has been disabled in expo-modules-core');
 console.log('\n🔄 Next steps:');
 console.log('   1. Clear caches: rm -rf node_modules/.cache');

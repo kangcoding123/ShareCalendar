@@ -392,33 +392,36 @@ export default function GroupListScreen() {
       ) : (
         <View style={{ flex: 1 }}>
           <FlatList
-            data={groups}
-            renderItem={({ item }) => (
-              <GroupItem 
-                group={item} 
-                onPress={handleGroupPress} 
-                onInvite={handleInvitePress}
-                colors={colors}
-              />
-            )}
-            keyExtractor={(item) => item.id || ''}
-            contentContainerStyle={[styles.listContent, { paddingBottom: 100 }]} // 더 넓은 여백
-            refreshControl={
-              <RefreshControl 
-                refreshing={refreshing} 
-                onRefresh={handleRefresh}
-                tintColor={colors.tint}
-                colors={[colors.tint]}
-              />
-            }
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Text style={[styles.emptyText, {color: colors.lightGray}]}>
-                  아직 속한 그룹이 없습니다.{'\n'}새 그룹을 생성해보세요.
-                </Text>
-              </View>
-            }
-          />
+  data={groups}
+  renderItem={({ item }) => (
+    <GroupItem 
+      group={item} 
+      onPress={handleGroupPress} 
+      onInvite={handleInvitePress}
+      colors={colors}
+    />
+  )}
+  keyExtractor={(item) => item.id || ''}
+  contentContainerStyle={styles.listContent} // ✅ paddingBottom 제거
+  refreshControl={
+    <RefreshControl 
+      refreshing={refreshing} 
+      onRefresh={handleRefresh}
+      tintColor={colors.tint}
+      colors={[colors.tint]}
+    />
+  }
+  ListEmptyComponent={
+    <View style={styles.emptyContainer}>
+      <Text style={[styles.emptyText, {color: colors.lightGray}]}>
+        아직 속한 그룹이 없습니다.{'\n'}새 그룹을 생성해보세요.
+      </Text>
+    </View>
+  }
+  ListFooterComponent={ // ✅ 추가: 하단 여백을 위한 Footer
+    <View style={{ height: 180 }} /> 
+  }
+/>
           
           <TouchableOpacity
             style={[styles.joinButton, {backgroundColor: colors.secondary, borderColor: colors.tint}]}
@@ -531,9 +534,8 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   listContent: {
-    padding: 15,
-    paddingBottom: 80
-  },
+  padding: 15  // ✅ paddingBottom 제거
+},
   groupItem: {
     flexDirection: 'row',
     borderRadius: 10,

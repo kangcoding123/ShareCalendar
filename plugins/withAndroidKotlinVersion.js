@@ -5,7 +5,7 @@ module.exports = function withAndroidKotlinVersion(config) {
     if (config.modResults.contents) {
       config.modResults.contents = config.modResults.contents.replace(
         /kotlinVersion = findProperty\('android\.kotlinVersion'\) \?\: '[\d.]+'/,
-        "kotlinVersion = findProperty('android.kotlinVersion') ?: '1.8.10'"
+        "kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.0'"
       );
     }
     return config;

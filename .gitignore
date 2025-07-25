@@ -48,4 +48,5 @@ android/
 ios/
 
 # Patches (이 폴더는 포함!)
-!patches/
+!patches/credentials/
+credentials.json
