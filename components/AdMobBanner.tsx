@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, memo, useRef } from 'react';
 import { View, StyleSheet, Platform, Text } from 'react-native';
 import Constants from 'expo-constants';
 import { getAdConfig } from '../services/adConfigService';
 
-// AdMob 모듈 조건부 import with TypeScript ignore
+// AdMob 모듈 조건부 import
 let BannerAd: any;
 let BannerAdSize: any;
 let TestIds: any;
@@ -27,12 +27,20 @@ interface AdMobBannerProps {
   size?: 'banner' | 'largeBanner';
 }
 
-const AdMobBanner = ({ size = 'banner' }: AdMobBannerProps) => {
-  const [isEnabled, setIsEnabled] = useState(false);
+// 🔥 memo로 감싸서 불필요한 리렌더링 방지
+const AdMobBanner = memo(({ size = 'banner' }: AdMobBannerProps) => {
+  const [isEnabled, setIsEnabled] = useState(true);
   const [isTestMode, setIsTestMode] = useState(false);
+  const [adError, setAdError] = useState(false);
+  
+  // 🔥 설정 로드는 한 번만
+  const isInitialized = useRef(false);
 
   useEffect(() => {
-    loadAdConfig();
+    if (!isInitialized.current) {
+      isInitialized.current = true;
+      loadAdConfig();
+    }
   }, []);
 
   const loadAdConfig = async () => {
@@ -47,17 +55,13 @@ const AdMobBanner = ({ size = 'banner' }: AdMobBannerProps) => {
     }
   };
 
-  // Expo Go에서는 placeholder 표시
+  // Expo Go에서는 아무것도 표시하지 않음 (공간 차지 X)
   if (!BannerAd || Constants.appOwnership === 'expo') {
-    return (
-      <View style={styles.placeholder}>
-        <Text style={styles.placeholderText}>광고 영역</Text>
-      </View>
-    );
+    return null;
   }
 
-  // 광고가 비활성화된 경우
-  if (!isEnabled) {
+  // 광고가 비활성화되거나 에러가 있으면 표시하지 않음
+  if (!isEnabled || adError) {
     return null;
   }
 
@@ -71,39 +75,33 @@ const AdMobBanner = ({ size = 'banner' }: AdMobBannerProps) => {
 
   return (
     <View style={styles.container}>
-    <BannerAd
-      unitId={unitId}
-      size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}  // 변경: 화면 너비에 맞춤
-      requestOptions={{
-        requestNonPersonalizedAdsOnly: true,
-      }}
-      onAdLoaded={() => console.log('광고 로드 완료')}
-      onAdFailedToLoad={(error: any) => console.error('광고 로드 실패:', error)}
-    />
-  </View>
+      <BannerAd
+        unitId={unitId}
+        size={BannerAdSize.ANCHORED_ADAPTIVE_BANNER}
+        requestOptions={{
+          requestNonPersonalizedAdsOnly: true,
+        }}
+        onAdLoaded={() => {
+          console.log('AdMob 광고 로드 완료');
+          setAdError(false);
+        }}
+        onAdFailedToLoad={(error: any) => {
+          console.error('AdMob 광고 로드 실패:', error);
+          setAdError(true); // 에러 시 광고 숨김
+        }}
+      />
+    </View>
   );
-};
+});
+
+AdMobBanner.displayName = 'AdMobBanner';
 
 const styles = StyleSheet.create({
-   container: {
+  container: {
     alignItems: 'center',
-    marginVertical: 0,
-    paddingHorizontal: 10,
     width: '100%',
-    backgroundColor: 'transparent',  // 투명 배경
-    overflow: 'hidden',  // 오버플로우 숨김
-  },
-  placeholder: {
-    alignItems: 'center',
-    marginVertical: 1,
-    marginHorizontal: 10,  // 좌우 여백 추가
-    padding: 8,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,  // 모서리 둥글게
-  },
-  placeholderText: {
-    color: '#666',
-    fontSize: 12,
+    backgroundColor: 'transparent',
+    overflow: 'hidden',
   },
 });
 

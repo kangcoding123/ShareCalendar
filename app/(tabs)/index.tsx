@@ -1,7 +1,7 @@
 // app/(tabs)/index.tsx
 import { Feather } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TextInput, useWindowDimensions } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -32,6 +32,8 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [todayEvents, setTodayEvents] = useState<CalendarEvent[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const screenRatio = screenHeight / screenWidth;
   
   // 색상 테마 설정
   const colorScheme = useColorScheme();
@@ -279,23 +281,16 @@ export default function HomeScreen() {
           onPress: async () => {
             setLoading(true); // 로그아웃 중 로딩 표시
             try {
-              const result = await logout();
-              if (result.success) {
-                // 명시적 데이터 초기화
-                setTodayEvents([]);
-                setUpcomingEvents([]);
-                
-                // 로그아웃 후 처리는 _layout.tsx에서 처리됨
-                // 명시적으로 로그인 화면으로 이동
-                router.replace('/(auth)/login' as any);
-              } else {
-                Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
-              }
-            } catch (error) {
-              console.error('로그아웃 오류:', error);
-              Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
-            } finally {
-              setLoading(false);
+            await logout();  // ✅ result 변수 제거
+            // ✅ if (result.success) 제거하고 바로 성공 처리
+            setTodayEvents([]);
+            setUpcomingEvents([]);
+            router.replace('/(auth)/login' as any);
+          } catch (error) {
+            console.error('로그아웃 오류:', error);
+            Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
+          } finally {
+            setLoading(false);
             }
           } 
         }
@@ -388,14 +383,20 @@ export default function HomeScreen() {
   
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
+      <SafeAreaView 
+  style={[styles.container, { backgroundColor: colors.secondary }]}
+  edges={['top', 'left', 'right']}  // bottom 제외
+>
         <ActivityIndicator size="large" color={colors.tint} />
       </SafeAreaView>
     );
   }
   
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
+    <SafeAreaView 
+  style={[styles.container, { backgroundColor: colors.secondary }]}
+  edges={['top', 'right', 'left']}  // bottom 제외 추가!
+>
       <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.headerTop}>
           <View style={styles.titleContainer}>
@@ -456,12 +457,12 @@ export default function HomeScreen() {
       </View>
       
       <ScrollView 
-          style={styles.content}
-          contentInsetAdjustmentBehavior="automatic"
-          contentContainerStyle={{
-            paddingBottom: Platform.OS === 'ios' ? 80 : 60
-          }}
-        >
+  style={styles.content}
+  contentInsetAdjustmentBehavior="never"  // automatic에서 never로 변경
+  contentContainerStyle={{
+    paddingBottom: screenRatio > 2.3 ? 20 : 40  // 고정값 사용
+  }}
+>
           {/* 오늘 일정 섹션 */}
           <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>오늘 일정</Text>

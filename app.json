@@ -25,7 +25,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.kangcoding.sharecalendar",
-      "versionCode": 12,
+      "versionCode": 17,
       "softwareKeyboardLayoutMode": "pan",
       "googleServicesFile": "./google-services.json",
       "permissions": [

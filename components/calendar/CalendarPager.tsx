@@ -1,5 +1,5 @@
 // components/calendar/CalendarPager.tsx
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -9,12 +9,15 @@ import {
   ViewToken,
   LayoutAnimation,
   Platform,
-  UIManager
+  UIManager,
+  NativeSyntheticEvent,
+  NativeScrollEvent
 } from 'react-native';
 import { addMonths, format, isSameMonth } from 'date-fns';
 import Calendar from './Calendar';
 import { CalendarDay } from '../../utils/dateUtils';
-import { CalendarEvent } from '../../services/calendarService';
+import { CalendarEvent, getEventsForMonth } from '../../services/calendarService';
+import { useAuth } from '../../context/AuthContext';
 
 // Android에서 LayoutAnimation 활성화
 if (Platform.OS === 'android') {
@@ -42,6 +45,9 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   initialMonth,
   onMonthChange,
 }) => {
+  // 🔥 Auth context 추가
+  const { user } = useAuth();
+  
   // 현재 표시 중인 월
   const [currentMonth, setCurrentMonth] = useState<Date>(() => {
     const now = initialMonth || new Date();
@@ -59,6 +65,12 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   
   // 업데이트 소스 추적 (버튼 또는 스와이프)
   const updateSourceRef = useRef<'button' | 'swipe' | null>(null);
+  
+  // 🔥 프리로드 상태 관리
+  const preloadedMonths = useRef<Set<string>>(new Set());
+  const isPreloading = useRef<Set<string>>(new Set());
+  const scrollProgress = useRef(0);
+  const currentIndex = useRef(MONTHS_TO_SHOW);
   
   // 초기 인덱스 계산 (중간 값)
   const initialIndex = MONTHS_TO_SHOW;
@@ -86,6 +98,78 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     if (__DEV__) console.log(`[CalendarPager] ${message}`);
   };
   
+  // 🔥 프리로드 함수
+  const preloadMonth = useCallback(async (monthDate: Date) => {
+    if (!user || !user.uid) return;
+    
+    const monthKey = format(monthDate, 'yyyy-MM');
+    
+    // 이미 프리로드됐거나 프리로딩 중이면 스킵
+    if (preloadedMonths.current.has(monthKey) || isPreloading.current.has(monthKey)) {
+      return;
+    }
+    
+    log(`프리로딩 시작: ${monthKey}`);
+    isPreloading.current.add(monthKey);
+    
+    try {
+      // 해당 월의 이벤트 미리 로드 (캐시 활용됨)
+      await getEventsForMonth(user.uid, monthDate.getFullYear(), monthDate.getMonth());
+      
+      preloadedMonths.current.add(monthKey);
+      log(`프리로딩 완료: ${monthKey}`);
+    } catch (error) {
+      console.error(`프리로딩 실패: ${monthKey}`, error);
+    } finally {
+      isPreloading.current.delete(monthKey);
+    }
+  }, [user]);
+  
+  // 🔥 스크롤 이벤트 핸들러
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, layoutMeasurement } = event.nativeEvent;
+    const currentOffset = contentOffset.x;
+    const currentItemIndex = Math.round(currentOffset / SCREEN_WIDTH);
+    
+    // 스크롤 진행률 계산 (0 ~ 1)
+    const itemOffset = currentOffset % SCREEN_WIDTH;
+    const progress = itemOffset / SCREEN_WIDTH;
+    
+    scrollProgress.current = progress;
+    currentIndex.current = currentItemIndex;
+    
+    // 🔥 프리로딩 트리거 (80% 지점)
+    if (progress > 0.8 && currentItemIndex < months.length - 1) {
+      // 오른쪽으로 스크롤 중 - 다음 달 프리로드
+      const nextMonth = months[currentItemIndex + 1];
+      if (nextMonth) {
+        preloadMonth(nextMonth.date);
+        
+        // 그 다음 달도 미리 로드 (더 부드러운 경험)
+        if (currentItemIndex + 2 < months.length) {
+          const nextNextMonth = months[currentItemIndex + 2];
+          if (nextNextMonth) {
+            preloadMonth(nextNextMonth.date);
+          }
+        }
+      }
+    } else if (progress < -0.8 && currentItemIndex > 0) {
+      // 왼쪽으로 스크롤 중 - 이전 달 프리로드
+      const prevMonth = months[currentItemIndex - 1];
+      if (prevMonth) {
+        preloadMonth(prevMonth.date);
+        
+        // 그 이전 달도 미리 로드
+        if (currentItemIndex - 2 >= 0) {
+          const prevPrevMonth = months[currentItemIndex - 2];
+          if (prevPrevMonth) {
+            preloadMonth(prevPrevMonth.date);
+          }
+        }
+      }
+    }
+  }, [months, preloadMonth]);
+  
   // 현재 월에 해당하는 인덱스 찾기
   const findMonthIndex = (targetMonth: Date) => {
     const targetFormatted = format(targetMonth, 'yyyy-MM');
@@ -101,6 +185,13 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
       : addMonths(currentMonth, 1);
     
     log(`Arrow navigation to: ${format(newMonth, 'yyyy-MM')}`);
+    
+    // 🔥 버튼으로 이동할 때도 주변 월 프리로드
+    if (direction === 'next') {
+      preloadMonth(addMonths(newMonth, 1));
+    } else {
+      preloadMonth(addMonths(newMonth, -1));
+    }
     
     // 월 변경 콜백 호출
     if (onMonthChange) {
@@ -148,6 +239,10 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
       const newMonth = new Date(initialMonth.getFullYear(), initialMonth.getMonth(), 1);
       setCurrentMonth(newMonth);
       
+      // 🔥 주변 월 프리로드
+      preloadMonth(addMonths(newMonth, -1));
+      preloadMonth(addMonths(newMonth, 1));
+      
       // 월 배열 업데이트
       setMonths(generateMonths(newMonth));
       
@@ -161,7 +256,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
         }
       }, 50);
     }
-  }, [initialMonth, currentMonth]);
+  }, [initialMonth, currentMonth, preloadMonth]);
   
   // 현재 보이는 아이템이 변경될 때 호출되는 함수
   const handleViewableItemsChanged = (info: { viewableItems: ViewToken[] }) => {
@@ -186,6 +281,10 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
       
       updateSourceRef.current = 'swipe';
       
+      // 🔥 새로운 월로 변경될 때 주변 월 프리로드
+      preloadMonth(addMonths(newMonth, -1));
+      preloadMonth(addMonths(newMonth, 1));
+      
       // 월 변경 콜백 호출
       if (onMonthChange) {
         onMonthChange(newMonth);
@@ -207,25 +306,47 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   const handleScrollEnd = () => {
     isScrollingRef.current = false;
     updateSourceRef.current = null;
+    
+    // 🔥 스크롤 종료 후 프리로드 상태 정리
+    if (preloadedMonths.current.size > 10) {
+      // 너무 많은 프리로드 데이터가 쌓이지 않도록 정리
+      const currentMonthKey = format(currentMonth, 'yyyy-MM');
+      const keysToKeep = new Set<string>();
+      
+      // 현재 월 기준 ±3개월만 유지
+      for (let i = -3; i <= 3; i++) {
+        const monthToKeep = addMonths(currentMonth, i);
+        keysToKeep.add(format(monthToKeep, 'yyyy-MM'));
+      }
+      
+      // 나머지는 제거
+      preloadedMonths.current.forEach(key => {
+        if (!keysToKeep.has(key)) {
+          preloadedMonths.current.delete(key);
+        }
+      });
+      
+      log(`프리로드 캐시 정리 완료. 남은 개수: ${preloadedMonths.current.size}`);
+    }
   };
   
-  // 캘린더 항목 렌더링 함수 - 중앙 정렬을 위한 컨테이너 추가
+  // 캘린더 항목 렌더링 함수
   const renderCalendarItem = ({ item }: { item: { date: Date; id: string } }) => {
-  return (
-    <View style={[styles.pageContainer, { width: SCREEN_WIDTH }]}>
-      <View style={styles.calendarWrapper}>
-        <Calendar
-          key={item.id}
-          events={events}
-          onDayPress={onDayPress}
-          colorScheme={colorScheme}
-          initialMonth={item.date}
-          onMonthChange={handleArrowNavigate}
-        />
+    return (
+      <View style={[styles.pageContainer, { width: SCREEN_WIDTH }]}>
+        <View style={styles.calendarWrapper}>
+          <Calendar
+            key={item.id}
+            events={events}
+            onDayPress={onDayPress}
+            colorScheme={colorScheme}
+            initialMonth={item.date}
+            onMonthChange={handleArrowNavigate}
+          />
+        </View>
       </View>
-    </View>
-  );
-};
+    );
+  };
   
   // 아이템 키 추출 함수
   const keyExtractor = (item: { date: Date; id: string }) => item.id;
@@ -238,9 +359,14 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
           index: initialIndex,
           animated: false
         });
+        
+        // 🔥 초기 로드 시 주변 월 프리로드
+        const initialMonth = months[initialIndex].date;
+        preloadMonth(addMonths(initialMonth, -1));
+        preloadMonth(addMonths(initialMonth, 1));
       }, 100);
     }
-  }, []);
+  }, [preloadMonth]);
   
   return (
     <View style={styles.container}>
@@ -272,6 +398,8 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
         onScrollEndDrag={handleScrollEnd}
         onMomentumScrollBegin={handleScrollBegin}
         onMomentumScrollEnd={handleScrollEnd}
+        onScroll={handleScroll}  // 🔥 스크롤 이벤트 추가
+        scrollEventThrottle={16}  // 🔥 60fps로 스크롤 이벤트 처리
         contentContainerStyle={styles.flatListContent}
       />
     </View>

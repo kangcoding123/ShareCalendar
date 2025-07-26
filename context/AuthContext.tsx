@@ -1,59 +1,399 @@
 // context/AuthContext.tsx
-import React, { createContext, useState, useEffect, useContext, ReactNode } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
+import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import { 
+  User,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+  sendPasswordResetEmail,
+  deleteUser as firebaseDeleteUser,
+  EmailAuthProvider,
+  reauthenticateWithCredential
+} from 'firebase/auth';
 import { auth, db } from '../config/firebase';
-import { 
-  loginUser, 
-  logoutUser, 
-  registerUser, 
-  autoLoginWithSavedCredentials,
-  getSavedUserInfo
-} from '../services/authService';
-import { 
-  registerForPushNotificationsAsync, 
-  saveUserPushToken  
-} from '../services/notificationService';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// calendarService에서 전역 상태 import
+import { doc, setDoc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { clearEventSubscriptions } from '../services/calendarService';
+import { cacheService } from '../services/cacheService'; // 🔥 추가
 
 // 사용자 타입 정의
-interface User {
+interface UserData {
   uid: string;
   email: string | null;
   displayName: string | null;
-  unreadNotifications?: number; // 추가: 읽지 않은 알림 수
+  photoURL?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // 인증 컨텍스트 타입 정의
 interface AuthContextType {
-  user: User | null;
+  user: UserData | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; user?: any; error?: string }>;
-  logout: () => Promise<{ success: boolean; error?: string }>;
-  register: (email: string, password: string, displayName: string) => Promise<{ success: boolean; user?: any; error?: string }>;
-  isAuthenticated: boolean;
-  resetNotificationCount: () => Promise<void>; // 추가: 알림 카운터 리셋 함수
+  error: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, displayName: string) => Promise<void>;
+  logout: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  updateUserProfile: (displayName: string, photoURL?: string) => Promise<void>;
+  deleteAccount: (password: string) => Promise<void>;
+  clearError: () => void;
 }
 
-// Props 타입 정의
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-// AsyncStorage 키 정의
-const AUTH_CREDENTIALS_KEY = 'auth_credentials';
-const AUTH_USER_KEY = 'auth_user';
-const USER_SETTINGS_KEYS = [
-  'user_calendar_settings',
-  'recent_views',
-  'app_preferences'
-];
-
+// 컨텍스트 생성
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Provider 컴포넌트
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Firebase 사용자 정보를 UserData 형식으로 변환
+  const formatUserData = (firebaseUser: User): UserData => {
+    return {
+      uid: firebaseUser.uid,
+      email: firebaseUser.email,
+      displayName: firebaseUser.displayName,
+      photoURL: firebaseUser.photoURL,
+    };
+  };
+
+  // Firestore에서 추가 사용자 정보 가져오기
+  const fetchUserData = async (uid: string): Promise<UserData | null> => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', uid));
+      if (userDoc.exists()) {
+        return { uid, ...userDoc.data() } as UserData;
+      }
+      return null;
+    } catch (error) {
+      console.error('사용자 정보 가져오기 오류:', error);
+      return null;
+    }
+  };
+
+  // 로그인
+  const login = async (email: string, password: string) => {
+    try {
+      setError(null);
+      setLoading(true);
+      
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userData = await fetchUserData(userCredential.user.uid);
+      
+      if (userData) {
+        setUser(userData);
+        
+        // 마지막 로그인 시간 업데이트
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          lastLoginAt: new Date().toISOString()
+        }, { merge: true });
+      } else {
+        setUser(formatUserData(userCredential.user));
+      }
+    } catch (error: any) {
+      console.error('로그인 오류:', error);
+      
+      // 에러 메시지 한글화
+      let errorMessage = '로그인 중 오류가 발생했습니다.';
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = '존재하지 않는 사용자입니다.';
+      } else if (error.code === 'auth/wrong-password') {
+        errorMessage = '잘못된 비밀번호입니다.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = '올바른 이메일 형식이 아닙니다.';
+      } else if (error.code === 'auth/too-many-requests') {
+        errorMessage = '너무 많은 시도가 있었습니다. 잠시 후 다시 시도해주세요.';
+      }
+      
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 회원가입
+  const register = async (email: string, password: string, displayName: string) => {
+    try {
+      setError(null);
+      setLoading(true);
+      
+      // Firebase Auth에 사용자 생성
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // 프로필 업데이트
+      await updateProfile(userCredential.user, { displayName });
+      
+      // Firestore에 사용자 정보 저장
+      const userData: UserData = {
+        uid: userCredential.user.uid,
+        email: userCredential.user.email,
+        displayName,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      await setDoc(doc(db, 'users', userCredential.user.uid), userData);
+      
+      setUser(userData);
+      
+      // 기본 그룹 생성 (개인 캘린더)
+      await setDoc(doc(db, 'groups', `personal_${userCredential.user.uid}`), {
+        name: '개인 캘린더',
+        type: 'personal',
+        createdBy: userCredential.user.uid,
+        createdAt: new Date().toISOString()
+      });
+      
+    } catch (error: any) {
+      console.error('회원가입 오류:', error);
+      
+      // 에러 메시지 한글화
+      let errorMessage = '회원가입 중 오류가 발생했습니다.';
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = '이미 사용 중인 이메일입니다.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = '비밀번호는 최소 6자 이상이어야 합니다.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = '올바른 이메일 형식이 아닙니다.';
+      }
+      
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 로그아웃
+  const logout = async () => {
+    try {
+      setLoading(true);
+      
+      // 🔥 이벤트 구독 정리
+      clearEventSubscriptions();
+      
+      // 🔥 오프라인 캐시 정리
+      await cacheService.clearAllCache();
+      console.log('[AuthContext] 오프라인 캐시 정리 완료');
+      
+      // 🔥 캐시 서비스 정리
+      cacheService.cleanup();
+      
+      // Firebase 로그아웃
+      await signOut(auth);
+      
+      setUser(null);
+      setError(null);
+    } catch (error: any) {
+      console.error('로그아웃 오류:', error);
+      setError('로그아웃 중 오류가 발생했습니다.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 비밀번호 재설정
+  const resetPassword = async (email: string) => {
+    try {
+      setError(null);
+      await sendPasswordResetEmail(auth, email);
+    } catch (error: any) {
+      console.error('비밀번호 재설정 오류:', error);
+      
+      let errorMessage = '비밀번호 재설정 중 오류가 발생했습니다.';
+      if (error.code === 'auth/user-not-found') {
+        errorMessage = '존재하지 않는 사용자입니다.';
+      } else if (error.code === 'auth/invalid-email') {
+        errorMessage = '올바른 이메일 형식이 아닙니다.';
+      }
+      
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    }
+  };
+
+  // 사용자 프로필 업데이트
+  const updateUserProfile = async (displayName: string, photoURL?: string) => {
+    try {
+      setError(null);
+      
+      if (!auth.currentUser) {
+        throw new Error('로그인이 필요합니다.');
+      }
+      
+      // Firebase Auth 프로필 업데이트
+      const updateData: any = { displayName };
+      if (photoURL !== undefined) {
+        updateData.photoURL = photoURL;
+      }
+      
+      await updateProfile(auth.currentUser, updateData);
+      
+      // Firestore 업데이트
+      const firestoreData: any = {
+        displayName,
+        updatedAt: new Date().toISOString()
+      };
+      
+      if (photoURL !== undefined) {
+        firestoreData.photoURL = photoURL;
+      }
+      
+      await setDoc(doc(db, 'users', auth.currentUser.uid), firestoreData, { merge: true });
+      
+      // 로컬 상태 업데이트
+      if (user) {
+        setUser({
+          ...user,
+          displayName,
+          ...(photoURL !== undefined && { photoURL })
+        });
+      }
+    } catch (error: any) {
+      console.error('프로필 업데이트 오류:', error);
+      setError('프로필 업데이트 중 오류가 발생했습니다.');
+      throw error;
+    }
+  };
+
+  // 계정 삭제
+  const deleteAccount = async (password: string) => {
+    try {
+      setError(null);
+      setLoading(true);
+      
+      if (!auth.currentUser || !auth.currentUser.email) {
+        throw new Error('로그인이 필요합니다.');
+      }
+      
+      // 재인증
+      const credential = EmailAuthProvider.credential(
+        auth.currentUser.email,
+        password
+      );
+      
+      await reauthenticateWithCredential(auth.currentUser, credential);
+      
+      const userId = auth.currentUser.uid;
+      
+      // 🔥 이벤트 구독 정리
+      clearEventSubscriptions();
+      
+      // 🔥 오프라인 캐시 정리
+      await cacheService.clearAllCache();
+      
+      // Firestore에서 관련 데이터 삭제
+      const batch = writeBatch(db);
+      
+      // 사용자 문서 삭제
+      batch.delete(doc(db, 'users', userId));
+      
+      // 사용자가 만든 그룹 삭제
+      const groupsQuery = query(collection(db, 'groups'), where('createdBy', '==', userId));
+      const groupsSnapshot = await getDocs(groupsQuery);
+      groupsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      
+      // 그룹 멤버십 삭제
+      const membershipsQuery = query(collection(db, 'groupMembers'), where('userId', '==', userId));
+      const membershipsSnapshot = await getDocs(membershipsQuery);
+      membershipsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      
+      // 개인 이벤트 삭제
+      const eventsQuery = query(collection(db, 'events'), where('userId', '==', userId));
+      const eventsSnapshot = await getDocs(eventsQuery);
+      eventsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      
+      await batch.commit();
+      
+      // Firebase Auth에서 계정 삭제
+      await firebaseDeleteUser(auth.currentUser);
+      
+      setUser(null);
+    } catch (error: any) {
+      console.error('계정 삭제 오류:', error);
+      
+      let errorMessage = '계정 삭제 중 오류가 발생했습니다.';
+      if (error.code === 'auth/wrong-password') {
+        errorMessage = '잘못된 비밀번호입니다.';
+      } else if (error.code === 'auth/requires-recent-login') {
+        errorMessage = '보안을 위해 다시 로그인해주세요.';
+      }
+      
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 에러 초기화
+  const clearError = () => {
+    setError(null);
+  };
+
+  // Auth 상태 변경 감지
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      try {
+        if (firebaseUser) {
+          // Firestore에서 추가 정보 가져오기
+          const userData = await fetchUserData(firebaseUser.uid);
+          if (userData) {
+            setUser(userData);
+          } else {
+            // Firestore에 데이터가 없으면 생성
+            const newUserData = formatUserData(firebaseUser);
+            await setDoc(doc(db, 'users', firebaseUser.uid), {
+              ...newUserData,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+            });
+            setUser(newUserData);
+          }
+        } else {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('인증 상태 변경 처리 오류:', error);
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const value = {
+    user,
+    loading,
+    error,
+    login,
+    register,
+    logout,
+    resetPassword,
+    updateUserProfile,
+    deleteAccount,
+    clearError
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+// Hook
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
@@ -61,166 +401,3 @@ export const useAuth = () => {
   }
   return context;
 };
-
-export function AuthProvider({ children }: AuthProviderProps) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  // 알림 카운터 초기화 함수 (추가)
-  const resetNotificationCount = async () => {
-    if (!user) return;
-    
-    try {
-      // Firestore에서 사용자 알림 카운터 초기화
-      await setDoc(doc(db, 'users', user.uid), 
-        { unreadNotifications: 0 }, 
-        { merge: true }
-      );
-      
-      // 로컬 사용자 상태 업데이트
-      setUser(prev => prev ? {...prev, unreadNotifications: 0} : null);
-    } catch (error) {
-      console.error('알림 카운터 초기화 오류:', error);
-    }
-  };
-
-  useEffect(() => {
-    let isMounted = true;
-    
-    // 인증 상태 초기화
-    const initAuth = async () => {
-      try {
-        // 저장된 사용자 정보 확인
-        const savedUser = await getSavedUserInfo();
-        
-        if (savedUser && isMounted) {
-          setUser(savedUser);
-          
-          // 저장된 자격 증명으로 자동 로그인 시도 (세션 갱신용)
-          autoLoginWithSavedCredentials().catch(error => 
-            console.log('자동 로그인 갱신 실패:', error)
-          );
-          
-          // 알림 권한 요청
-          registerForPushNotificationsAsync();
-          
-          // 푸시 토큰 저장 (추가)
-          if (savedUser.uid) {
-            saveUserPushToken(savedUser.uid);
-          }
-        }
-      } catch (error) {
-        console.error('인증 초기화 오류:', error);
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    };
-
-    // 인증 초기화 실행
-    initAuth();
-
-    // Firebase 인증 상태 변경 이벤트 구독
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (!isMounted) return;
-      
-      if (firebaseUser) {
-        // Firebase에 인증된 사용자가 있으면 상태 업데이트
-        try {
-          // 추가: Firestore에서 사용자 추가 정보 가져오기
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          const userData = userDoc.exists() ? userDoc.data() : {};
-          
-          const userState: User = {
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            displayName: firebaseUser.displayName,
-            unreadNotifications: userData.unreadNotifications || 0 // 읽지 않은 알림 수 추가
-          };
-          
-          setUser(userState);
-          
-          // 푸시 토큰 저장 (추가)
-          saveUserPushToken(firebaseUser.uid);
-          
-        } catch (error) {
-          console.error('사용자 데이터 가져오기 오류:', error);
-          
-          // 오류 발생 시 기본 정보만으로 사용자 상태 설정
-          setUser({
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            displayName: firebaseUser.displayName
-          });
-        }
-      } else {
-        // Firebase에서 로그아웃 상태면 로컬 상태도 초기화
-        setUser(null);
-      }
-      
-      setLoading(false);
-    });
-
-    return () => {
-      isMounted = false;
-      unsubscribe();
-    };
-  }, []);
-
-  const login = async (email: string, password: string) => {
-    const result = await loginUser(email, password);
-    return result;
-  };
-
-  // 개선된 로그아웃 함수
-  const logout = async () => {
-    try {
-      console.log('로그아웃 시작 - 모든 구독 및 상태 초기화');
-      
-      // 1. 모든 이벤트 구독 해제 - 서비스 계층에 새로 추가된 함수 호출
-      clearEventSubscriptions();
-      
-      // 2. Firebase 로그아웃 실행
-      const result = await logoutUser();
-      
-      if (result.success) {
-        // 3. 사용자 상태 초기화
-        setUser(null);
-        
-        // 4. AsyncStorage에서 사용자 관련 데이터 모두 제거
-        const keysToRemove = [AUTH_CREDENTIALS_KEY, AUTH_USER_KEY, ...USER_SETTINGS_KEYS];
-        await AsyncStorage.multiRemove(keysToRemove);
-        
-        console.log('로그아웃 완료 - 모든 상태와 캐시 데이터 삭제됨');
-      } else {
-        console.error('Firebase 로그아웃 실패:', result.error);
-      }
-      
-      return result;
-    } catch (error) {
-      console.error('로그아웃 처리 중 오류 발생:', error);
-      return { success: false, error: '로그아웃 처리 중 오류가 발생했습니다.' };
-    }
-  };
-
-  const register = async (email: string, password: string, displayName: string) => {
-    return await registerUser(email, password, displayName);
-  };
-
-  const value = {
-    user,
-    loading,
-    login,
-    logout,
-    register,
-    isAuthenticated: !!user,
-    resetNotificationCount  // 추가: 알림 카운터 리셋 함수 포함
-  };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {!loading && children}
-    </AuthContext.Provider>
-  );
-}

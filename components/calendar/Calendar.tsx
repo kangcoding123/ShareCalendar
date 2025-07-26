@@ -129,23 +129,35 @@ const Calendar = ({
   
  // 셀 높이 계산
 const cellHeight = useMemo(() => {
-  // 화면 크기에 따른 동적 계산
-  const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 80 : 60;
+  const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 70 : 60;
   const AD_BANNER_HEIGHT = 60;
-  const EXTRA_PADDING = 0; // 최소한의 여유 공간만
   
-  // 전체 사용 가능한 높이 계산
+  // 화면 비율 계산 (높이/너비)
+  const screenRatio = screenHeight / screenWidth;
+  
+  // 화면 비율에 따라 여유 공간 동적 조정
+  let EXTRA_PADDING = 0;
+  if (screenRatio > 2.3) {
+    // Z Flip 같은 매우 긴 화면 (21:9 이상)
+    EXTRA_PADDING = 50;
+  } else if (screenRatio > 2.1) {
+    // 약간 긴 화면
+    EXTRA_PADDING = 30;
+  } else {
+    // 일반 화면 (16:9, 18:9 등)
+    EXTRA_PADDING = 10;
+  }
+  
   const availableHeight = screenHeight - 
-    insets.top -           // 상단 Safe Area
-    TAB_BAR_HEIGHT -       // 탭바
-    AD_BANNER_HEIGHT -     // 광고 배너
-    HEADER_HEIGHT -        // 캘린더 헤더 (45)
-    DAY_NAMES_HEIGHT -     // 요일 행 (30)
-    EXTRA_PADDING;         // 여유 공간
+    insets.top -
+    TAB_BAR_HEIGHT -
+    AD_BANNER_HEIGHT -
+    HEADER_HEIGHT -
+    DAY_NAMES_HEIGHT -
+    EXTRA_PADDING;
   
-  // 주 수로 나누어 셀 높이 계산
-  return Math.max(availableHeight / weekCount, 60); // 최소 높이를 50으로 증가
-}, [screenHeight, weekCount, insets]);
+  return Math.max(availableHeight / weekCount, 60);
+}, [screenHeight, screenWidth, weekCount, insets]);
   
   // 달력 데이터 업데이트 (비동기 처리 추가)
   useEffect(() => {

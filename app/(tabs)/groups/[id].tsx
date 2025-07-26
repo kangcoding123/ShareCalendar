@@ -12,7 +12,8 @@ import {
   Alert,
   ScrollView,
   RefreshControl,
-  Share
+  Share,
+  useWindowDimensions  // 🔴 추가
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -41,22 +42,21 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 
 // 색상 선택 옵션
 const COLOR_OPTIONS = [
-  { name: '초록색', value: '#4CAF50' }, // 기본 초록색 (기본값과 동일)
-  { name: '빨간색', value: '#FF0000' }, // 빨강
-  { name: '주황색', value: '#FF8C00' }, // 주황
-  { name: '파란색', value: '#0066FF' }, // 파랑
-  { name: '보라색', value: '#8A2BE2' }, // 보라
-  { name: '검정색', value: '#333333' }  // 검정
+  { name: '초록색', value: '#4CAF50' },
+  { name: '빨간색', value: '#FF0000' },
+  { name: '주황색', value: '#FF8C00' },
+  { name: '파란색', value: '#0066FF' },
+  { name: '보라색', value: '#8A2BE2' },
+  { name: '검정색', value: '#333333' }
 ];
-
 
 interface MemberItemProps {
   member: GroupMember;
   isCurrentUser: boolean;
   colors: any;
-  isOwner: boolean; // 현재 사용자가 관리자인지
-  onRemove?: (member: GroupMember) => void; // 강퇴 핸들러
-  onTransfer?: (member: GroupMember) => void; // ✅ 추가: 위임 핸들러
+  isOwner: boolean;
+  onRemove?: (member: GroupMember) => void;
+  onTransfer?: (member: GroupMember) => void;
 }
 
 const MemberItem = ({ member, isCurrentUser, colors, isOwner, onRemove, onTransfer }: MemberItemProps) => {
@@ -82,7 +82,6 @@ const MemberItem = ({ member, isCurrentUser, colors, isOwner, onRemove, onTransf
           </Text>
         </View>
         
-        {/* ✅ 추가: 위임 버튼 (관리자만, 본인과 다른 관리자는 제외) */}
         {isOwner && !isCurrentUser && member.role !== 'owner' && onTransfer && (
           <TouchableOpacity
             style={[styles.transferMemberButton, { backgroundColor: colors.tint }]}
@@ -92,7 +91,6 @@ const MemberItem = ({ member, isCurrentUser, colors, isOwner, onRemove, onTransf
           </TouchableOpacity>
         )}
         
-        {/* 강퇴 버튼 (관리자만, 본인과 다른 관리자는 제외) */}
         {isOwner && !isCurrentUser && member.role !== 'owner' && onRemove && (
           <TouchableOpacity
             style={[styles.removeButton, { backgroundColor: colors.danger }]}
@@ -119,7 +117,6 @@ const InviteModal = ({ visible, onClose, onSubmit, loading, colors }: InviteModa
   const [email, setEmail] = useState('');
   const [errors, setErrors] = useState<{ email?: string }>({});
 
-  // 모달이 닫힐 때 입력 필드 초기화
   useEffect(() => {
     if (!visible) {
       setEmail('');
@@ -333,6 +330,10 @@ export default function GroupDetailScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
   
+  // 🔴 화면 크기 계산 추가
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const screenRatio = screenHeight / screenWidth;
+  
   const [group, setGroup] = useState<Group | null>(null);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -352,14 +353,12 @@ export default function GroupDetailScreen() {
   const [selectedColor, setSelectedColor] = useState<string>('#4CAF50');
   const [savingColor, setSavingColor] = useState(false);
 
-  // ⭐ 초대 코드 관련 상태 추가
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [generatingInvite, setGeneratingInvite] = useState(false);
 
-  // ✅ 권한 위임 관련 상태 간소화
   const [transferring, setTransferring] = useState(false);
 
-  // 관리자 권한 확인 (소유자인 경우) - 타입 체크 및 대소문자 구분 없이 확인
+  // 관리자 권한 확인
   const isOwner = typeof group?.role === 'string' && 
                  group.role.toLowerCase() === 'owner';
   
@@ -376,13 +375,11 @@ export default function GroupDetailScreen() {
       
       if (result.success) {
         if (group) {
-          // 로컬 상태 업데이트
           setGroup({ ...group, color });
           console.log(`그룹 색상 변경 성공: ${color}`);
         }
       } else {
         Alert.alert('오류', '색상 변경 중 오류가 발생했습니다.');
-        // 실패 시 원래 색상으로 복원
         setSelectedColor(group?.color || '#4CAF50');
       }
     } catch (error) {
@@ -435,7 +432,7 @@ export default function GroupDetailScreen() {
     }
   };  
 
-  // ✅ 권한 위임 핸들러 - 단순화
+  // 권한 위임 핸들러
   const handleTransferOwnership = (member: GroupMember) => {
     Alert.alert(
       '관리자 권한 위임',
@@ -553,9 +550,7 @@ export default function GroupDetailScreen() {
               
               if (result.success) {
                 Alert.alert('성공', '멤버가 강퇴되었습니다.');
-                // 멤버 목록 새로고침
                 loadGroupData();
-                // 차단 목록도 새로고침
                 loadBannedMembers();
               } else {
                 Alert.alert('오류', result.error || '멤버 강퇴 중 오류가 발생했습니다.');
@@ -590,7 +585,6 @@ export default function GroupDetailScreen() {
               
               if (result.success) {
                 Alert.alert('성공', '차단이 해제되었습니다.');
-                // 차단 목록 새로고침
                 loadBannedMembers();
               } else {
                 Alert.alert('오류', result.error || '차단 해제 중 오류가 발생했습니다.');
@@ -610,25 +604,22 @@ export default function GroupDetailScreen() {
   // 그룹 및 멤버 데이터 로드
   const loadGroupData = async () => {
     try {
-      if (refreshing) return; // 이미 로딩 중이면 중복 방지
+      if (refreshing) return;
       
       console.log('[loadGroupData] 그룹 데이터 로드 시작. 그룹 ID:', groupId);
       setLoading(true);
       
       if (!groupId) return;
       
-      // 그룹 정보 가져오기
       const groupResult = await getGroupById(groupId);
       if (groupResult.success && groupResult.group) {
         const groupData = groupResult.group as Group;
         console.log('[loadGroupData] 그룹 정보 로드 성공:', groupData.name);
         
-        // ⭐ 초대 코드 설정
         if (groupData.inviteCode) {
           setInviteCode(groupData.inviteCode);
         }
         
-        // 추가: 그룹 멤버 목록에서 사용자의 역할 가져오기
         const membersResult = await getGroupMembers(groupId);
         
         if (membersResult.success && membersResult.members) {
@@ -636,15 +627,12 @@ export default function GroupDetailScreen() {
           console.log('[loadGroupData] 멤버 수:', members.length);
           setMembers(members);
           
-          // 멤버 이메일 정보 로그
           console.log('[loadGroupData] 멤버 이메일 목록:', 
             members.map(m => ({ name: m.displayName, email: m.email })));
           
-          // 현재 사용자의 역할과 색상 찾기
           const currentUserMember = members.find(m => m.userId === user?.uid);
           
           if (currentUserMember) {
-            // 그룹 데이터에 역할 추가
             const updatedGroup = {
               ...groupData,
               role: currentUserMember.role,
@@ -654,15 +642,12 @@ export default function GroupDetailScreen() {
             console.log('[loadGroupData] 색상 설정됨:', updatedGroup.color);
             
             setGroup(updatedGroup);
-            // 색상 상태 업데이트
             setSelectedColor(currentUserMember.color || '#4CAF50');
           } else {
-            // 멤버 목록에 사용자가 없으면 기본 그룹 데이터 사용
             console.log('[loadGroupData] 사용자의 멤버 정보 없음, 기본 데이터 사용');
             setGroup(groupData);
           }
         } else {
-          // 멤버 조회 실패 시 기본 그룹 데이터 사용
           console.error('[loadGroupData] 멤버 목록 로드 실패:', membersResult.error);
           setGroup(groupData);
           Alert.alert('오류', '멤버 목록을 불러오는 중 오류가 발생했습니다.');
@@ -697,14 +682,12 @@ export default function GroupDetailScreen() {
     }
   };
 
-  // useEffect 추가 - 관리자일 때 차단 목록 로드
   useEffect(() => {
     if (isOwner && groupId) {
       loadBannedMembers();
     }
   }, [isOwner, groupId]);
 
-  // 초기 데이터 로드
   useEffect(() => {
     if (user && groupId) {
       loadGroupData();
@@ -728,10 +711,8 @@ export default function GroupDetailScreen() {
         console.log(`[handleInvite] 초대 성공: ${email}`);
         setInviteModalVisible(false);
         
-        // 성공 알림 표시
         Alert.alert('성공', '초대가 완료되었습니다.');
         
-        // 약간의 지연 후 데이터 새로고침
         setRefreshing(true);
         setTimeout(() => {
           console.log('[handleInvite] 데이터 새로고침 시작');
@@ -800,14 +781,14 @@ export default function GroupDetailScreen() {
               
               if (result.success) {
                 console.log('그룹 삭제 성공');
-                setDeleting(false); // 여기에 추가: 성공 시에도 로딩 상태 해제
+                setDeleting(false);
                 
                 Alert.alert('성공', '그룹이 삭제되었습니다.', [
                   { 
                     text: '확인', 
                     onPress: () => {
                       console.log('그룹 목록으로 이동');
-                      router.push('/(tabs)/groups'); // router.back() 대신 직접 경로 지정
+                      router.push('/(tabs)/groups');
                     } 
                   }
                 ]);
@@ -833,7 +814,7 @@ export default function GroupDetailScreen() {
     loadGroupData();
   };
 
-  // 각 색상 옵션에 대한 스타일 객체 미리 생성 (Reanimated 경고 방지)
+  // 각 색상 옵션에 대한 스타일 객체 미리 생성
   const getColorOptionStyles = (colorValue: string) => {
     return [
       styles.colorOption,
@@ -853,7 +834,10 @@ export default function GroupDetailScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>
+    <SafeAreaView 
+      style={[styles.container, { backgroundColor: colors.secondary }]}
+      edges={['top', 'right', 'left']}  // 🔴 bottom 제외
+    >
       <View style={[styles.header, { 
         backgroundColor: colors.headerBackground, 
         borderBottomColor: colors.border 
@@ -881,6 +865,10 @@ export default function GroupDetailScreen() {
       
       <ScrollView 
         style={styles.content}
+        contentInsetAdjustmentBehavior="never"  // 🔴 추가
+        contentContainerStyle={{
+          paddingBottom: screenRatio > 2.3 ? 0 : 40  // 🔴 추가
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -922,7 +910,6 @@ export default function GroupDetailScreen() {
               {isOwner ? '관리자' : '멤버'}
             </Text>
             
-            {/* 색상 선택 UI 수정 - Reanimated 경고 방지 */}
             <Text style={[styles.infoLabel, { color: colors.lightGray }]}>그룹 색상 (캘린더에 표시될 색상)</Text>
             <View style={styles.colorOptions}>
               {COLOR_OPTIONS.map(color => (
@@ -943,7 +930,6 @@ export default function GroupDetailScreen() {
               <Text style={[styles.savingText, { color: colors.lightGray }]}>색상 저장 중...</Text>
             )}
 
-            {/* ⭐ 초대 코드 섹션 추가 */}
             {isOwner && (
               <>
                 <View style={styles.divider} />
@@ -1020,7 +1006,7 @@ export default function GroupDetailScreen() {
                   colors={colors}
                   isOwner={isOwner}
                   onRemove={handleRemoveMember}
-                  onTransfer={handleTransferOwnership} // ✅ 추가
+                  onTransfer={handleTransferOwnership}
                 />
               )}
               keyExtractor={(item) => item.id || item.userId}
@@ -1030,7 +1016,6 @@ export default function GroupDetailScreen() {
             <Text style={[styles.emptyText, { color: colors.lightGray }]}>멤버가 없습니다.</Text>
           )}
 
-          {/* ✅ 관리자 섹션 간소화 - 버튼 제거하고 안내 문구만 표시 */}
           {isOwner && members.length > 1 && (
             <View style={[styles.infoNote, { backgroundColor: colors.secondary }]}>
               <Text style={[styles.infoNoteText, { color: colors.text }]}>
@@ -1041,7 +1026,10 @@ export default function GroupDetailScreen() {
         </View>
         
         {isOwner && (
-          <View style={styles.dangerZone}>
+          <View style={[
+            styles.dangerZone,
+            { marginBottom: screenRatio > 2.3 ? 10 : 30 }  // 🔴 인라인 스타일로 추가
+          ]}>
             <Text style={styles.dangerZoneTitle}>위험 구역</Text>
             <TouchableOpacity
               style={[
@@ -1060,7 +1048,6 @@ export default function GroupDetailScreen() {
           </View>
         )}
         
-        {/* 차단 목록 섹션 (관리자만) */}
         {isOwner && (
           <View style={styles.bannedSection}>
             <TouchableOpacity
@@ -1113,9 +1100,11 @@ export default function GroupDetailScreen() {
           </View>
         )}
 
-        {/* 관리자가 아닌 경우에만 그룹 탈퇴 UI 표시 */}
         {!isOwner && (
-          <View style={styles.leaveGroupContainer}>
+          <View style={[
+            styles.leaveGroupContainer,
+            { marginBottom: screenRatio > 2.3 ? 10 : 30 }  // 🔴 인라인 스타일로 추가
+          ]}>
             <Text style={styles.dangerZoneTitle}>그룹 탈퇴</Text>
             <Text style={styles.leaveGroupDescription}>
               이 그룹에서 탈퇴하면 더 이상 그룹 일정에 접근할 수 없습니다.
@@ -1136,6 +1125,9 @@ export default function GroupDetailScreen() {
             </TouchableOpacity>
           </View>
         )}
+        
+        {/* 🔴 하단 여백 추가 */}
+        <View style={{ height: screenRatio > 2.3 ? 20 : 50 }} />
       </ScrollView>
       
       <InviteModal
@@ -1158,6 +1150,7 @@ export default function GroupDetailScreen() {
   );
 }
 
+// 스타일은 동일하게 유지
 const styles = StyleSheet.create({
   container: {
     flex: 1
@@ -1236,7 +1229,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 15
   },
-  // 색상 선택 관련 스타일
   colorOptions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1273,8 +1265,8 @@ const styles = StyleSheet.create({
     marginBottom: 20
   },
   inviteButton: {
-    paddingHorizontal: 16,  // 12 → 16으로 증가
-    paddingVertical: 8,     // 6 → 8로 증가
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 20,
     marginRight: 8
   },
@@ -1341,7 +1333,7 @@ const styles = StyleSheet.create({
   },
   dangerZone: {
     marginTop: 10,
-    marginBottom: 30,
+    // marginBottom은 인라인 스타일로 처리
     padding: 15,
     borderRadius: 10,
     backgroundColor: '#fff1f0',
@@ -1368,10 +1360,9 @@ const styles = StyleSheet.create({
   disabledButton: {
     backgroundColor: '#ffa39e'
   },
-  // 그룹 탈퇴 관련 스타일
   leaveGroupContainer: {
     marginTop: 20,
-    marginBottom: 30,
+    // marginBottom은 인라인 스타일로 처리
     padding: 15,
     borderRadius: 10,
     backgroundColor: '#fff1f0',
@@ -1394,8 +1385,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600'
   },
-  
-  // 모달 스타일
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1461,7 +1450,6 @@ const styles = StyleSheet.create({
   submitButtonText: {
     fontWeight: '600'
   },
-  // 초대 코드 관련 스타일
   divider: {
     height: 1,
     backgroundColor: '#e0e0e0',
@@ -1503,13 +1491,11 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginBottom: 15
   },
-  // 멤버 액션 영역
   memberActions: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8
   },
-  // ✅ 위임 버튼 스타일 추가
   transferMemberButton: {
     paddingHorizontal: 12,
     paddingVertical: 4,
@@ -1521,7 +1507,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600'
   },
-  // 강퇴 버튼
   removeButton: {
     paddingHorizontal: 12,
     paddingVertical: 4,
@@ -1533,7 +1518,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600'
   },
-  // 차단 목록 관련 스타일
   bannedSection: {
     marginTop: 20,
     marginBottom: 20
@@ -1584,7 +1568,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     paddingVertical: 20
   },
-  // ✅ 안내 문구 스타일 추가
   infoNote: {
     marginTop: 15,
     padding: 12,

@@ -1,4 +1,4 @@
-// services/calendarService.ts (다일 일정 지원 버전)
+// services/calendarService.ts (오프라인 지원 버전)
 import { 
   collection, 
   addDoc, 
@@ -15,6 +15,7 @@ import {
 import { db, auth } from '../config/firebase';
 import { sendGroupNotification } from './notificationService';
 import { getDatesBetween } from '../utils/dateUtils';
+import { cacheService } from './cacheService'; // 🔥 추가
 
 // 타입 정의 수정 - 다일 일정 지원을 위한 필드 추가
 export interface CalendarEvent {
@@ -41,6 +42,9 @@ export interface CalendarEvent {
   // 다중 그룹 지원 필드
   targetGroupIds?: string[];    // 이벤트가 공유된 모든 그룹 ID
   isSharedEvent?: boolean;      // 여러 그룹에 공유된 이벤트인지 여부
+  // 🔥 오프라인 지원 필드
+  isOfflineCreated?: boolean;   // 오프라인에서 생성된 이벤트
+  offlineId?: string;           // 오프라인 임시 ID
 }
 
 // 결과 인터페이스
@@ -49,6 +53,7 @@ interface EventResult {
   events?: CalendarEvent[];
   error?: string;
   eventId?: string;
+  isFromCache?: boolean;  // 🔥 캐시에서 로드된 데이터인지 표시
 }
 
 // 전역 이벤트 관리 상태
@@ -57,6 +62,31 @@ const globalEventState = {
   callbacks: new Set<(events: CalendarEvent[]) => void>(),
   subscription: null as Unsubscribe | null,
   lastUserId: null as string | null,
+};
+
+// 🔥 메모리 캐시 추가
+const eventCache = new Map<string, {
+  data: EventResult;
+  timestamp: number;
+}>();
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5분
+
+// 🔥 캐시 관리 함수들
+const clearUserCache = (userId: string) => {
+  // 특정 사용자의 캐시만 삭제
+  const keysToDelete: string[] = [];
+  eventCache.forEach((_, key) => {
+    if (key.includes(`user_${userId}`)) {
+      keysToDelete.push(key);
+    }
+  });
+  keysToDelete.forEach(key => eventCache.delete(key));
+};
+
+const clearAllCache = () => {
+  eventCache.clear();
+  console.log('[Cache] 모든 캐시가 삭제되었습니다');
 };
 
 // 최근 제출 이벤트 캐시 (메모리 캐시)
@@ -86,6 +116,9 @@ export const clearEventSubscriptions = () => {
   
   // recentSubmissions 캐시 초기화
   recentSubmissions.clear();
+  
+  // 🔥 이벤트 캐시도 초기화
+  clearAllCache();
   
   console.log('[GlobalEvents] 모든 이벤트 구독 및 상태 초기화 완료');
 };
@@ -135,6 +168,14 @@ export const subscribeToEvents = (
   userId: string, 
   callback: (events: CalendarEvent[]) => void
 ): (() => void) => {
+  // 🔥 오프라인 상태에서는 캐시 데이터만 사용
+  if (!cacheService.getIsOnline()) {
+    console.log('[GlobalEvents] 오프라인 모드 - 캐시에서 데이터 로드');
+    cacheService.loadEventsFromCache(userId).then(cachedEvents => {
+      callback(cachedEvents);
+    });
+  }
+
   // 사용자 ID가 변경되었거나 구독이 없으면
   if (userId !== globalEventState.lastUserId || !globalEventState.subscription) {
     // 기존 구독 해제
@@ -154,10 +195,17 @@ export const subscribeToEvents = (
         if (!globalEventState.lastUserId) return;
         
         console.log(`[GlobalEvents] Firestore 이벤트 변경 감지`);
+        
+        // 🔥 캐시 무효화 (실시간 업데이트 시)
+        clearUserCache(globalEventState.lastUserId);
+        
         const result = await getUserEvents(globalEventState.lastUserId);
         
         if (result.success && Array.isArray(result.events)) {
           globalEventState.events = result.events;
+          
+          // 🔥 영구 캐시에도 저장
+          await cacheService.saveEventsToCache(globalEventState.lastUserId, result.events);
           
           // 등록된 모든 콜백에 새 이벤트 전달
           globalEventState.callbacks.forEach(cb => {
@@ -171,6 +219,10 @@ export const subscribeToEvents = (
       },
       (error) => {
         console.error('[GlobalEvents] Firestore 구독 오류:', error);
+        // 🔥 오류 시 캐시 데이터 사용
+        cacheService.loadEventsFromCache(userId).then(cachedEvents => {
+          callback(cachedEvents);
+        });
       }
     );
     
@@ -186,10 +238,18 @@ export const subscribeToEvents = (
         if (!globalEventState.lastUserId) return;
         
         console.log(`[GlobalEvents] 그룹 멤버십 변경 감지`);
+        
+        // 🔥 캐시 무효화 (멤버십 변경 시)
+        clearUserCache(globalEventState.lastUserId);
+        
         const result = await getUserEvents(globalEventState.lastUserId);
         
         if (result.success && Array.isArray(result.events)) {
           globalEventState.events = result.events;
+          
+          // 🔥 영구 캐시에도 저장
+          await cacheService.saveEventsToCache(globalEventState.lastUserId, result.events);
+          
           globalEventState.callbacks.forEach(cb => {
             try {
               cb(globalEventState.events);
@@ -356,6 +416,30 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
       safeData.isMultiDay = true;
     }
     
+    // 🔥 오프라인 처리
+    if (!cacheService.getIsOnline()) {
+      const offlineId = `offline_${Date.now()}_${Math.random()}`;
+      const offlineEvent = {
+        ...safeData,
+        id: offlineId,
+        isOfflineCreated: true,
+        offlineId: offlineId
+      };
+      
+      // 오프라인 큐에 추가
+      await cacheService.addToOfflineQueue({
+        type: 'add',
+        collection: 'events',
+        data: offlineEvent
+      });
+      
+      // 메모리 캐시 무효화
+      if (safeData.userId) {
+        clearUserCache(safeData.userId);
+      }
+      
+      return { success: true, eventId: offlineId };
+    }
     
     // id 필드가 있으면 제거
     const { id, ...dataWithoutId } = safeData as any;
@@ -381,6 +465,11 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
     const docRef = await addDoc(collection(db, 'events'), cleanData);
     console.log('Event added with ID:', docRef.id);
     
+    // 🔥 캐시 무효화
+    if (safeData.userId) {
+      clearUserCache(safeData.userId);
+    }
+    
     // 그룹 일정인 경우 알림 처리를 비동기로 실행
     if (safeData.groupId && safeData.groupId !== 'personal') {
       // 알림 전송을 별도 비동기 함수로 실행하고 기다리지 않음
@@ -402,6 +491,22 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
  */
 export const updateEvent = async (eventId: string, eventData: CalendarEvent): Promise<EventResult> => {
   try {
+    // 🔥 오프라인 처리
+    if (!cacheService.getIsOnline()) {
+      await cacheService.addToOfflineQueue({
+        type: 'update',
+        collection: 'events',
+        data: { id: eventId, ...eventData }
+      });
+      
+      // 메모리 캐시 무효화
+      if (eventData.userId) {
+        clearUserCache(eventData.userId);
+      }
+      
+      return { success: true };
+    }
+
     const eventRef = doc(db, 'events', eventId);
     
     // 이전 이벤트 데이터 가져오기 (변경 내용 알림용)
@@ -443,6 +548,11 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
     cleanData.updatedAt = new Date().toISOString();
     
     await updateDoc(eventRef, cleanData);
+    
+    // 🔥 캐시 무효화
+    if (eventData.userId) {
+      clearUserCache(eventData.userId);
+    }
     
     // 그룹 일정인 경우 멤버들에게 알림 전송 (비동기 처리)
     if (eventData.groupId && eventData.groupId !== 'personal') {
@@ -531,6 +641,17 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
  */
 export const deleteEvent = async (eventId: string): Promise<EventResult> => {
   try {
+    // 🔥 오프라인 처리
+    if (!cacheService.getIsOnline()) {
+      await cacheService.addToOfflineQueue({
+        type: 'delete',
+        collection: 'events',
+        data: { id: eventId }
+      });
+      
+      return { success: true };
+    }
+
     // 삭제 전 이벤트 데이터 가져오기
     const eventRef = doc(db, 'events', eventId);
     const eventDoc = await getDoc(eventRef);
@@ -538,6 +659,11 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
     
     // 삭제 실행
     await deleteDoc(eventRef);
+    
+    // 🔥 캐시 무효화
+    if (eventData && eventData.userId) {
+      clearUserCache(eventData.userId);
+    }
     
     // 그룹 일정인 경우 멤버들에게 알림 전송 (비동기 처리)
     if (eventData && eventData.groupId && eventData.groupId !== 'personal') {
@@ -602,8 +728,37 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
  * @returns 이벤트 목록
  */
 export const getUserEvents = async (userId: string): Promise<EventResult> => {
+  // 🔥 캐시 확인
+  const cacheKey = `user_${userId}_all`;
+  const cached = eventCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+    console.log('[getUserEvents] 캐시에서 데이터 반환');
+    return cached.data;
+  }
+  
+  // 🔥 오프라인 처리
+  if (!cacheService.getIsOnline()) {
+    console.log('[getUserEvents] 오프라인 모드 - 영구 캐시에서 데이터 로드');
+    const cachedEvents = await cacheService.loadEventsFromCache(userId);
+    return { success: true, events: cachedEvents, isFromCache: true };
+  }
+  
   try {
     const events: CalendarEvent[] = [];
+    
+    // 🚀 날짜 범위 설정 - 앞뒤 3개월만!
+    const now = new Date();
+    const threeMonthsAgo = new Date(now);
+    threeMonthsAgo.setMonth(now.getMonth() - 3);
+    const threeMonthsLater = new Date(now);
+    threeMonthsLater.setMonth(now.getMonth() + 3);
+    
+    // 날짜를 YYYY-MM-DD 형식으로 변환
+    const startDateStr = threeMonthsAgo.toISOString().split('T')[0];
+    const endDateStr = threeMonthsLater.toISOString().split('T')[0];
+    
+    console.log(`[getUserEvents] 기간 제한: ${startDateStr} ~ ${endDateStr}`);
     
     // 사용자가 속한 그룹 ID와 색상 먼저 가져오기
     const membersQuery = query(
@@ -634,22 +789,30 @@ export const getUserEvents = async (userId: string): Promise<EventResult> => {
     
     // 1. 그룹 이벤트 먼저 가져오기
     if (groupIds.length > 0) {
-      for (const groupId of groupIds) {
-        // 그룹 일정 쿼리 - groupId가 정확히 일치하는 이벤트만 가져옴
+      // 🚀 개선: 10개씩 나눠서 쿼리 (Firebase 'in' 연산자 제한)
+      const groupChunks = [];
+      for (let i = 0; i < groupIds.length; i += 10) {
+        groupChunks.push(groupIds.slice(i, i + 10));
+      }
+      
+      for (const groupChunk of groupChunks) {
+        // 🚀 개선된 쿼리: 기간 제한 + 여러 그룹 한번에
         const groupEventsQuery = query(
           collection(db, 'events'),
-          where('groupId', '==', groupId)
+          where('groupId', 'in', groupChunk),
+          where('startDate', '>=', startDateStr),
+          where('startDate', '<=', endDateStr)
         );
         
         const groupEventsSnapshot = await getDocs(groupEventsQuery);
-        console.log(`[getUserEvents] 그룹(${groupId}) 일정 개수: ${groupEventsSnapshot.size}`);
+        console.log(`[getUserEvents] ${groupChunk.length}개 그룹의 일정 개수: ${groupEventsSnapshot.size}`);
         
         groupEventsSnapshot.forEach((doc) => {
           const data = doc.data();
           const eventId = doc.id;
           
           // 그룹 색상 적용 - 사용자별 설정 색상 사용
-          const color = groupColors[groupId] || data.color || '#4CAF50';
+          const color = groupColors[data.groupId] || data.color || '#4CAF50';
           
           // 다일 일정 데이터 검증 및 수정
           let startDate = data.startDate || data.date || '';  // 이전 버전 호환성 (date 필드)
@@ -673,13 +836,49 @@ export const getUserEvents = async (userId: string): Promise<EventResult> => {
           } as CalendarEvent;
         });
       }
+      
+      // 🚀 추가: 시작일이 범위 내에 없지만 진행 중인 다일 일정 찾기
+      for (const groupChunk of groupChunks) {
+        const ongoingEventsQuery = query(
+          collection(db, 'events'),
+          where('groupId', 'in', groupChunk),
+          where('isMultiDay', '==', true),
+          where('startDate', '<', startDateStr),
+          where('endDate', '>=', startDateStr)
+        );
+        
+        const ongoingSnapshot = await getDocs(ongoingEventsQuery);
+        console.log(`[getUserEvents] 진행 중인 다일 일정: ${ongoingSnapshot.size}개`);
+        
+        ongoingSnapshot.forEach((doc) => {
+          const data = doc.data();
+          const eventId = doc.id;
+          
+          if (!eventMap[eventId]) {
+            const color = groupColors[data.groupId] || data.color || '#4CAF50';
+            
+            eventMap[eventId] = {
+              id: eventId,
+              title: data.title || '',
+              startDate: data.startDate || '',
+              endDate: data.endDate || '',
+              isMultiDay: true,
+              groupId: data.groupId || 'personal',
+              ...data,
+              color
+            } as CalendarEvent;
+          }
+        });
+      }
     }
     
     // 2. 개인 일정 가져오기
     const personalQuery = query(
       collection(db, 'events'),
       where('userId', '==', userId),
-      where('groupId', '==', 'personal')
+      where('groupId', '==', 'personal'),
+      where('startDate', '>=', startDateStr),
+      where('startDate', '<=', endDateStr)
     );
     
     const personalSnapshot = await getDocs(personalQuery);
@@ -715,11 +914,102 @@ export const getUserEvents = async (userId: string): Promise<EventResult> => {
     // 맵에서 이벤트 배열로 변환
     const allEvents = Object.values(eventMap);
     
-    console.log(`[getUserEvents] 총 불러온 일정 개수: ${allEvents.length}`);
-    return { success: true, events: allEvents };
+    console.log(`[getUserEvents] 총 불러온 일정 개수: ${allEvents.length} (기간 제한 적용됨)`);
+    
+    // 🔥 결과를 캐시에 저장
+    const result = { success: true, events: allEvents };
+    eventCache.set(cacheKey, {
+      data: result,
+      timestamp: Date.now()
+    });
+    
+    // 🔥 영구 캐시에도 저장
+    await cacheService.saveEventsToCache(userId, allEvents);
+    
+    return result;
   } catch (error: any) {
     console.error('이벤트 가져오기 오류:', error);
-    return { success: false, error: error.message };
+    
+    // 🔥 오류 시 캐시 데이터 반환
+    console.log('[getUserEvents] 오류 발생 - 캐시 데이터 사용');
+    const cachedEvents = await cacheService.loadEventsFromCache(userId);
+    return { success: true, events: cachedEvents, isFromCache: true };
+  }
+};
+
+/**
+ * 🔥 새로운 함수: 특정 월의 이벤트만 가져오기
+ * @param userId - 사용자 ID
+ * @param year - 연도
+ * @param month - 월 (0-11)
+ * @returns 해당 월의 이벤트 목록
+ */
+export const getEventsForMonth = async (
+  userId: string, 
+  year: number, 
+  month: number
+): Promise<EventResult> => {
+  // 캐시 키 생성
+  const cacheKey = `user_${userId}_${year}_${month}`;
+  const cached = eventCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+    console.log(`[getEventsForMonth] ${year}년 ${month + 1}월 캐시 데이터 반환`);
+    return cached.data;
+  }
+  
+  // 🔥 오프라인 처리
+  if (!cacheService.getIsOnline()) {
+    console.log(`[getEventsForMonth] 오프라인 모드 - ${year}년 ${month + 1}월 캐시 데이터 로드`);
+    const cachedEvents = await cacheService.loadMonthEventsFromCache(userId, year, month);
+    return { success: true, events: cachedEvents, isFromCache: true };
+  }
+  
+  try {
+    // 월의 시작일과 종료일 계산
+    const startOfMonth = new Date(year, month, 1);
+    const endOfMonth = new Date(year, month + 1, 0);
+    
+    const startDateStr = startOfMonth.toISOString().split('T')[0];
+    const endDateStr = endOfMonth.toISOString().split('T')[0];
+    
+    console.log(`[getEventsForMonth] ${startDateStr} ~ ${endDateStr} 기간 조회`);
+    
+    // 전체 이벤트 가져오기 (캐시될 수 있음)
+    const allEventsResult = await getUserEvents(userId);
+    
+    if (!allEventsResult.success || !allEventsResult.events) {
+      return allEventsResult;
+    }
+    
+    // 해당 월의 이벤트만 필터링
+    const monthEvents = allEventsResult.events.filter(event => {
+      // 다일 일정 처리
+      if (event.isMultiDay) {
+        // 시작일이나 종료일이 해당 월에 포함되는지 확인
+        return (event.startDate <= endDateStr && event.endDate >= startDateStr);
+      } else {
+        // 단일 일정
+        return event.startDate >= startDateStr && event.startDate <= endDateStr;
+      }
+    });
+    
+    console.log(`[getEventsForMonth] ${year}년 ${month + 1}월 일정 개수: ${monthEvents.length}`);
+    
+    // 결과를 캐시에 저장
+    const result = { success: true, events: monthEvents };
+    eventCache.set(cacheKey, {
+      data: result,
+      timestamp: Date.now()
+    });
+    
+    return result;
+  } catch (error: any) {
+    console.error('월별 이벤트 가져오기 오류:', error);
+    
+    // 🔥 오류 시 캐시 데이터 반환
+    const cachedEvents = await cacheService.loadMonthEventsFromCache(userId, year, month);
+    return { success: true, events: cachedEvents, isFromCache: true };
   }
 };
 

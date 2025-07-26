@@ -11,7 +11,8 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
-  Platform
+  Platform,
+  useWindowDimensions  // 🔴 추가
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -187,6 +188,10 @@ export default function GroupListScreen() {
   // 색상 테마 설정
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
+  
+  // 🔴 화면 크기 및 비율 계산 추가
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const screenRatio = screenHeight / screenWidth;
   
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
@@ -364,7 +369,11 @@ export default function GroupListScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, {backgroundColor: colors.secondary}]}>
+    <SafeAreaView 
+      style={[styles.container, {backgroundColor: colors.secondary}]}
+      edges={['top', 'right', 'left']}  // 🔴 bottom 제외
+    >
+      
       <View style={[styles.header, {backgroundColor: colors.headerBackground, borderBottomColor: colors.border}]}>
         <Text style={[styles.headerTitle, {color: colors.text}]}>내 그룹</Text>
       </View>
@@ -392,46 +401,60 @@ export default function GroupListScreen() {
       ) : (
         <View style={{ flex: 1 }}>
           <FlatList
-  data={groups}
-  renderItem={({ item }) => (
-    <GroupItem 
-      group={item} 
-      onPress={handleGroupPress} 
-      onInvite={handleInvitePress}
-      colors={colors}
-    />
-  )}
-  keyExtractor={(item) => item.id || ''}
-  contentContainerStyle={styles.listContent} // ✅ paddingBottom 제거
-  refreshControl={
-    <RefreshControl 
-      refreshing={refreshing} 
-      onRefresh={handleRefresh}
-      tintColor={colors.tint}
-      colors={[colors.tint]}
-    />
-  }
-  ListEmptyComponent={
-    <View style={styles.emptyContainer}>
-      <Text style={[styles.emptyText, {color: colors.lightGray}]}>
-        아직 속한 그룹이 없습니다.{'\n'}새 그룹을 생성해보세요.
-      </Text>
-    </View>
-  }
-  ListFooterComponent={ // ✅ 추가: 하단 여백을 위한 Footer
-    <View style={{ height: 180 }} /> 
-  }
-/>
+            data={groups}
+            renderItem={({ item }) => (
+              <GroupItem 
+                group={item} 
+                onPress={handleGroupPress} 
+                onInvite={handleInvitePress}
+                colors={colors}
+              />
+            )}
+            keyExtractor={(item) => item.id || ''}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl 
+                refreshing={refreshing} 
+                onRefresh={handleRefresh}
+                tintColor={colors.tint}
+                colors={[colors.tint]}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyContainer}>
+                <Text style={[styles.emptyText, {color: colors.lightGray}]}>
+                  아직 속한 그룹이 없습니다.{'\n'}새 그룹을 생성해보세요.
+                </Text>
+              </View>
+            }
+            ListFooterComponent={
+              <View style={{ height: screenRatio > 2.3 ? 120 : 180 }} />  // 🔴 동적 높이
+            }
+          />
           
           <TouchableOpacity
-            style={[styles.joinButton, {backgroundColor: colors.secondary, borderColor: colors.tint}]}
+            style={[
+              styles.joinButton, 
+              {
+                backgroundColor: colors.secondary, 
+                borderColor: colors.tint,
+                bottom: screenRatio > 2.3 ? 90 : 150  // 🔴 동적 위치
+              }
+            ]}
             onPress={() => router.push('/groups/join')}
           >
             <Text style={[styles.joinButtonText, {color: colors.tint}]}>🎟️ 초대 코드로 가입</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.createButton, {backgroundColor: colors.buttonBackground, zIndex: 100}]}
+            style={[
+              styles.createButton, 
+              {
+                backgroundColor: colors.buttonBackground, 
+                zIndex: 100,
+                bottom: screenRatio > 2.3 ? 20 : 80  // 🔴 동적 위치
+              }
+            ]}
             onPress={() => {
               console.log("그룹 생성 버튼 클릭됨");
               setCreateModalVisible(true);
@@ -515,6 +538,7 @@ export default function GroupListScreen() {
   );
 }
 
+// 🔴 스타일 수정 - 동적 위치는 인라인 스타일로 처리
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -534,8 +558,8 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   listContent: {
-  padding: 15  // ✅ paddingBottom 제거
-},
+    padding: 15
+  },
   groupItem: {
     flexDirection: 'row',
     borderRadius: 10,
@@ -603,7 +627,7 @@ const styles = StyleSheet.create({
   },
   createButton: {
     position: 'absolute',
-    bottom: 80,
+    // bottom은 인라인 스타일로 동적 처리
     left: 20,
     right: 20,
     borderRadius: 10,
@@ -621,7 +645,7 @@ const styles = StyleSheet.create({
   },
   joinButton: {
     position: 'absolute',
-    bottom: 150,  // createButton보다 위에 위치
+    // bottom은 인라인 스타일로 동적 처리
     left: 20,
     right: 20,
     borderRadius: 10,
@@ -638,8 +662,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold'
   },
-
-
   // 모달 스타일
   modalOverlay: {
     flex: 1,
