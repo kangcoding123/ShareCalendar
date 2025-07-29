@@ -1,5 +1,5 @@
 // components/calendar/EventDetailModal.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,9 @@ import {
   Alert,
   ActivityIndicator,
   ColorSchemeName,
-  Platform
+  Platform,
+  Animated,     // 🔥 추가: 애니메이션을 위해
+  Dimensions    // 🔥 추가: 화면 크기 가져오기
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addEvent, updateEvent, deleteEvent, CalendarEvent } from '../../services/calendarService';
@@ -19,6 +21,9 @@ import { formatDate } from '../../utils/dateUtils';
 import EventItem from './event/EventItem';
 import EventForm from './event/EventForm';
 import { useRouter } from 'expo-router';
+
+// 🔥 추가: 화면 높이 상수
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // 타입 정의 수정
 interface CalendarDay {
@@ -56,34 +61,94 @@ const EventDetailModal = ({
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
-  const insets = useSafeAreaInsets(); // 추가
+  const insets = useSafeAreaInsets();
   
-  // 일정이 없을 때 자동으로 추가 모드로 전환
+  // 🔥 추가: 애니메이션 값
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  
+  // 🔥 이전 visible 상태를 추적하는 ref 추가
+  const wasVisibleRef = useRef(visible);
+  // 🔥 초기 로드 완료 상태 추적
+  const isInitialLoadRef = useRef(true);
+  
+  // 🔥 추가: 모달 애니메이션 처리
   useEffect(() => {
-    if (visible && events && events.length === 0 && user) {
-      // 로그인한 사용자이고 일정이 없는 날짜가 선택되었을 때 자동으로 추가 모드로 전환
-      setIsEditing(true);
-      setEditingEvent(null);
-    } else if (visible && events && events.length > 0) {
-      // 일정이 있을 때는 기본 보기 모드로 시작
-      setIsEditing(false);
+    if (visible) {
+      // 모달 열기 애니메이션
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else {
+      // 모달 닫기 애니메이션
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: SCREEN_HEIGHT,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
     }
-  }, [visible, events, user]);
+  }, [visible, slideAnim, fadeAnim]);
   
-  // 이벤트 ID 제거 핸들러 (추가)
+  // 🔥 수정된 useEffect - visible이 false에서 true로 변경될 때만 실행
+  useEffect(() => {
+    // visible이 false → true로 변경되었을 때만 실행
+    if (visible && !wasVisibleRef.current) {
+      console.log('[EventDetailModal] 모달 열림');
+      // 모달이 새로 열릴 때만 자동 편집 모드 전환
+      if (events && events.length === 0 && user) {
+        setIsEditing(true);
+        setEditingEvent(null);
+      } else {
+        setIsEditing(false);
+        setEditingEvent(null);
+      }
+      
+      // 초기 로드 완료 표시
+      isInitialLoadRef.current = false;
+    }
+    
+    // 현재 visible 상태 저장
+    wasVisibleRef.current = visible;
+    
+    // 모달이 닫힐 때 상태 초기화
+    if (!visible) {
+      // 🔥 애니메이션 완료 후 상태 초기화
+      setTimeout(() => {
+        setIsEditing(false);
+        setEditingEvent(null);
+        isInitialLoadRef.current = true;
+      }, 300);
+    }
+  }, [visible, user]); // 🔥 events 의존성 제거
+  
+  // 이벤트 ID 제거 핸들러
   const handleRemoveEventId = () => {
     if (editingEvent) {
-      // ID를 제외한 이벤트 데이터 복사
       const { id, ...eventDataWithoutId } = editingEvent;
       setEditingEvent(eventDataWithoutId as CalendarEvent);
     }
   };
   
   const handleAddEvent = () => {
-    // 로그인하지 않은 사용자는 로그인 화면으로 이동
     if (!user) {
-      onClose(); // 모달 닫기
-      router.push('/(auth)/login'); // 로그인 화면으로 이동
+      onClose();
+      router.push('/(auth)/login');
       return;
     }
     
@@ -92,10 +157,9 @@ const EventDetailModal = ({
   };
   
   const handleEditEvent = (event: CalendarEvent) => {
-    // 로그인하지 않은 사용자는 로그인 화면으로 이동
     if (!user) {
-      onClose(); // 모달 닫기
-      router.push('/(auth)/login'); // 로그인 화면으로 이동
+      onClose();
+      router.push('/(auth)/login');
       return;
     }
     
@@ -104,10 +168,9 @@ const EventDetailModal = ({
   };
   
   const handleDeleteEvent = async (event: CalendarEvent) => {
-    // 로그인하지 않은 사용자는 로그인 화면으로 이동
     if (!user) {
-      onClose(); // 모달 닫기
-      router.push('/(auth)/login'); // 로그인 화면으로 이동
+      onClose();
+      router.push('/(auth)/login');
       return;
     }
     
@@ -124,14 +187,9 @@ const EventDetailModal = ({
               if (event.id) {
                 console.log('Deleting event:', event.id);
                 
-                // 알림이 있으면 취소
-                if (event.notificationId) {
-                  // 여기서 알림 취소 로직이 있었지만 생략
-                }
-                
+                // 🔥 삭제는 서비스에서 낙관적 업데이트 처리
                 await deleteEvent(event.id);
                 onEventUpdated('delete', event.id);
-                // 삭제 후 모달 닫기
                 onClose();
               }
             } catch (error) {
@@ -145,27 +203,24 @@ const EventDetailModal = ({
   };
   
   const handleSubmitEvent = async (eventData: CalendarEvent) => {
-    // 이미 제출 중이면 중복 제출 방지
     if (isSubmitting) return;
     
     try {
-      setIsSubmitting(true); // 제출 시작 시 상태 변경
+      setIsSubmitting(true);
       
-      // 알림 관련 null 값 명시적 설정
       eventData.notificationEnabled = false;
       eventData.notificationMinutesBefore = null;
       eventData.notificationId = null;
       
-      // 다중 그룹 처리를 위한 변수
       const mainGroupId = eventData.groupId;
       const targetGroupIds = eventData.targetGroupIds || [mainGroupId];
       
       if (eventData.id) {
-        // 기존 이벤트 수정 - userId 필드 추가
+        // 🔥 업데이트는 서비스에서 낙관적 업데이트 처리
         const updatedEventData = {
           ...eventData,
-          userId: userId, // 현재 사용자 ID 명시적 추가
-          updatedAt: new Date().toISOString() // 업데이트 시간 추가
+          userId: userId,
+          updatedAt: new Date().toISOString()
         };
         
         console.log('Updating event:', updatedEventData);
@@ -174,26 +229,22 @@ const EventDetailModal = ({
         if (result.success) {
           console.log('Event updated successfully:', updatedEventData);
           onEventUpdated('update', updatedEventData);
-          // 수정 완료 후 모달 닫기
           onClose();
         } else {
           Alert.alert('오류', '일정 업데이트 중 오류가 발생했습니다.');
         }
       } else {
-        // 새 이벤트 추가 - 여러 그룹에 복제하여 저장
+        // 🔥 생성은 서비스에서 낙관적 업데이트 처리
         const createdEvents = [];
         const { id, targetGroupIds: _, ...baseEventData } = eventData as any;
         
-        // 실제 사용자 이름 사용
         const baseEvent = {
           ...baseEventData,
           userId,
           createdByName: baseEventData.groupId !== 'personal' ? user?.displayName : null,
         };
         
-        // 병렬로 모든 그룹에 이벤트 생성
         const createPromises = targetGroupIds.map(async (groupId) => {
-          // 각 그룹별 이벤트 데이터 생성
           const groupEventData = {
             ...baseEvent,
             groupId,
@@ -206,25 +257,21 @@ const EventDetailModal = ({
             isSharedEvent: targetGroupIds.length > 1
           };
           
-          // 이벤트 생성
           return addEvent(groupEventData);
         });
         
-        // 병렬로 모든 요청 처리
         const results = await Promise.all(createPromises);
         const successResults = results.filter(r => r.success);
         
         if (successResults.length > 0) {
           console.log(`Created ${successResults.length} events for ${targetGroupIds.length} groups`);
           
-          // 첫 번째 성공한 결과를 상위 컴포넌트에 전달
           const firstSuccessResult = successResults[0];
           onEventUpdated('add', {
             ...baseEvent,
             id: firstSuccessResult.eventId
           });
           
-          // 추가 완료 후 모달 닫기
           onClose();
         } else {
           Alert.alert('오류', '일정 저장 중 오류가 발생했습니다.');
@@ -234,7 +281,6 @@ const EventDetailModal = ({
       console.error('Event submission error:', error);
       Alert.alert('오류', '일정 저장 중 오류가 발생했습니다.');
     } finally {
-      // 지연 추가 - 너무 빨리 완료되면 사용자가 처리됐다고 인식하지 못할 수 있음
       setTimeout(() => {
         setIsSubmitting(false);
       }, 500);
@@ -256,7 +302,6 @@ const EventDetailModal = ({
       );
     }
     
-    // 비로그인 사용자를 위한 UI
     if (!user) {
       return (
         <View style={styles.content}>
@@ -270,11 +315,11 @@ const EventDetailModal = ({
               renderItem={({ item }) => (
                 <EventItem
                   event={item}
-                  onEdit={() => {}} // 편집 불가
-                  onDelete={() => {}} // 삭제 불가
+                  onEdit={() => {}}
+                  onDelete={() => {}}
                   userId=""
                   colors={colors}
-                  readOnly={true} // 읽기 전용
+                  readOnly={true}
                 />
               )}
               keyExtractor={(item) => item.id || item.title}
@@ -289,8 +334,8 @@ const EventDetailModal = ({
           <TouchableOpacity 
             style={[styles.loginButton, { backgroundColor: colors.tint }]} 
             onPress={() => {
-              onClose(); // 모달 닫기
-              router.push('/(auth)/login'); // 로그인 화면으로 이동
+              onClose();
+              router.push('/(auth)/login');
             }}
           >
             <Text style={[styles.loginButtonText, { color: colors.buttonText }]}>로그인하여 일정 관리하기</Text>
@@ -299,7 +344,6 @@ const EventDetailModal = ({
       );
     }
     
-    // 기존 로그인 사용자용 UI
     return (
       <View style={styles.content}>
         <Text style={[styles.dateHeader, { color: colors.text }]}>
@@ -337,15 +381,33 @@ const EventDetailModal = ({
     );
   };
   
+  // 🔥 수정된 return 문 - 커스텀 애니메이션 적용
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="none"  // 🔥 커스텀 애니메이션 사용
       onRequestClose={onClose}
+      statusBarTranslucent  // 🔥 추가: 상태바 투명 처리
     >
-      <View style={styles.modalContainer}>
-        <View style={[styles.modalContent, { backgroundColor: colors.card, paddingBottom: insets.bottom}]}>
+      <Animated.View 
+        style={[
+          styles.modalContainer,
+          {
+            opacity: fadeAnim,  // 🔥 페이드 애니메이션
+          }
+        ]}
+      >
+        <Animated.View 
+          style={[
+            styles.modalContent, 
+            { 
+              backgroundColor: colors.card, 
+              paddingBottom: insets.bottom,
+              transform: [{ translateY: slideAnim }]  // 🔥 슬라이드 애니메이션
+            }
+          ]}
+        >
           <View style={[styles.header, { borderBottomColor: colors.border }]}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>
               {isEditing ? (editingEvent?.id ? '일정 편집' : '새 일정') : '일정 상세'}
@@ -359,8 +421,8 @@ const EventDetailModal = ({
           </View>
           
           {renderContent()}
-        </View>
-      </View>
+        </Animated.View>
+      </Animated.View>
     </Modal>
   );
 };
@@ -425,7 +487,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600'
   },
-  // 로그인 버튼 스타일 추가
   loginButton: {
     borderRadius: 8,
     padding: 12,

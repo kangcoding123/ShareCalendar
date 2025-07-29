@@ -11,7 +11,7 @@ import {
   TouchableOpacity
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import NetInfo from '@react-native-community/netinfo'; // 🔥 추가
+import NetInfo from '@react-native-community/netinfo';
 import { useAuth } from '../../../context/AuthContext';
 import { 
   CalendarEvent, 
@@ -28,7 +28,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useRouter } from 'expo-router';
 import { format } from 'date-fns';
-import { cacheService } from '../../../services/cacheService'; // 🔥 추가
+import { cacheService } from '../../../services/cacheService';
 
 // 컴포넌트
 import Calendar from '../../../components/calendar/Calendar';
@@ -57,7 +57,7 @@ function CalendarScreen() {
   
   // 🔥 오프라인 상태 추가
   const [isFromCache, setIsFromCache] = useState(false);
-  const [isOnline, setIsOnline] = useState(true); // 🔥 네트워크 상태
+  const [isOnline, setIsOnline] = useState(true);
   
   // 구독 취소 함수 참조 저장
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -73,8 +73,15 @@ function CalendarScreen() {
   // 현재 보고 있는 달을 위한 상태 변수
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
   
-  // 🔥 마지막 새로고침 시간 추적
-  const lastRefreshTime = useRef<number>(0);
+  // 🔥 초기 로드 완료 상태 추적
+  const isInitialLoadCompleteRef = useRef(false);
+  
+  // 🔥 그룹 로드 중복 방지를 위한 ref 추가
+  const isLoadingGroupsRef = useRef(false);
+  const lastGroupLoadTimeRef = useRef(0);
+  
+  // 🔥 모달 상태 추적을 위한 ref 추가 (중요!)
+  const isModalOpenRef = useRef(false);
 
   // 🔥 네트워크 상태 감지
   useEffect(() => {
@@ -94,98 +101,18 @@ function CalendarScreen() {
       
       console.log(`[CalendarScreen] 월 변경: ${format(month, 'yyyy-MM')}`);
       
-      // 🔥 월별 구독 전환
-      if (user && user.uid) {
-        subscribeToMonthEvents(user.uid, month);
-      }
+      // 🔥 월별 구독 전환은 제거하고 실시간 구독에 의존
       
       return month;
     });
-  }, [user]);
+  }, []);
   
-  // 🔥 특정 월 이벤트만 구독하는 함수
-  const subscribeToMonthEvents = useCallback(async (userId: string, month: Date) => {
-    const monthKey = format(month, 'yyyy-MM');
-    
-    // 이미 같은 월을 구독 중이면 스킵
-    if (currentSubscribedMonth.current === monthKey) {
-      console.log(`[subscribeToMonthEvents] 이미 ${monthKey} 구독 중`);
-      return;
-    }
-    
-    // 기존 구독 해제
-    if (monthSubscriptionRef.current) {
-      console.log(`[subscribeToMonthEvents] 기존 구독 해제`);
-      monthSubscriptionRef.current();
-      monthSubscriptionRef.current = null;
-    }
-    
-    currentSubscribedMonth.current = monthKey;
-    console.log(`[subscribeToMonthEvents] ${monthKey} 구독 시작`);
-    
-    // 해당 월의 날짜 범위 계산
-    const startOfMonth = new Date(month.getFullYear(), month.getMonth(), 1);
-    const endOfMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0);
-    const startDate = format(startOfMonth, 'yyyy-MM-dd');
-    const endDate = format(endOfMonth, 'yyyy-MM-dd');
-    
-    // 🔥 먼저 캐시된 데이터 또는 전체 데이터에서 해당 월 필터링
-    const monthEvents = await getEventsForMonth(userId, month.getFullYear(), month.getMonth());
-    if (monthEvents.success && monthEvents.events) {
-      const groupedEvents = groupEventsByDate<CalendarEvent>(monthEvents.events);
-      setEvents(prev => ({
-        ...prev,
-        ...groupedEvents
-      }));
-      
-      // 🔥 캐시에서 로드된 경우 표시
-      if (monthEvents.isFromCache) {
-        setIsFromCache(true);
-      }
-    }
-    
-    // 🔥 오프라인 상태에서는 실시간 구독 스킵
-    if (!cacheService.getIsOnline()) {
-      console.log('[subscribeToMonthEvents] 오프라인 상태 - 실시간 구독 스킵');
-      return;
-    }
-    
-    // 🔥 실시간 구독은 현재 월만
-    const eventsQuery = query(
-      collection(db, 'events'),
-      where('startDate', '>=', startDate),
-      where('startDate', '<=', endDate)
-    );
-    
-    const unsubscribe = onSnapshot(eventsQuery, async (snapshot) => {
-      console.log(`[subscribeToMonthEvents] ${monthKey} 이벤트 변경 감지`);
-      
-      // 전체 이벤트 다시 로드 (캐시 활용)
-      const result = await getUserEvents(userId);
-      if (result.success && result.events) {
-        const groupedEvents = groupEventsByDate<CalendarEvent>(result.events);
-        setEvents(groupedEvents);
-        setIsFromCache(false); // 🔥 실시간 데이터로 업데이트됨
-        
-        // 선택된 날짜의 이벤트도 업데이트
-        if (selectedDate) {
-          const dateStr = selectedDate.formattedDate;
-          const dateEvents = groupedEvents[dateStr] || [];
-          setSelectedDateEvents(dateEvents);
-        }
-      }
-    }, (error) => {
-      console.error('[subscribeToMonthEvents] 구독 오류:', error);
-      // 🔥 오류 시 캐시 데이터 유지
-    });
-    
-    monthSubscriptionRef.current = unsubscribe;
-  }, [selectedDate]);
-  
-  // 그룹 멤버십 변경 감지 및 구독 설정
+  // 🔥 수정된 그룹 멤버십 리스너 - 중복 방지
   const setupGroupMembershipListener = useCallback((userId: string) => {
+    // 🔥 이미 리스너가 있으면 먼저 해제
     if (groupsUnsubscribeRef.current) {
       groupsUnsubscribeRef.current();
+      groupsUnsubscribeRef.current = null;
     }
     
     // 🔥 오프라인 상태에서는 실시간 구독 스킵
@@ -200,7 +127,15 @@ function CalendarScreen() {
     );
     
     const unsubscribe = onSnapshot(membershipQuery, () => {
+      // 🔥 최근에 로드했으면 스킵 (1초 이내)
+      const now = Date.now();
+      if (now - lastGroupLoadTimeRef.current < 1000) {
+        console.log('그룹 멤버십 변경 감지 - 최근 로드로 스킵');
+        return;
+      }
+      
       console.log('그룹 멤버십 변경 감지 - 그룹 목록 새로고침');
+      lastGroupLoadTimeRef.current = now;
       loadGroupData();
     }, (error) => {
       console.error('그룹 멤버십 리스너 오류:', error);
@@ -210,11 +145,18 @@ function CalendarScreen() {
     return unsubscribe;
   }, []);
   
-  // 데이터 로드 - 그룹만 로드
+  // 🔥 수정된 그룹 데이터 로드 - 중복 방지
   const loadGroupData = useCallback(async () => {
     try {
+      // 🔥 이미 로드 중이면 스킵
+      if (isLoadingGroupsRef.current) {
+        console.log('[loadGroupData] 이미 로드 중, 스킵');
+        return;
+      }
+      
       if (!user || !user.uid) return;
       
+      isLoadingGroupsRef.current = true;
       console.log('[loadGroupData] 그룹 데이터 로드 시작');
       
       // 🔥 오프라인 상태에서는 캐시에서 로드
@@ -223,6 +165,7 @@ function CalendarScreen() {
         if (cachedGroups.length > 0) {
           console.log(`[loadGroupData] 캐시에서 ${cachedGroups.length}개 그룹 로드`);
           setGroups(cachedGroups);
+          isLoadingGroupsRef.current = false;
           return;
         }
       }
@@ -255,10 +198,12 @@ function CalendarScreen() {
           setGroups(cachedGroups);
         }
       }
+    } finally {
+      isLoadingGroupsRef.current = false;
     }
   }, [user]);
 
-  // 🔥 이벤트 데이터 로드 함수 최적화 - 전체 로드 대신 필요한 월만
+  // 🔥 이벤트 데이터 로드 함수 최적화 - 초기 로드만 수행
   const loadEvents = useCallback(async (forceRefresh: boolean = false) => {
     // 비로그인 상태일 경우
     if (!user) {
@@ -271,9 +216,9 @@ function CalendarScreen() {
     try {
       setLoading(true);
       
-      // 🔥 강제 새로고침이 아니고 최근에 로드했으면 스킵
-      if (!forceRefresh && Date.now() - lastRefreshTime.current < 60000) {
-        console.log('[loadEvents] 최근에 로드함, 스킵');
+      // 🔥 초기 로드가 완료된 경우 스킵 (강제 새로고침이 아닌 경우)
+      if (!forceRefresh && isInitialLoadCompleteRef.current) {
+        console.log('[loadEvents] 이미 초기 로드 완료됨, 스킵');
         setLoading(false);
         setRefreshing(false);
         return;
@@ -301,7 +246,7 @@ function CalendarScreen() {
         }
         
         setLoadFailed(false);
-        lastRefreshTime.current = Date.now();
+        isInitialLoadCompleteRef.current = true;
         console.log(`[loadEvents] 성공: 총 ${result.events.length}개 일정 로드됨`);
       } else {
         console.log('[loadEvents] 로드 실패');
@@ -316,65 +261,103 @@ function CalendarScreen() {
     setRefreshing(false);
   }, [user, selectedDate]);
 
-  // 🔥 화면이 포커스될 때 - 조건부 새로고침
+  // 🔥 수정된 화면 포커스 핸들러 - 과도한 리로드 제거
   useFocusEffect(
-    useCallback(() => {
-      if (user) {
-        console.log('캘린더 화면 포커스');
-        
-        // 🔥 앱 시작 시 오래된 캐시 정리
+  useCallback(() => {
+    // 🔥 모달이 열려있으면 포커스 이벤트 무시
+    if (isModalOpenRef.current) {
+      console.log('모달 열려있음 - 포커스 이벤트 무시');
+      return;
+    }
+    
+    if (user) {
+      console.log('캘린더 화면 포커스');
+      
+      // 🔥 앱 시작 시 오래된 캐시 정리 (초기 1회만)
+      if (!isInitialLoadCompleteRef.current) {
         cacheService.cleanupOldCache(user.uid);
-        
-        // 1분 이상 지났을 때만 새로고침
-        const shouldRefresh = Date.now() - lastRefreshTime.current > 60000;
-        if (shouldRefresh) {
-          setRefreshing(true);
-          loadEvents(true);
-        }
       }
-      return () => {};
-    }, [user, loadEvents])
-  );
+      
+      // 🔥 loadEvents 호출 완전히 제거 (구독에서 처리)
+    }
+    return () => {};
+  }, [user])  // 🔥 loadEvents 의존성 제거
+);
 
   // 디버깅용 정보 로그
   useEffect(() => {
     console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}, colorScheme: ${colorScheme}`);
   }, [colorScheme]);
   
-  // 🔥 초기 데이터 로드 및 실시간 구독 설정 - 수정됨
-  useEffect(() => {
-    if (user && user.uid) {
-      setLoading(true);
+// 🔥 수정된 초기 데이터 로드 및 실시간 구독 설정
+useEffect(() => {
+  // 클린업 함수 먼저 정의
+  const cleanup = () => {
+    console.log('[CalendarScreen] 구독 해제');
+    
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
+    
+    if (groupsUnsubscribeRef.current) {
+      groupsUnsubscribeRef.current();
+      groupsUnsubscribeRef.current = null;
+    }
+    
+    // 🔥 상태 초기화
+    isLoadingGroupsRef.current = false;
+    lastGroupLoadTimeRef.current = 0;
+    isInitialLoadCompleteRef.current = false;
+  };
+  
+  if (user && user.uid) {
+    // 🔥 초기화 플래그 추가
+    let isInitializing = true;
+    
+    // 🔥 순차적 로드로 변경 (동시 로드 방지)
+    const initializeData = async () => {
+      // 1. 그룹 데이터 로드
+      await loadGroupData();
       
-      // 그룹 데이터 로드
-      loadGroupData();
-      const groupsUnsubscribe = setupGroupMembershipListener(user.uid);
+      // 2. 🔥 초기 이벤트 로드 제거 (구독에서 처리)
+      // await loadEvents(false);  // 삭제!
       
-      // 🔥 초기 이벤트 로드
-      loadEvents(true).then(() => {
-        // 🔥 현재 월만 실시간 구독
-        subscribeToMonthEvents(user.uid, currentMonth);
+      // 3. 실시간 구독 설정
+      unsubscribeRef.current = subscribeToUserEvents(user.uid, (updatedEvents) => {
+        // 🔥 초기화 중이면 로딩 상태만 해제
+        if (isInitializing) {
+          isInitializing = false;
+          setLoading(false);
+          isInitialLoadCompleteRef.current = true;
+        }
+        
+        console.log('[CalendarScreen] 실시간 이벤트 업데이트 수신');
+        const groupedEvents = groupEventsByDate<CalendarEvent>(updatedEvents);
+        setEvents(groupedEvents);
+        setIsFromCache(false);
+        
+        // 선택된 날짜의 이벤트도 업데이트
+        if (selectedDate) {
+          const dateStr = selectedDate.formattedDate;
+          const dateEvents = groupedEvents[dateStr] || [];
+          setSelectedDateEvents(dateEvents);
+        }
       });
       
-      return () => {
-        console.log('[CalendarScreen] 구독 해제');
-        
-        // 월별 구독 해제
-        if (monthSubscriptionRef.current) {
-          monthSubscriptionRef.current();
-          monthSubscriptionRef.current = null;
-        }
-        
-        if (groupsUnsubscribeRef.current) {
-          groupsUnsubscribeRef.current();
-          groupsUnsubscribeRef.current = null;
-        }
-      };
-    } else {
-      // 로그인하지 않은 경우
-      loadEvents();
-    }
-  }, [user, loadGroupData, setupGroupMembershipListener, loadEvents, subscribeToMonthEvents, currentMonth]);
+      // 4. 그룹 멤버십 리스너 설정
+      setupGroupMembershipListener(user.uid);
+    };
+    
+    initializeData();
+    
+    return cleanup;
+  } else {
+    // 로그인하지 않은 경우
+    setLoading(false);  // 🔥 추가
+    return cleanup;
+  }
+}, [user?.uid]); // 🔥 의존성 최소화
   
   // 사용자가 변경되거나 null이 될 때 상태 초기화
   useEffect(() => {
@@ -385,8 +368,7 @@ function CalendarScreen() {
       setLoading(false);
       setRefreshing(false);
       setLoadFailed(false);
-      lastRefreshTime.current = 0;
-      currentSubscribedMonth.current = null;
+      isInitialLoadCompleteRef.current = false;
       setIsFromCache(false);
     }
   }, [user]);
@@ -395,7 +377,6 @@ function CalendarScreen() {
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
     setLoadFailed(false);
-    lastRefreshTime.current = 0; // 강제 새로고침
     
     if (user) {
       loadGroupData();
@@ -405,33 +386,44 @@ function CalendarScreen() {
     }
   }, [loadGroupData, loadEvents, user]);
   
-  // 날짜 선택 핸들러
+  // 🔥 수정된 날짜 선택 핸들러 - 모달 상태 설정 추가
   const handleDayPress = useCallback((day: CalendarDay, dayEvents: CalendarEvent[]) => {
+    console.log('[handleDayPress] 날짜 선택:', day.formattedDate);
     setSelectedDate(day);
     setSelectedDateEvents(dayEvents || []);
-    setModalVisible(true);
+    
+    // 🔥 모달 열림 상태 설정
+    isModalOpenRef.current = true;
+    
+    // 🔥 약간의 지연을 주어 상태 업데이트가 완료된 후 모달 열기
+    requestAnimationFrame(() => {
+      setModalVisible(true);
+    });
   }, []);
   
-  // 이벤트 업데이트 핸들러
+  // 🔥 수정된 이벤트 업데이트 핸들러 - loadEvents 호출 제거
   const handleEventUpdated = useCallback((action: string, eventData: any) => {
     console.log('Event updated:', action, eventData);
     
     if (action === 'delete') {
       setModalVisible(false);
+      // 🔥 모달 닫힘 상태 설정
+      setTimeout(() => {
+        isModalOpenRef.current = false;
+      }, 300);
     }
     
-    // 🔥 이벤트 변경 시 캐시 새로고침
-    if (action === 'add' || action === 'update' || action === 'delete') {
-      lastRefreshTime.current = 0;
-      if (user) {
-        loadEvents(true);
-      }
-    }
-  }, [user, loadEvents]);
+    // 🔥 loadEvents 호출 제거 - 실시간 구독이 자동으로 처리
+    // 이벤트 변경은 Firebase 실시간 구독에 의해 자동으로 반영됨
+  }, []);
   
-  // 모달 닫기 핸들러
+  // 🔥 수정된 모달 닫기 핸들러
   const handleCloseModal = useCallback(() => {
     setModalVisible(false);
+    // 🔥 모달 닫힘 상태 설정 (애니메이션 완료 후)
+    setTimeout(() => {
+      isModalOpenRef.current = false;
+    }, 300); // 애니메이션 완료 시간
   }, []);
   
   // 로그인 화면으로 이동 핸들러

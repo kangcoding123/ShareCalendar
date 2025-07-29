@@ -15,7 +15,8 @@ import {
 import { db, auth } from '../config/firebase';
 import { sendGroupNotification } from './notificationService';
 import { getDatesBetween } from '../utils/dateUtils';
-import { cacheService } from './cacheService'; // 🔥 추가
+import { cacheService } from './cacheService';
+import { Platform } from 'react-native';
 
 // 타입 정의 수정 - 다일 일정 지원을 위한 필드 추가
 export interface CalendarEvent {
@@ -53,7 +54,7 @@ interface EventResult {
   events?: CalendarEvent[];
   error?: string;
   eventId?: string;
-  isFromCache?: boolean;  // 🔥 캐시에서 로드된 데이터인지 표시
+  isFromCache?: boolean;
 }
 
 // 전역 이벤트 관리 상태
@@ -62,9 +63,11 @@ const globalEventState = {
   callbacks: new Set<(events: CalendarEvent[]) => void>(),
   subscription: null as Unsubscribe | null,
   lastUserId: null as string | null,
+  // 🔥 그룹 색상 캐시 추가
+  groupColors: new Map<string, string>(),
 };
 
-// 🔥 메모리 캐시 추가
+// 🔥 메모리 캐시 추가 - 월별로 관리
 const eventCache = new Map<string, {
   data: EventResult;
   timestamp: number;
@@ -72,7 +75,13 @@ const eventCache = new Map<string, {
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5분
 
-// 🔥 캐시 관리 함수들
+// 🔥 개선된 캐시 관리 함수들
+const clearMonthCache = (userId: string, year: number, month: number) => {
+  const monthKey = `user_${userId}_${year}_${month}`;
+  eventCache.delete(monthKey);
+  console.log(`[Cache] ${year}년 ${month + 1}월 캐시 삭제됨`);
+};
+
 const clearUserCache = (userId: string) => {
   // 특정 사용자의 캐시만 삭제
   const keysToDelete: string[] = [];
@@ -86,6 +95,7 @@ const clearUserCache = (userId: string) => {
 
 const clearAllCache = () => {
   eventCache.clear();
+  globalEventState.groupColors.clear();
   console.log('[Cache] 모든 캐시가 삭제되었습니다');
 };
 
@@ -105,6 +115,7 @@ export const clearEventSubscriptions = () => {
   globalEventState.events = [];
   globalEventState.lastUserId = null;
   globalEventState.callbacks.clear();
+  globalEventState.groupColors.clear();
   
   // 기존 eventListeners도 모두 해제
   eventListeners.forEach(unsubscribe => {
@@ -121,6 +132,73 @@ export const clearEventSubscriptions = () => {
   clearAllCache();
   
   console.log('[GlobalEvents] 모든 이벤트 구독 및 상태 초기화 완료');
+};
+
+// 🔥 그룹 색상 업데이트 함수 - 다시 수정
+export const updateGroupColorInMemory = (groupId: string, newColor: string) => {
+  console.log(`[updateGroupColorInMemory] 그룹 ${groupId} 색상을 ${newColor}로 변경`);
+  
+  // 색상 캐시 업데이트
+  globalEventState.groupColors.set(groupId, newColor);
+  
+  // 🔥 iOS를 위한 처리
+  if (Platform.OS === 'ios') {
+    // 1. 먼저 얕은 복사로 새 배열 생성
+    const shallowCopy = [...globalEventState.events];
+    
+    // 2. 색상이 변경된 이벤트들의 인덱스 찾기
+    const updatedIndices: number[] = [];
+    shallowCopy.forEach((event, index) => {
+      if (event.groupId === groupId) {
+        // 깊은 복사로 이벤트 객체 새로 생성
+        shallowCopy[index] = { ...event, color: newColor };
+        updatedIndices.push(index);
+      }
+    });
+    
+    // 3. 전역 상태 업데이트
+    globalEventState.events = shallowCopy;
+    
+    // 4. 콜백 호출 (iOS는 딜레이 후 1번만)
+if (Platform.OS === 'ios') {
+  // iOS는 50ms 딜레이 후 1번만 호출
+  setTimeout(() => {
+    globalEventState.callbacks.forEach(cb => {
+      try {
+        cb(globalEventState.events);
+      } catch (error) {
+        console.error('[updateGroupColorInMemory] iOS 콜백 실행 오류:', error);
+      }
+    });
+  }, 50);
+} else {
+  // Android는 즉시 호출
+  globalEventState.callbacks.forEach(cb => {
+    try {
+      cb(globalEventState.events);
+    } catch (error) {
+      console.error('[updateGroupColorInMemory] 콜백 실행 오류:', error);
+    }
+  });
+}
+    
+  } else {
+    // Android는 기존 방식 유지
+    globalEventState.events = globalEventState.events.map(event => {
+      if (event.groupId === groupId) {
+        return { ...event, color: newColor };
+      }
+      return event;
+    });
+    
+    globalEventState.callbacks.forEach(cb => {
+      try {
+        cb(globalEventState.events);
+      } catch (error) {
+        console.error('[updateGroupColorInMemory] 콜백 실행 오류:', error);
+      }
+    });
+  }
 };
 
 // 중복 이벤트 제출 감지 함수
@@ -187,44 +265,65 @@ export const subscribeToEvents = (
     
     globalEventState.lastUserId = userId;
     
+    // 🔥 그룹 색상 정보 먼저 로드
+    loadUserGroupColors(userId);
+    
     // Firebase Firestore 구독 설정
-    const eventsQuery = collection(db, 'events');
-    const eventsUnsubscribe = onSnapshot(
-      eventsQuery,
-      async () => {
-        if (!globalEventState.lastUserId) return;
+const eventsQuery = collection(db, 'events');
+const eventsUnsubscribe = onSnapshot(
+  eventsQuery,
+  async (snapshot) => {
+    if (!globalEventState.lastUserId) return;
+    
+    console.log(`[GlobalEvents] Firestore 이벤트 변경 감지`);
+    
+    // 🔥 변경된 문서 확인
+    let hasRelevantChanges = false;
+    const userGroupIds = Array.from(globalEventState.groupColors.keys());
+    
+    snapshot.docChanges().forEach((change) => {
+      const eventData = change.doc.data();
+      // 사용자의 그룹에 속한 이벤트거나 개인 이벤트인지 확인
+      if (userGroupIds.includes(eventData.groupId) || 
+          (eventData.userId === globalEventState.lastUserId && eventData.groupId === 'personal')) {
+        hasRelevantChanges = true;
+        console.log(`[GlobalEvents] 관련 이벤트 변경 감지: ${change.type}`, eventData.title);
+      }
+    });
+    
+    // 관련된 변경사항이 있을 때만 업데이트
+    if (hasRelevantChanges) {
+      // 🔥 전체 캐시 무효화 (실시간 동기화를 위해)
+      clearUserCache(globalEventState.lastUserId);
+      
+      // 🔥 강제로 서버에서 새 데이터 가져오기 (forceRefresh = true)
+      const result = await getUserEvents(globalEventState.lastUserId, true);
+      
+      if (result.success && Array.isArray(result.events)) {
+        globalEventState.events = result.events;
         
-        console.log(`[GlobalEvents] Firestore 이벤트 변경 감지`);
+        // 🔥 영구 캐시에도 저장
+        await cacheService.saveEventsToCache(globalEventState.lastUserId, result.events);
         
-        // 🔥 캐시 무효화 (실시간 업데이트 시)
-        clearUserCache(globalEventState.lastUserId);
-        
-        const result = await getUserEvents(globalEventState.lastUserId);
-        
-        if (result.success && Array.isArray(result.events)) {
-          globalEventState.events = result.events;
-          
-          // 🔥 영구 캐시에도 저장
-          await cacheService.saveEventsToCache(globalEventState.lastUserId, result.events);
-          
-          // 등록된 모든 콜백에 새 이벤트 전달
-          globalEventState.callbacks.forEach(cb => {
-            try {
-              cb(globalEventState.events);
-            } catch (error) {
-              console.error('[GlobalEvents] 콜백 실행 오류:', error);
-            }
-          });
-        }
-      },
-      (error) => {
-        console.error('[GlobalEvents] Firestore 구독 오류:', error);
-        // 🔥 오류 시 캐시 데이터 사용
-        cacheService.loadEventsFromCache(userId).then(cachedEvents => {
-          callback(cachedEvents);
+        // 등록된 모든 콜백에 새 이벤트 전달
+        globalEventState.callbacks.forEach(cb => {
+          try {
+            cb(globalEventState.events);
+          } catch (error) {
+            console.error('[GlobalEvents] 콜백 실행 오류:', error);
+          }
         });
       }
-    );
+    }
+  },
+  (error) => {
+    console.error('[GlobalEvents] Firestore 구독 오류:', error);
+    // 🔥 오류 시 캐시 데이터 사용
+    cacheService.loadEventsFromCache(userId).then(cachedEvents => {
+      callback(cachedEvents);
+    });
+  }
+);
     
     // 멤버십 변경 구독
     const membershipQuery = query(
@@ -234,29 +333,41 @@ export const subscribeToEvents = (
     
     const membershipUnsubscribe = onSnapshot(
       membershipQuery,
-      async () => {
+      async (snapshot) => {
         if (!globalEventState.lastUserId) return;
         
         console.log(`[GlobalEvents] 그룹 멤버십 변경 감지`);
         
-        // 🔥 캐시 무효화 (멤버십 변경 시)
-        clearUserCache(globalEventState.lastUserId);
-        
-        const result = await getUserEvents(globalEventState.lastUserId);
-        
-        if (result.success && Array.isArray(result.events)) {
-          globalEventState.events = result.events;
-          
-          // 🔥 영구 캐시에도 저장
-          await cacheService.saveEventsToCache(globalEventState.lastUserId, result.events);
-          
-          globalEventState.callbacks.forEach(cb => {
-            try {
-              cb(globalEventState.events);
-            } catch (error) {
-              console.error('[GlobalEvents] 콜백 실행 오류:', error);
+        // 🔥 색상 변경 감지
+        let colorChanged = false;
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'modified') {
+            const data = change.doc.data();
+            if (data.color && globalEventState.groupColors.get(data.groupId) !== data.color) {
+              colorChanged = true;
+              updateGroupColorInMemory(data.groupId, data.color);
             }
-          });
+          }
+        });
+        
+        // 색상만 변경된 경우 전체 리로드 하지 않음
+        if (!colorChanged) {
+          const result = await getUserEvents(globalEventState.lastUserId);
+          
+          if (result.success && Array.isArray(result.events)) {
+            globalEventState.events = result.events;
+            
+            // 🔥 영구 캐시에도 저장
+            await cacheService.saveEventsToCache(globalEventState.lastUserId, result.events);
+            
+            globalEventState.callbacks.forEach(cb => {
+              try {
+                cb(globalEventState.events);
+              } catch (error) {
+                console.error('[GlobalEvents] 콜백 실행 오류:', error);
+              }
+            });
+          }
         }
       },
       (error) => {
@@ -292,6 +403,30 @@ export const subscribeToEvents = (
     }
   };
 };
+
+// 🔥 사용자의 그룹 색상 정보 로드
+async function loadUserGroupColors(userId: string) {
+  try {
+    const membersQuery = query(
+      collection(db, 'groupMembers'),
+      where('userId', '==', userId)
+    );
+    
+    const snapshot = await getDocs(membersQuery);
+    globalEventState.groupColors.clear();
+    
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.groupId && data.color) {
+        globalEventState.groupColors.set(data.groupId, data.color);
+      }
+    });
+    
+    console.log('[loadUserGroupColors] 그룹 색상 로드 완료:', globalEventState.groupColors.size);
+  } catch (error) {
+    console.error('[loadUserGroupColors] 오류:', error);
+  }
+}
 
 // 실시간 구독을 관리하기 위한 Map (이전 코드 유지, 하위 호환성 위해)
 const eventListeners: Map<string, Unsubscribe> = new Map();
@@ -416,6 +551,26 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
       safeData.isMultiDay = true;
     }
     
+    // 🔥 낙관적 업데이트 - 임시 ID로 즉시 UI 업데이트
+    const tempId = `temp_${Date.now()}_${Math.random()}`;
+    const optimisticEvent = {
+      ...safeData,
+      id: tempId,
+      color: globalEventState.groupColors.get(safeData.groupId) || safeData.color || '#4CAF50'
+    };
+    
+    // 메모리에 즉시 추가
+    globalEventState.events.push(optimisticEvent as CalendarEvent);
+    
+    // 콜백 호출하여 UI 즉시 업데이트
+    globalEventState.callbacks.forEach(cb => {
+      try {
+        cb(globalEventState.events);
+      } catch (error) {
+        console.error('[addEvent] 낙관적 업데이트 콜백 오류:', error);
+      }
+    });
+    
     // 🔥 오프라인 처리
     if (!cacheService.getIsOnline()) {
       const offlineId = `offline_${Date.now()}_${Math.random()}`;
@@ -435,7 +590,8 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
       
       // 메모리 캐시 무효화
       if (safeData.userId) {
-        clearUserCache(safeData.userId);
+        const eventDate = new Date(safeData.startDate);
+        clearMonthCache(safeData.userId, eventDate.getFullYear(), eventDate.getMonth());
       }
       
       return { success: true, eventId: offlineId };
@@ -465,9 +621,15 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
     const docRef = await addDoc(collection(db, 'events'), cleanData);
     console.log('Event added with ID:', docRef.id);
     
-    // 🔥 캐시 무효화
+    // 🔥 임시 이벤트를 실제 이벤트로 교체
+    globalEventState.events = globalEventState.events.map(event => 
+      event.id === tempId ? { ...event, id: docRef.id } : event
+    );
+    
+    // 🔥 해당 월의 캐시만 무효화
     if (safeData.userId) {
-      clearUserCache(safeData.userId);
+      const eventDate = new Date(safeData.startDate);
+      clearMonthCache(safeData.userId, eventDate.getFullYear(), eventDate.getMonth());
     }
     
     // 그룹 일정인 경우 알림 처리를 비동기로 실행
@@ -479,6 +641,20 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
     return { success: true, eventId: docRef.id };
   } catch (error: any) {
     console.error('Error adding event:', error);
+    
+    // 🔥 에러 시 낙관적 업데이트 롤백
+    globalEventState.events = globalEventState.events.filter(event => 
+      !event.id?.startsWith('temp_')
+    );
+    
+    globalEventState.callbacks.forEach(cb => {
+      try {
+        cb(globalEventState.events);
+      } catch (error) {
+        console.error('[addEvent] 롤백 콜백 오류:', error);
+      }
+    });
+    
     return { success: false, error: error.message };
   }
 };
@@ -490,7 +666,31 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
  * @returns 업데이트 결과
  */
 export const updateEvent = async (eventId: string, eventData: CalendarEvent): Promise<EventResult> => {
+  // 🔥 originalEvent를 함수 최상단에서 선언 (try 블록 밖)
+  let originalEvent: CalendarEvent | undefined;
+  
   try {
+    // 🔥 낙관적 업데이트 - 메모리에서 즉시 업데이트
+    originalEvent = globalEventState.events.find(e => e.id === eventId);
+    if (originalEvent) {
+      globalEventState.events = globalEventState.events.map(event => 
+        event.id === eventId ? { 
+          ...event, 
+          ...eventData,
+          color: globalEventState.groupColors.get(eventData.groupId) || eventData.color || event.color
+        } : event
+      );
+      
+      // UI 즉시 업데이트
+      globalEventState.callbacks.forEach(cb => {
+        try {
+          cb(globalEventState.events);
+        } catch (error) {
+          console.error('[updateEvent] 낙관적 업데이트 콜백 오류:', error);
+        }
+      });
+    }
+    
     // 🔥 오프라인 처리
     if (!cacheService.getIsOnline()) {
       await cacheService.addToOfflineQueue({
@@ -501,7 +701,8 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
       
       // 메모리 캐시 무효화
       if (eventData.userId) {
-        clearUserCache(eventData.userId);
+        const eventDate = new Date(eventData.startDate);
+        clearMonthCache(eventData.userId, eventDate.getFullYear(), eventDate.getMonth());
       }
       
       return { success: true };
@@ -549,9 +750,16 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
     
     await updateDoc(eventRef, cleanData);
     
-    // 🔥 캐시 무효화
+    // 🔥 캐시 무효화 - 해당 월만
     if (eventData.userId) {
-      clearUserCache(eventData.userId);
+      const eventDate = new Date(eventData.startDate);
+      clearMonthCache(eventData.userId, eventDate.getFullYear(), eventDate.getMonth());
+      
+      // 날짜가 변경된 경우 이전 날짜의 캐시도 무효화
+      if (oldEventData && oldEventData.startDate !== eventData.startDate) {
+        const oldDate = new Date(oldEventData.startDate);
+        clearMonthCache(eventData.userId, oldDate.getFullYear(), oldDate.getMonth());
+      }
     }
     
     // 그룹 일정인 경우 멤버들에게 알림 전송 (비동기 처리)
@@ -630,6 +838,22 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
     return { success: true };
   } catch (error: any) {
     console.error('Event update error:', error);
+    
+    // 🔥 에러 시 낙관적 업데이트 롤백 - undefined 체크 추가
+    if (originalEvent) {
+      globalEventState.events = globalEventState.events.map(event => 
+        event.id === eventId ? originalEvent! : event  // ! 연산자로 undefined가 아님을 보장
+      );
+      
+      globalEventState.callbacks.forEach(cb => {
+        try {
+          cb(globalEventState.events);
+        } catch (error) {
+          console.error('[updateEvent] 롤백 콜백 오류:', error);
+        }
+      });
+    }
+    
     return { success: false, error: error.message };
   }
 };
@@ -640,7 +864,25 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
  * @returns 삭제 결과
  */
 export const deleteEvent = async (eventId: string): Promise<EventResult> => {
+  // 🔥 deletedEvent를 try 블록 밖에서 선언
+  let deletedEvent: CalendarEvent | undefined;
+  
   try {
+    // 🔥 낙관적 업데이트 - 메모리에서 즉시 삭제
+    deletedEvent = globalEventState.events.find(e => e.id === eventId);
+    if (deletedEvent) {
+      globalEventState.events = globalEventState.events.filter(event => event.id !== eventId);
+      
+      // UI 즉시 업데이트
+      globalEventState.callbacks.forEach(cb => {
+        try {
+          cb(globalEventState.events);
+        } catch (error) {
+          console.error('[deleteEvent] 낙관적 업데이트 콜백 오류:', error);
+        }
+      });
+    }
+    
     // 🔥 오프라인 처리
     if (!cacheService.getIsOnline()) {
       await cacheService.addToOfflineQueue({
@@ -660,9 +902,10 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
     // 삭제 실행
     await deleteDoc(eventRef);
     
-    // 🔥 캐시 무효화
+    // 🔥 캐시 무효화 - 해당 월만
     if (eventData && eventData.userId) {
-      clearUserCache(eventData.userId);
+      const eventDate = new Date(eventData.startDate);
+      clearMonthCache(eventData.userId, eventDate.getFullYear(), eventDate.getMonth());
     }
     
     // 그룹 일정인 경우 멤버들에게 알림 전송 (비동기 처리)
@@ -718,6 +961,21 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
     
     return { success: true };
   } catch (error: any) {
+    console.error('Event deletion error:', error);
+    
+    // 🔥 에러 시 낙관적 업데이트 롤백
+    if (deletedEvent) {
+      globalEventState.events.push(deletedEvent);
+      
+      globalEventState.callbacks.forEach(cb => {
+        try {
+          cb(globalEventState.events);
+        } catch (error) {
+          console.error('[deleteEvent] 롤백 콜백 오류:', error);
+        }
+      });
+    }
+    
     return { success: false, error: error.message };
   }
 };
@@ -727,12 +985,12 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
  * @param userId - 사용자 ID
  * @returns 이벤트 목록
  */
-export const getUserEvents = async (userId: string): Promise<EventResult> => {
-  // 🔥 캐시 확인
+export const getUserEvents = async (userId: string, forceRefresh: boolean = false): Promise<EventResult> => {
+  // 🔥 캐시 확인 - forceRefresh가 true면 캐시 무시
   const cacheKey = `user_${userId}_all`;
   const cached = eventCache.get(cacheKey);
   
-  if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+  if (!forceRefresh && cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
     console.log('[getUserEvents] 캐시에서 데이터 반환');
     return cached.data;
   }
@@ -777,6 +1035,8 @@ export const getUserEvents = async (userId: string): Promise<EventResult> => {
         // 사용자가 설정한 그룹 색상 저장
         if (data.color) {
           groupColors[data.groupId] = data.color;
+          // 🔥 전역 색상 캐시에도 저장
+          globalEventState.groupColors.set(data.groupId, data.color);
         }
       }
     });

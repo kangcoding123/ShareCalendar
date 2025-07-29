@@ -39,6 +39,8 @@ import {
 } from '../../../services/inviteService';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+// 🔥 추가: 메모리 색상 업데이트 함수 import
+import { updateGroupColorInMemory } from '../../../services/calendarService';
 
 // 색상 선택 옵션
 const COLOR_OPTIONS = [
@@ -362,7 +364,7 @@ export default function GroupDetailScreen() {
   const isOwner = typeof group?.role === 'string' && 
                  group.role.toLowerCase() === 'owner';
   
-  // 색상 변경 핸들러
+  // 🔥 수정된 색상 변경 핸들러 - 즉시 반영
   const handleColorChange = async (color: string) => {
     if (!user || !groupId) return;
     
@@ -371,20 +373,39 @@ export default function GroupDetailScreen() {
       setSelectedColor(color);
       
       console.log(`그룹 색상 변경: ${color}`);
+      
+      // 🔥 먼저 로컬 상태 업데이트
+      if (group) {
+        setGroup({ ...group, color });
+      }
+      
+      // 🔥 캘린더의 메모리 색상 즉시 업데이트
+      updateGroupColorInMemory(groupId, color);
+      
+      // 🔥 서버에 저장
       const result = await setUserGroupColor(user.uid, groupId, color);
       
       if (result.success) {
-        if (group) {
-          setGroup({ ...group, color });
-          console.log(`그룹 색상 변경 성공: ${color}`);
-        }
+        console.log(`그룹 색상 변경 성공: ${color}`);
       } else {
+        // 실패 시 롤백
         Alert.alert('오류', '색상 변경 중 오류가 발생했습니다.');
         setSelectedColor(group?.color || '#4CAF50');
+        if (group) {
+          setGroup({ ...group, color: group.color || '#4CAF50' });
+          // 🔥 메모리 색상도 롤백
+          updateGroupColorInMemory(groupId, group.color || '#4CAF50');
+        }
       }
     } catch (error) {
       console.error('색상 변경 오류:', error);
       Alert.alert('오류', '색상 변경 중 오류가 발생했습니다.');
+      // 에러 시 롤백
+      setSelectedColor(group?.color || '#4CAF50');
+      if (group) {
+        setGroup({ ...group, color: group.color || '#4CAF50' });
+        updateGroupColorInMemory(groupId, group.color || '#4CAF50');
+      }
     } finally {
       setSavingColor(false);
     }

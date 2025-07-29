@@ -72,29 +72,47 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    if (!validate()) return;
+  if (!validate()) return;
 
-    setLoading(true);
-    try {
-      const { success, error } = await login(email, password);
-      
-      if (success) {
-        // ⭐ 초대 코드가 있으면 초대 처리 화면으로, 없으면 메인으로
-        if (inviteCode && typeof inviteCode === 'string') {
-          router.replace(`/invite/${inviteCode}`);
-        } else {
-          router.replace('/(tabs)');
-        }
+  setLoading(true);
+  try {
+    console.log('로그인 시도:', email); // 🔍 디버깅
+    
+    await login(email, password);
+    
+    console.log('로그인 성공 - 화면 이동'); // 🔍 디버깅
+    
+    // 약간의 지연 추가 (상태 업데이트 대기)
+    setTimeout(() => {
+      if (inviteCode && typeof inviteCode === 'string') {
+        router.replace(`/invite/${inviteCode}`);
       } else {
-        Alert.alert('로그인 실패', error || '이메일 또는 비밀번호가 올바르지 않습니다.');
+        router.replace('/(tabs)');
       }
-    } catch (error) {
-      Alert.alert('로그인 실패', '로그인 중 오류가 발생했습니다.');
-      console.error(error);
-    } finally {
-      setLoading(false);
+    }, 100);
+    
+  } catch (error: any) {
+    console.log('로그인 에러 catch:', error); // 🔍 디버깅
+    console.log('에러 타입:', typeof error); // 🔍 디버깅
+    console.log('에러 메시지:', error?.message); // 🔍 디버깅
+    
+    // 실제 에러일 때만 알림 표시
+    if (error && error.message) {
+      let errorMessage = '로그인 중 오류가 발생했습니다.';
+      if (error.message.includes('user-not-found')) {
+        errorMessage = '존재하지 않는 사용자입니다.';
+      } else if (error.message.includes('wrong-password')) {
+        errorMessage = '잘못된 비밀번호입니다.';
+      } else if (error.message.includes('invalid-email')) {
+        errorMessage = '올바른 이메일 형식이 아닙니다.';
+      }
+      
+      Alert.alert('로그인 실패', errorMessage);
     }
-  };
+  } finally {
+    setLoading(false);
+  }
+};
   
   // 비밀번호 재설정 함수
   const handlePasswordReset = async () => {

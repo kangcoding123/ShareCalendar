@@ -18,12 +18,25 @@ import Calendar from './Calendar';
 import { CalendarDay } from '../../utils/dateUtils';
 import { CalendarEvent, getEventsForMonth } from '../../services/calendarService';
 import { useAuth } from '../../context/AuthContext';
+// 🔥 추가: 공휴일 관련 import
+import { getHolidaysForYear } from '../../data/holidays';
+import { getAllHolidaysForYear } from '../../services/holidayService';
 
 // Android에서 LayoutAnimation 활성화
 if (Platform.OS === 'android') {
   if (UIManager.setLayoutAnimationEnabledExperimental) {
     UIManager.setLayoutAnimationEnabledExperimental(true);
   }
+}
+
+// 🔥 추가: Holiday 타입 정의
+interface Holiday {
+  name: string;
+  isHoliday: boolean;
+  date: string;
+  isAlternative?: boolean;
+  isTemporary?: boolean;
+  [key: string]: any;
 }
 
 interface CalendarPagerProps {
@@ -54,6 +67,12 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   
+  // 🔥 추가: 공휴일 상태
+  const [holidays, setHolidays] = useState<Record<string, Holiday>>({});
+  const loadedYears = useRef<Set<number>>(new Set());
+  // 🔥 추가: 현재 로딩 중인 연도 추적
+  const loadingYears = useRef<Set<number>>(new Set());
+  
   // 플랫리스트 참조
   const flatListRef = useRef<FlatList>(null);
   
@@ -74,6 +93,64 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   
   // 초기 인덱스 계산 (중간 값)
   const initialIndex = MONTHS_TO_SHOW;
+  
+  // 🔥 추가: 공휴일 로드 함수 - 중복 방지 강화
+  const loadHolidaysForYear = useCallback(async (year: number) => {
+    // 🔥 이미 로드됐거나 현재 로딩 중이면 스킵
+    if (loadedYears.current.has(year) || loadingYears.current.has(year)) {
+      return;
+    }
+    
+    // 🔥 로딩 시작 표시
+    loadingYears.current.add(year);
+    
+    try {
+      console.log(`[CalendarPager] ${year}년 공휴일 로드 시작`);
+      const yearHolidays = await getAllHolidaysForYear(year);
+      
+      setHolidays(prev => ({
+        ...prev,
+        ...yearHolidays
+      }));
+      
+      loadedYears.current.add(year);
+      console.log(`[CalendarPager] ${year}년 공휴일 로드 완료:`, Object.keys(yearHolidays).length, '개');
+    } catch (error) {
+      console.error(`[CalendarPager] ${year}년 공휴일 로드 오류:`, error);
+      // 오류 시 정적 데이터 사용
+      const staticHolidays = getHolidaysForYear(year);
+      setHolidays(prev => ({
+        ...prev,
+        ...staticHolidays
+      }));
+      // 🔥 오류 시에도 로드 완료 표시
+      loadedYears.current.add(year);
+    } finally {
+      // 🔥 로딩 완료 표시
+      loadingYears.current.delete(year);
+    }
+  }, []);
+  
+  // 🔥 추가: 현재 보이는 월들의 연도 공휴일 로드
+  const loadHolidaysForVisibleMonths = useCallback(async (centerMonth: Date) => {
+    const years = new Set<number>();
+    
+    // 현재 월 기준 앞뒤 3개월의 연도 수집
+    for (let i = -3; i <= 3; i++) {
+      const month = addMonths(centerMonth, i);
+      years.add(month.getFullYear());
+    }
+    
+    // 각 연도의 공휴일 로드
+    for (const year of years) {
+      await loadHolidaysForYear(year);
+    }
+  }, [loadHolidaysForYear]);
+  
+  // 🔥 추가: 초기 공휴일 로드
+  useEffect(() => {
+    loadHolidaysForVisibleMonths(currentMonth);
+  }, []);
   
   // 월 데이터 생성
   const generateMonths = (baseMonth: Date) => {
@@ -98,7 +175,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     if (__DEV__) console.log(`[CalendarPager] ${message}`);
   };
   
-  // 🔥 프리로드 함수
+  // 🔥 프리로드 함수 수정 - 공휴일도 로드
   const preloadMonth = useCallback(async (monthDate: Date) => {
     if (!user || !user.uid) return;
     
@@ -116,6 +193,9 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
       // 해당 월의 이벤트 미리 로드 (캐시 활용됨)
       await getEventsForMonth(user.uid, monthDate.getFullYear(), monthDate.getMonth());
       
+      // 🔥 추가: 해당 월의 연도 공휴일도 로드
+      await loadHolidaysForYear(monthDate.getFullYear());
+      
       preloadedMonths.current.add(monthKey);
       log(`프리로딩 완료: ${monthKey}`);
     } catch (error) {
@@ -123,7 +203,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     } finally {
       isPreloading.current.delete(monthKey);
     }
-  }, [user]);
+  }, [user, loadHolidaysForYear]);
   
   // 🔥 스크롤 이벤트 핸들러
   const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -258,7 +338,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     }
   }, [initialMonth, currentMonth, preloadMonth]);
   
-  // 현재 보이는 아이템이 변경될 때 호출되는 함수
+  // 🔥 수정: 현재 보이는 아이템이 변경될 때 - 공휴일 로드 추가
   const handleViewableItemsChanged = (info: { viewableItems: ViewToken[] }) => {
     if (info.viewableItems.length === 0 || isScrollingRef.current) return;
     
@@ -280,6 +360,9 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
       log(`Month changed by swipe to: ${format(newMonth, 'yyyy-MM')}`);
       
       updateSourceRef.current = 'swipe';
+      
+      // 🔥 추가: 새로운 월의 공휴일 로드
+      loadHolidaysForVisibleMonths(newMonth);
       
       // 🔥 새로운 월로 변경될 때 주변 월 프리로드
       preloadMonth(addMonths(newMonth, -1));
@@ -330,7 +413,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     }
   };
   
-  // 캘린더 항목 렌더링 함수
+  // 🔥 수정: 캘린더 항목 렌더링 함수 - holidays props 전달
   const renderCalendarItem = ({ item }: { item: { date: Date; id: string } }) => {
     return (
       <View style={[styles.pageContainer, { width: SCREEN_WIDTH }]}>
@@ -342,6 +425,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
             colorScheme={colorScheme}
             initialMonth={item.date}
             onMonthChange={handleArrowNavigate}
+            holidays={holidays}  // 🔥 추가: 공휴일 props 전달
           />
         </View>
       </View>

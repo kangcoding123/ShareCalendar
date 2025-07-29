@@ -27,9 +27,9 @@ import {
 // 타입 및 서비스 가져오기
 import { CalendarEvent } from '../../services/calendarService';
 
-// 한국 공휴일 데이터
-import { getHolidaysForYear } from '../../data/holidays';
-import { getAllHolidaysForYear } from '../../services/holidayService';
+// 🔥 삭제: 공휴일 데이터 import 제거
+// import { getHolidaysForYear } from '../../data/holidays';
+// import { getAllHolidaysForYear } from '../../services/holidayService';
 
 // 레이아웃 애니메이션 활성화 (Android)
 if (Platform.OS === 'android') {
@@ -48,13 +48,15 @@ interface Holiday {
   [key: string]: any;
 }
 
+// 🔥 수정: CalendarProps에 holidays 추가
 interface CalendarProps {
   events?: Record<string, CalendarEvent[]>;
   onDayPress: (day: CalendarDay, events: CalendarEvent[]) => void;
   colorScheme: ColorSchemeName;
   initialMonth?: Date;
   onMonthChange?: (direction: 'prev' | 'next') => void;
-  containerHeight?: number;  // 추가
+  containerHeight?: number;
+  holidays?: Record<string, Holiday>;  // 🔥 추가: 공휴일 props
 }
 
 // 헤더와 요일 행 높이 고정
@@ -67,7 +69,8 @@ const Calendar = ({
   colorScheme,
   initialMonth,
   onMonthChange,
-  containerHeight  // 추가
+  containerHeight,
+  holidays = {}  // 🔥 추가: 기본값 설정
 }: CalendarProps) => {
   // 다크 모드 여부 확인
   const isDark = colorScheme === 'dark';
@@ -87,8 +90,11 @@ const Calendar = ({
   // 상태 관리
   const [currentDate, setCurrentDate] = useState<Date>(initialMonth || new Date());
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
-  const [holidays, setHolidays] = useState<Record<string, Holiday>>({});
-  const [holidaysLoading, setHolidaysLoading] = useState(false);
+  // 🔥 삭제: 공휴일 관련 상태와 ref들
+  // const [holidays, setHolidays] = useState<Record<string, Holiday>>({});
+  // const [holidaysLoading, setHolidaysLoading] = useState(false);
+  // const loadingMonthRef = useRef<string | null>(null);
+  // const loadedHolidaysRef = useRef<Set<number>>(new Set());
   
   // initialMonth prop이 변경될 때 currentDate 업데이트
   useEffect(() => {
@@ -127,73 +133,43 @@ const Calendar = ({
     return Math.ceil(calendarDays.length / 7);
   }, [calendarDays]);
   
- // 셀 높이 계산
-const cellHeight = useMemo(() => {
-  const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 70 : 60;
-  const AD_BANNER_HEIGHT = 60;
-  
-  // 화면 비율 계산 (높이/너비)
-  const screenRatio = screenHeight / screenWidth;
-  
-  // 화면 비율에 따라 여유 공간 동적 조정
-  let EXTRA_PADDING = 0;
-  if (screenRatio > 2.3) {
-    // Z Flip 같은 매우 긴 화면 (21:9 이상)
-    EXTRA_PADDING = 50;
-  } else if (screenRatio > 2.1) {
-    // 약간 긴 화면
-    EXTRA_PADDING = 30;
-  } else {
-    // 일반 화면 (16:9, 18:9 등)
-    EXTRA_PADDING = 10;
-  }
-  
-  const availableHeight = screenHeight - 
-    insets.top -
-    TAB_BAR_HEIGHT -
-    AD_BANNER_HEIGHT -
-    HEADER_HEIGHT -
-    DAY_NAMES_HEIGHT -
-    EXTRA_PADDING;
-  
-  return Math.max(availableHeight / weekCount, 60);
-}, [screenHeight, screenWidth, weekCount, insets]);
-  
-  // 달력 데이터 업데이트 (비동기 처리 추가)
-  useEffect(() => {
-    const loadCalendarData = async () => {
-      setHolidaysLoading(true);
-      
-      const days = getCalendarDays(currentDate);
-      setCalendarDays(days);
-      
-      // 표시되는 모든 날짜의 연도 가져오기
-      const years = [...new Set(days.map(day => day.date.getFullYear()))];
-      
-      // 모든 연도의 공휴일 가져오기 (임시 공휴일 포함)
-      const allHolidays: Record<string, Holiday> = {};
-      
-      // 비동기로 각 연도의 공휴일 로드
-      for (const year of years) {
-        try {
-          // getAllHolidaysForYear는 비동기 함수 - 정적 + 임시 공휴일 모두 포함
-          const yearHolidays = await getAllHolidaysForYear(year);
-          Object.assign(allHolidays, yearHolidays);
-          
-          console.log(`${year}년 공휴일 로드 완료:`, Object.keys(yearHolidays).length, '개');
-        } catch (error) {
-          console.error(`${year}년 공휴일 로드 오류:`, error);
-          // 오류 시 정적 공휴일만 가져오기
-          const staticHolidays = getHolidaysForYear(year);
-          Object.assign(allHolidays, staticHolidays);
-        }
-      }
-      
-      setHolidays(allHolidays);
-      setHolidaysLoading(false);
-    };
+  // 셀 높이 계산
+  const cellHeight = useMemo(() => {
+    const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 70 : 60;
+    const AD_BANNER_HEIGHT = 60;
     
-    loadCalendarData();
+    // 화면 비율 계산 (높이/너비)
+    const screenRatio = screenHeight / screenWidth;
+    
+    // 화면 비율에 따라 여유 공간 동적 조정
+    let EXTRA_PADDING = 0;
+    if (screenRatio > 2.3) {
+      // Z Flip 같은 매우 긴 화면 (21:9 이상)
+      EXTRA_PADDING = 50;
+    } else if (screenRatio > 2.1) {
+      // 약간 긴 화면
+      EXTRA_PADDING = 30;
+    } else {
+      // 일반 화면 (16:9, 18:9 등)
+      EXTRA_PADDING = 10;
+    }
+    
+    const availableHeight = screenHeight - 
+      insets.top -
+      TAB_BAR_HEIGHT -
+      AD_BANNER_HEIGHT -
+      HEADER_HEIGHT -
+      DAY_NAMES_HEIGHT -
+      EXTRA_PADDING;
+    
+    return Math.max(availableHeight / weekCount, 60);
+  }, [screenHeight, screenWidth, weekCount, insets]);
+  
+  // 🔥 수정: 달력 데이터 업데이트 - 공휴일 로드 로직 제거
+  useEffect(() => {
+    const days = getCalendarDays(currentDate);
+    setCalendarDays(days);
+    // 🔥 삭제: 공휴일 로드 로직 전체 제거
   }, [currentDate]);
   
   // 달력 헤더 컴포넌트
@@ -254,7 +230,7 @@ const cellHeight = useMemo(() => {
   const renderDay = ({ item }: { item: CalendarDay }) => {
     const { date, isCurrentMonth, dayOfMonth, formattedDate, isToday } = item;
     
-    // 휴일 정보 확인
+    // 🔥 수정: props에서 공휴일 정보 가져오기
     const holiday = holidays[formattedDate];
     
     // 주말 확인
@@ -264,11 +240,6 @@ const cellHeight = useMemo(() => {
     
     // 해당 날짜의 이벤트 가져오기
     const dayEvents = events[formattedDate] || [];
-    
-    // 디버깅: 임시 공휴일 확인
-    if (holiday && holiday.isTemporary) {
-      console.log(`임시 공휴일 발견: ${formattedDate} - ${holiday.name}`);
-    }
     
     // 각 이벤트에 다일 일정 위치 정보 추가
     const eventsWithPositions = dayEvents.map(event => {
@@ -314,7 +285,7 @@ const cellHeight = useMemo(() => {
             !isCurrentMonth && { color: isDark ? '#666666' : '#bbbbbb' },
             isSunday && { color: isDark ? '#ff6b6b' : '#ff3b30' },
             isSaturday && { color: isDark ? '#63a4ff' : '#007aff' },
-            holiday && holiday.isHoliday && { color: isDark ? '#ff6b6b' : '#ff3b30' }, // 공휴일 색상
+            holiday && holiday.isHoliday && { color: isDark ? '#ff6b6b' : '#ff3b30' },
             isToday && { color: isDark ? '#4e7bd4' : '#3c66af' }
           ]}>
             {dayOfMonth}
