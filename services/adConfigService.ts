@@ -4,9 +4,8 @@ import { db } from '../config/firebase';
 
 // 광고 설정 타입 정의
 export interface AdConfig {
-  banner_unit_id: string;
-  ios_banner_unit_id?: string;      // iOS 전용 추가
-  android_banner_unit_id?: string;  // Android 전용 추가
+  ios_banner_unit_id?: string;      // iOS 전용
+  android_banner_unit_id?: string;  // Android 전용
   ad_enabled: boolean;
   test_mode: boolean;
   updated_at: string;
@@ -23,14 +22,12 @@ export const initializeAdConfig = async (): Promise<boolean> => {
     if (!docSnap.exists()) {
       // 문서가 없으면 새로 생성
       await setDoc(adConfigRef, {
-      banner_unit_id: 'DAN-tEpg4818iiZARMn2',
-      ios_banner_unit_id: 'DAN-8aVOoPPWLxqWQXF8',      // iOS용 새 ID
-      android_banner_unit_id: 'DAN-tEpg4818iiZARMn2',  // Android용 기존 ID
-      ad_enabled: true,
-      test_mode: false,  // false로 유지
-      show_placeholder: true,  // 추가: 심사용 플레이스홀더 표시
-      updated_at: new Date().toISOString()
-    });
+        ios_banner_unit_id: 'ca-app-pub-7310506169021656/3493072152',      // iOS용 ID
+        android_banner_unit_id: 'ca-app-pub-7310506169021656/1974323964',  // Android용 ID
+        ad_enabled: true,
+        test_mode: false,
+        updated_at: new Date().toISOString()
+      });
       console.log('광고 설정이 초기화되었습니다.');
     }
     
@@ -91,25 +88,6 @@ export const toggleAdEnabled = async (enabled: boolean): Promise<{
     return { success: true };
   } catch (error) {
     console.error('광고 설정 업데이트 오류:', error);
-    return { success: false, error };
-  }
-};
-
-// 광고 단위 ID 업데이트 함수
-export const updateAdUnitId = async (unitId: string): Promise<{
-  success: boolean;
-  error?: any;
-}> => {
-  try {
-    const adConfigRef = doc(db, 'app_config', 'ad_settings');
-    await updateDoc(adConfigRef, {
-      banner_unit_id: unitId,
-      updated_at: new Date().toISOString()
-    });
-    
-    return { success: true };
-  } catch (error) {
-    console.error('광고 ID 업데이트 오류:', error);
     return { success: false, error };
   }
 };

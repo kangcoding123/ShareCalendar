@@ -32,6 +32,7 @@ const AdMobBanner = memo(({ size = 'banner' }: AdMobBannerProps) => {
   const [isEnabled, setIsEnabled] = useState(true);
   const [isTestMode, setIsTestMode] = useState(false);
   const [adError, setAdError] = useState(false);
+  const [customAdUnitId, setCustomAdUnitId] = useState<string | null>(null);
   
   // 🔥 설정 로드는 한 번만
   const isInitialized = useRef(false);
@@ -49,9 +50,25 @@ const AdMobBanner = memo(({ size = 'banner' }: AdMobBannerProps) => {
       if (result.success && result.config) {
         setIsEnabled(result.config.ad_enabled);
         setIsTestMode(result.config.test_mode);
+        
+        // 🔥 플랫폼별 광고 ID 설정 (Firebase에서 가져온 경우)
+        if (result.config.ios_banner_unit_id || result.config.android_banner_unit_id) {
+          const platformId = Platform.select({
+            ios: result.config.ios_banner_unit_id,
+            android: result.config.android_banner_unit_id,
+          });
+          
+          if (platformId) {
+            setCustomAdUnitId(platformId);
+            console.log('Firebase 광고 ID 사용:', platformId);
+          }
+        }
       }
     } catch (error) {
       console.error('광고 설정 로드 오류:', error);
+      // 🔥 기본값 설정
+      setIsEnabled(true);
+      setIsTestMode(__DEV__);
     }
   };
 
@@ -65,13 +82,22 @@ const AdMobBanner = memo(({ size = 'banner' }: AdMobBannerProps) => {
     return null;
   }
 
-  // 개발 모드이거나 테스트 모드일 때는 테스트 광고 ID 사용
-  const unitId = (__DEV__ || isTestMode)
-    ? TestIds.BANNER 
-    : Platform.select({
-        ios: adUnitIds.ios,
-        android: adUnitIds.android,
-      }) || adUnitIds.android;
+  // 광고 ID 결정 로직
+  let unitId: string;
+  
+  if (__DEV__ || isTestMode) {
+    // 개발 모드이거나 테스트 모드일 때는 테스트 광고 ID 사용
+    unitId = TestIds.BANNER;
+  } else if (customAdUnitId) {
+    // Firebase에서 가져온 커스텀 ID가 있으면 사용
+    unitId = customAdUnitId;
+  } else {
+    // 기본 하드코딩된 ID 사용
+    unitId = Platform.select({
+      ios: adUnitIds.ios,
+      android: adUnitIds.android,
+    }) || adUnitIds.android;
+  }
 
   return (
     <View style={styles.container}>

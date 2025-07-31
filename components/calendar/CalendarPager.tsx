@@ -45,6 +45,7 @@ interface CalendarPagerProps {
   colorScheme: ColorSchemeName;
   initialMonth?: Date;
   onMonthChange?: (month: Date) => void;
+  refreshHolidaysKey?: number; // 🔥 추가: 새로고침 트리거
 }
 
 // 화면 너비와 월 범위 설정
@@ -57,6 +58,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   colorScheme,
   initialMonth,
   onMonthChange,
+  refreshHolidaysKey, // 🔥 추가
 }) => {
   // 🔥 Auth context 추가
   const { user } = useAuth();
@@ -95,11 +97,13 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   const initialIndex = MONTHS_TO_SHOW;
   
   // 🔥 추가: 공휴일 로드 함수 - 중복 방지 강화
-  const loadHolidaysForYear = useCallback(async (year: number) => {
-    // 🔥 이미 로드됐거나 현재 로딩 중이면 스킵
-    if (loadedYears.current.has(year) || loadingYears.current.has(year)) {
-      return;
-    }
+  const loadHolidaysForYear = useCallback(async (year: number, forceReload: boolean = false) => {
+  // 🔥 강제 새로고침이면 무조건 로드
+  if (forceReload) {
+    console.log(`[CalendarPager] ${year}년 공휴일 강제 새로고침`);
+  } else if (loadedYears.current.has(year) || loadingYears.current.has(year)) {
+    return;
+  }
     
     // 🔥 로딩 시작 표시
     loadingYears.current.add(year);
@@ -132,7 +136,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   }, []);
   
   // 🔥 추가: 현재 보이는 월들의 연도 공휴일 로드
-  const loadHolidaysForVisibleMonths = useCallback(async (centerMonth: Date) => {
+  const loadHolidaysForVisibleMonths = useCallback(async (centerMonth: Date, forceReload: boolean = false) => {
     const years = new Set<number>();
     
     // 현재 월 기준 앞뒤 3개월의 연도 수집
@@ -143,14 +147,26 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     
     // 각 연도의 공휴일 로드
     for (const year of years) {
-      await loadHolidaysForYear(year);
+      await loadHolidaysForYear(year, forceReload);
     }
   }, [loadHolidaysForYear]);
   
-  // 🔥 추가: 초기 공휴일 로드
+  // 🔥 수정: 초기 공휴일 로드 + 새로고침
   useEffect(() => {
+  // refreshHolidaysKey가 변경되면 캐시 초기화
+  if (refreshHolidaysKey && refreshHolidaysKey > 0) {
+    console.log('[CalendarPager] 공휴일 새로고침 트리거:', refreshHolidaysKey);
+    loadedYears.current.clear(); // 캐시 초기화!
+    loadingYears.current.clear(); // 로딩 상태도 초기화
+    setHolidays({}); // 기존 공휴일 초기화
+    
+    // 즉시 새로고침
+    loadHolidaysForVisibleMonths(currentMonth, true);
+  } else {
+    // 초기 로드
     loadHolidaysForVisibleMonths(currentMonth);
-  }, []);
+  }
+}, [refreshHolidaysKey]); // currentMonth 제거
   
   // 월 데이터 생성
   const generateMonths = (baseMonth: Date) => {

@@ -134,45 +134,22 @@ export const clearEventSubscriptions = () => {
   console.log('[GlobalEvents] 모든 이벤트 구독 및 상태 초기화 완료');
 };
 
-// 🔥 그룹 색상 업데이트 함수 - 다시 수정
+// 🔥 그룹 색상 업데이트 함수 - 모든 플랫폼 동일하게 처리
 export const updateGroupColorInMemory = (groupId: string, newColor: string) => {
   console.log(`[updateGroupColorInMemory] 그룹 ${groupId} 색상을 ${newColor}로 변경`);
   
   // 색상 캐시 업데이트
   globalEventState.groupColors.set(groupId, newColor);
   
-  // 🔥 iOS를 위한 처리
-  if (Platform.OS === 'ios') {
-    // 1. 먼저 얕은 복사로 새 배열 생성
-    const shallowCopy = [...globalEventState.events];
-    
-    // 2. 색상이 변경된 이벤트들의 인덱스 찾기
-    const updatedIndices: number[] = [];
-    shallowCopy.forEach((event, index) => {
-      if (event.groupId === groupId) {
-        // 깊은 복사로 이벤트 객체 새로 생성
-        shallowCopy[index] = { ...event, color: newColor };
-        updatedIndices.push(index);
-      }
-    });
-    
-    // 3. 전역 상태 업데이트
-    globalEventState.events = shallowCopy;
-    
-    // 4. 콜백 호출 (iOS는 딜레이 후 1번만)
-if (Platform.OS === 'ios') {
-  // iOS는 50ms 딜레이 후 1번만 호출
-  setTimeout(() => {
-    globalEventState.callbacks.forEach(cb => {
-      try {
-        cb(globalEventState.events);
-      } catch (error) {
-        console.error('[updateGroupColorInMemory] iOS 콜백 실행 오류:', error);
-      }
-    });
-  }, 50);
-} else {
-  // Android는 즉시 호출
+  // 메모리의 이벤트들 색상 업데이트
+  globalEventState.events = globalEventState.events.map(event => {
+    if (event.groupId === groupId) {
+      return { ...event, color: newColor };
+    }
+    return event;
+  });
+  
+  // 🔥 모든 플랫폼에서 동일하게 즉시 업데이트
   globalEventState.callbacks.forEach(cb => {
     try {
       cb(globalEventState.events);
@@ -180,25 +157,6 @@ if (Platform.OS === 'ios') {
       console.error('[updateGroupColorInMemory] 콜백 실행 오류:', error);
     }
   });
-}
-    
-  } else {
-    // Android는 기존 방식 유지
-    globalEventState.events = globalEventState.events.map(event => {
-      if (event.groupId === groupId) {
-        return { ...event, color: newColor };
-      }
-      return event;
-    });
-    
-    globalEventState.callbacks.forEach(cb => {
-      try {
-        cb(globalEventState.events);
-      } catch (error) {
-        console.error('[updateGroupColorInMemory] 콜백 실행 오류:', error);
-      }
-    });
-  }
 };
 
 // 중복 이벤트 제출 감지 함수
@@ -350,9 +308,8 @@ const eventsUnsubscribe = onSnapshot(
           }
         });
         
-        // 색상만 변경된 경우 전체 리로드 하지 않음
-        if (!colorChanged) {
-          const result = await getUserEvents(globalEventState.lastUserId);
+        // 항상 강제로 새로고침
+const result = await getUserEvents(globalEventState.lastUserId, true);
           
           if (result.success && Array.isArray(result.events)) {
             globalEventState.events = result.events;
@@ -368,8 +325,7 @@ const eventsUnsubscribe = onSnapshot(
               }
             });
           }
-        }
-      },
+        },
       (error) => {
         console.error('[GlobalEvents] 멤버십 구독 오류:', error);
       }

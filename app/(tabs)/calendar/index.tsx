@@ -21,7 +21,7 @@ import {
 } from '../../../services/calendarService';
 import { Group, getUserGroups } from '../../../services/groupService';
 import { groupEventsByDate, CalendarDay } from '../../../utils/dateUtils';
-import { onSnapshot, query, collection, where } from 'firebase/firestore';
+import { onSnapshot, query, collection, where } from 'firebase/firestore'; // 🔥 onSnapshot 추가
 import { db } from '../../../config/firebase';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
@@ -59,6 +59,9 @@ function CalendarScreen() {
   const [isFromCache, setIsFromCache] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   
+  // 🔥 추가: 공휴일 새로고침 키
+  const [holidaysRefreshKey, setHolidaysRefreshKey] = useState(0);
+  
   // 구독 취소 함수 참조 저장
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const groupsUnsubscribeRef = useRef<(() => void) | null>(null);
@@ -91,6 +94,39 @@ function CalendarScreen() {
 
     return () => unsubscribe();
   }, []);
+
+  // 🔥 수정: 공휴일 변경 감지 리스너
+useEffect(() => {
+  let isFirstSnapshot = true;
+  
+  // 공휴일 변경 감지를 위한 Firestore 리스너
+  const unsubscribe = onSnapshot(
+    collection(db, 'temporary_holidays'),
+    (snapshot) => {
+      // 첫 번째 스냅샷은 무시 (초기 로드)
+      if (isFirstSnapshot) {
+        isFirstSnapshot = false;
+        return;
+      }
+      
+      // 변경사항이 있을 때만 새로고침
+      if (!snapshot.empty) {
+        console.log('[CalendarScreen] 공휴일 변경 감지 - 새로고침');
+        console.log('변경 타입:', snapshot.docChanges().map(change => change.type));
+        
+        // 약간의 딜레이를 주어 여러 변경사항을 한 번에 처리
+        setTimeout(() => {
+          setHolidaysRefreshKey(prev => prev + 1);
+        }, 500);
+      }
+    },
+    (error) => {
+      console.error('[CalendarScreen] 공휴일 리스너 오류:', error);
+    }
+  );
+  
+  return () => unsubscribe();
+}, []);
 
   // 🔥 월 변경 핸들러 - 구독 전환 포함
   const handleMonthChange = useCallback((month: Date) => {
@@ -263,101 +299,101 @@ function CalendarScreen() {
 
   // 🔥 수정된 화면 포커스 핸들러 - 과도한 리로드 제거
   useFocusEffect(
-  useCallback(() => {
-    // 🔥 모달이 열려있으면 포커스 이벤트 무시
-    if (isModalOpenRef.current) {
-      console.log('모달 열려있음 - 포커스 이벤트 무시');
-      return;
-    }
-    
-    if (user) {
-      console.log('캘린더 화면 포커스');
-      
-      // 🔥 앱 시작 시 오래된 캐시 정리 (초기 1회만)
-      if (!isInitialLoadCompleteRef.current) {
-        cacheService.cleanupOldCache(user.uid);
+    useCallback(() => {
+      // 🔥 모달이 열려있으면 포커스 이벤트 무시
+      if (isModalOpenRef.current) {
+        console.log('모달 열려있음 - 포커스 이벤트 무시');
+        return;
       }
       
-      // 🔥 loadEvents 호출 완전히 제거 (구독에서 처리)
-    }
-    return () => {};
-  }, [user])  // 🔥 loadEvents 의존성 제거
-);
+      if (user) {
+        console.log('캘린더 화면 포커스');
+        
+        // 🔥 앱 시작 시 오래된 캐시 정리 (초기 1회만)
+        if (!isInitialLoadCompleteRef.current) {
+          cacheService.cleanupOldCache(user.uid);
+        }
+        
+        // 🔥 loadEvents 호출 완전히 제거 (구독에서 처리)
+      }
+      return () => {};
+    }, [user])  // 🔥 loadEvents 의존성 제거
+  );
 
   // 디버깅용 정보 로그
   useEffect(() => {
     console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}, colorScheme: ${colorScheme}`);
   }, [colorScheme]);
   
-// 🔥 수정된 초기 데이터 로드 및 실시간 구독 설정
-useEffect(() => {
-  // 클린업 함수 먼저 정의
-  const cleanup = () => {
-    console.log('[CalendarScreen] 구독 해제');
-    
-    if (unsubscribeRef.current) {
-      unsubscribeRef.current();
-      unsubscribeRef.current = null;
-    }
-    
-    if (groupsUnsubscribeRef.current) {
-      groupsUnsubscribeRef.current();
-      groupsUnsubscribeRef.current = null;
-    }
-    
-    // 🔥 상태 초기화
-    isLoadingGroupsRef.current = false;
-    lastGroupLoadTimeRef.current = 0;
-    isInitialLoadCompleteRef.current = false;
-  };
-  
-  if (user && user.uid) {
-    // 🔥 초기화 플래그 추가
-    let isInitializing = true;
-    
-    // 🔥 순차적 로드로 변경 (동시 로드 방지)
-    const initializeData = async () => {
-      // 1. 그룹 데이터 로드
-      await loadGroupData();
+  // 🔥 수정된 초기 데이터 로드 및 실시간 구독 설정
+  useEffect(() => {
+    // 클린업 함수 먼저 정의
+    const cleanup = () => {
+      console.log('[CalendarScreen] 구독 해제');
       
-      // 2. 🔥 초기 이벤트 로드 제거 (구독에서 처리)
-      // await loadEvents(false);  // 삭제!
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
+      }
       
-      // 3. 실시간 구독 설정
-      unsubscribeRef.current = subscribeToUserEvents(user.uid, (updatedEvents) => {
-        // 🔥 초기화 중이면 로딩 상태만 해제
-        if (isInitializing) {
-          isInitializing = false;
-          setLoading(false);
-          isInitialLoadCompleteRef.current = true;
-        }
-        
-        console.log('[CalendarScreen] 실시간 이벤트 업데이트 수신');
-        const groupedEvents = groupEventsByDate<CalendarEvent>(updatedEvents);
-        setEvents(groupedEvents);
-        setIsFromCache(false);
-        
-        // 선택된 날짜의 이벤트도 업데이트
-        if (selectedDate) {
-          const dateStr = selectedDate.formattedDate;
-          const dateEvents = groupedEvents[dateStr] || [];
-          setSelectedDateEvents(dateEvents);
-        }
-      });
+      if (groupsUnsubscribeRef.current) {
+        groupsUnsubscribeRef.current();
+        groupsUnsubscribeRef.current = null;
+      }
       
-      // 4. 그룹 멤버십 리스너 설정
-      setupGroupMembershipListener(user.uid);
+      // 🔥 상태 초기화
+      isLoadingGroupsRef.current = false;
+      lastGroupLoadTimeRef.current = 0;
+      isInitialLoadCompleteRef.current = false;
     };
     
-    initializeData();
-    
-    return cleanup;
-  } else {
-    // 로그인하지 않은 경우
-    setLoading(false);  // 🔥 추가
-    return cleanup;
-  }
-}, [user?.uid]); // 🔥 의존성 최소화
+    if (user && user.uid) {
+      // 🔥 초기화 플래그 추가
+      let isInitializing = true;
+      
+      // 🔥 순차적 로드로 변경 (동시 로드 방지)
+      const initializeData = async () => {
+        // 1. 그룹 데이터 로드
+        await loadGroupData();
+        
+        // 2. 🔥 초기 이벤트 로드 제거 (구독에서 처리)
+        // await loadEvents(false);  // 삭제!
+        
+        // 3. 실시간 구독 설정
+        unsubscribeRef.current = subscribeToUserEvents(user.uid, (updatedEvents) => {
+          // 🔥 초기화 중이면 로딩 상태만 해제
+          if (isInitializing) {
+            isInitializing = false;
+            setLoading(false);
+            isInitialLoadCompleteRef.current = true;
+          }
+          
+          console.log('[CalendarScreen] 실시간 이벤트 업데이트 수신');
+          const groupedEvents = groupEventsByDate<CalendarEvent>(updatedEvents);
+          setEvents(groupedEvents);
+          setIsFromCache(false);
+          
+          // 선택된 날짜의 이벤트도 업데이트
+          if (selectedDate) {
+            const dateStr = selectedDate.formattedDate;
+            const dateEvents = groupedEvents[dateStr] || [];
+            setSelectedDateEvents(dateEvents);
+          }
+        });
+        
+        // 4. 그룹 멤버십 리스너 설정
+        setupGroupMembershipListener(user.uid);
+      };
+      
+      initializeData();
+      
+      return cleanup;
+    } else {
+      // 로그인하지 않은 경우
+      setLoading(false);  // 🔥 추가
+      return cleanup;
+    }
+  }, [user?.uid]); // 🔥 의존성 최소화
   
   // 사용자가 변경되거나 null이 될 때 상태 초기화
   useEffect(() => {
@@ -507,6 +543,7 @@ useEffect(() => {
                 colorScheme={colorScheme}
                 initialMonth={currentMonth}
                 onMonthChange={handleMonthChange}
+                refreshHolidaysKey={holidaysRefreshKey} // 🔥 추가!
               />
               
               {/* 🔥 캐시 데이터 사용 중 표시 */}
