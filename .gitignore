@@ -60,5 +60,15 @@ Settings
 tmp/
 temp/
 
+# Build outputs
+*.aab
+*.apk
+bundletool.jar
+
+# Test files
+normal_libs.txt
+problem_libs.txt
+*.txt
+
 # Patches - DO NOT IGNORE (필요한 패치 파일)
 # patches/

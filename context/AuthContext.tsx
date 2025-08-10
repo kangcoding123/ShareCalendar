@@ -15,7 +15,7 @@ import {
 import { auth, db } from '../config/firebase';
 import { doc, setDoc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { clearEventSubscriptions } from '../services/calendarService';
-import { cacheService } from '../services/cacheService'; // 🔥 추가
+import { cacheService } from '../services/cacheService';
 
 // 사용자 타입 정의
 interface UserData {
@@ -27,11 +27,12 @@ interface UserData {
   updatedAt?: string;
 }
 
-// 인증 컨텍스트 타입 정의
+// 🔥 수정: isAuthenticated 추가
 interface AuthContextType {
   user: UserData | null;
   loading: boolean;
   error: string | null;
+  isAuthenticated: boolean;  // 🔥 추가!
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -173,14 +174,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       setLoading(true);
       
-      // 🔥 이벤트 구독 정리
+      // 이벤트 구독 정리
       clearEventSubscriptions();
       
-      // 🔥 오프라인 캐시 정리
+      // 오프라인 캐시 정리
       await cacheService.clearAllCache();
       console.log('[AuthContext] 오프라인 캐시 정리 완료');
       
-      // 🔥 캐시 서비스 정리
+      // 캐시 서비스 정리
       cacheService.cleanup();
       
       // Firebase 로그아웃
@@ -280,10 +281,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       const userId = auth.currentUser.uid;
       
-      // 🔥 이벤트 구독 정리
+      // 이벤트 구독 정리
       clearEventSubscriptions();
       
-      // 🔥 오프라인 캐시 정리
+      // 오프라인 캐시 정리
       await cacheService.clearAllCache();
       
       // Firestore에서 관련 데이터 삭제
@@ -373,10 +374,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
+  // 🔥 수정: isAuthenticated 추가
   const value = {
     user,
     loading,
     error,
+    isAuthenticated: !!user,  // 🔥 추가!
     login,
     register,
     logout,

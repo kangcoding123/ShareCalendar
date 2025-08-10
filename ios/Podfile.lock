@@ -1222,7 +1222,7 @@ PODS:
     - ExpoModulesCore
   - ExpoLinking (7.0.5):
     - ExpoModulesCore
-  - ExpoModulesCore (2.1.4):
+  - ExpoModulesCore (2.2.3):
     - DoubleConversion
     - glog
     - hermes-engine
@@ -1305,7 +1305,7 @@ PODS:
   - FirebaseSharedSwift (11.15.0)
   - fmt (11.0.2)
   - glog (0.3.5)
-  - Google-Mobile-Ads-SDK (11.13.0):
+  - Google-Mobile-Ads-SDK (12.2.0):
     - GoogleUserMessagingPlatform (>= 1.1)
   - GoogleUserMessagingPlatform (2.7.0)
   - GoogleUtilities/AppDelegateSwizzler (8.1.0):
@@ -3064,10 +3064,10 @@ PODS:
     - ReactCommon/turbomodule/bridging
     - ReactCommon/turbomodule/core
     - Yoga
-  - RNGoogleMobileAds (14.7.2):
+  - RNGoogleMobileAds (14.11.0):
     - DoubleConversion
     - glog
-    - Google-Mobile-Ads-SDK (= 11.13.0)
+    - Google-Mobile-Ads-SDK (= 12.2.0)
     - GoogleUserMessagingPlatform (= 2.7.0)
     - hermes-engine
     - RCT-Folly (= 2024.10.14.00)
@@ -3534,7 +3534,7 @@ SPEC CHECKSUMS:
   ExpoHead: df924203fbf8e0913fc38b0f6aec71f9a9115482
   ExpoKeepAwake: b0171a73665bfcefcfcc311742a72a956e6aa680
   ExpoLinking: 8d12bee174ba0cdf31239706578e29e74a417402
-  ExpoModulesCore: 01f7450bff3250f8e17c7e3e0461c88bc7cabc8a
+  ExpoModulesCore: 2d8d1c8e238bd5e1448b06c284ac896b162fb856
   ExpoSplashScreen: 399ee9f85b6c8a61b965e13a1ecff8384db591c2
   ExpoSymbols: f3002db15156cd4e505c77b6ea1df5c984db9965
   ExpoSystemUI: b82a45cf0f6a4fa18d07c46deba8725dd27688b4
@@ -3553,7 +3553,7 @@ SPEC CHECKSUMS:
   FirebaseSharedSwift: e17c654ef1f1a616b0b33054e663ad1035c8fd40
   fmt: 01b82d4ca6470831d1cc0852a1af644be019e8f6
   glog: 08b301085f15bcbb6ff8632a8ebaf239aae04e6a
-  Google-Mobile-Ads-SDK: 14f57f2dc33532a24db288897e26494640810407
+  Google-Mobile-Ads-SDK: 1dfb0c3cb46c7e2b00b0f4de74a1e06d9ea25d67
   GoogleUserMessagingPlatform: a8b56893477f67212fbc8411c139e61d463349f5
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   "gRPC-C++": cc207623316fb041a7a3e774c252cf68a058b9e8
@@ -3629,7 +3629,7 @@ SPEC CHECKSUMS:
   RNFBAuth: 68dcd5fc893659b68b63646b1ff54d59001cb21a
   RNFBFirestore: 80b3fb2371c3289343766b8bb5a72a4abf4cc052
   RNGestureHandler: 2dd124adb171aab16629e9387cf1830957d242c2
-  RNGoogleMobileAds: 55462e4ee1375c42c64127dbd1b89e888912cbd6
+  RNGoogleMobileAds: 5d5b02038746a0eeb0cae0a28436b13c904f2cc7
   RNReanimated: 9b650d028b9422148b548e80512043a372876c00
   RNScreens: ad2d0cfb3f15c9ed56ffb43651366ec0dcd70c36
   SocketRocket: d4aabe649be1e368d1318fdf28a022d714d65748
