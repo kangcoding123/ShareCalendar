@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../../context/AuthContext';
+import { useEvents } from '../../../context/EventContext';
 import { 
   findGroupByInviteCode, 
   joinGroupWithInviteCode 
@@ -27,6 +28,7 @@ export default function JoinGroupScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { refreshGroups } = useEvents();
   
   // 색상 테마 설정
   const colorScheme = useColorScheme();
@@ -179,6 +181,9 @@ export default function JoinGroupScreen() {
       );
       
       if (result.success) {
+        // ✅ refreshGroups 호출 추가!
+        await refreshGroups();
+        
         Alert.alert(
           '성공',
           `${groupInfo.name} 그룹에 가입했습니다!`,
@@ -198,6 +203,9 @@ export default function JoinGroupScreen() {
         
         // 이미 멤버인 경우
         if (result.error?.includes('이미')) {
+          // ✅ 이미 멤버인 경우에도 refreshGroups 호출
+          await refreshGroups();
+          
           setTimeout(() => {
             resetForm();
             router.push(`/groups/${groupInfo.id}`);

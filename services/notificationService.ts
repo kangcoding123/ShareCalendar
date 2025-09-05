@@ -216,14 +216,14 @@ export async function sendGroupNotification(
 
 // 일정에 대한 알림 예약 (수정된 함수)
 export async function scheduleEventNotification(event: CalendarEvent, minutesBefore: number = 30) {
-  if (!event.date || !event.title) {
+  if (!event.startDate || !event.title) {
     console.log('일정에 날짜와 제목이 필요합니다');
     return null;
   }
   
   try {
     // 일정 시작 시간 계산
-    let eventTimeStr = `${event.date}T${event.time || '09:00:00'}`;
+    let eventTimeStr = `${event.startDate}T${event.time || '09:00:00'}`;
     let eventTime = new Date(eventTimeStr);
     
     // 알림 시간 계산 (일정 시작 X분 전)

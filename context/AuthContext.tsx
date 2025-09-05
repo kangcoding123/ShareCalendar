@@ -13,9 +13,10 @@ import {
   reauthenticateWithCredential
 } from 'firebase/auth';
 import { auth, db } from '../config/firebase';
-import { doc, setDoc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
 import { clearEventSubscriptions } from '../services/calendarService';
 import { cacheService } from '../services/cacheService';
+import * as Notifications from 'expo-notifications';
 
 // 사용자 타입 정의
 interface UserData {
@@ -27,12 +28,11 @@ interface UserData {
   updatedAt?: string;
 }
 
-// 🔥 수정: isAuthenticated 추가
 interface AuthContextType {
   user: UserData | null;
   loading: boolean;
   error: string | null;
-  isAuthenticated: boolean;  // 🔥 추가!
+  isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -42,16 +42,13 @@ interface AuthContextType {
   clearError: () => void;
 }
 
-// 컨텍스트 생성
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Provider 컴포넌트
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Firebase 사용자 정보를 UserData 형식으로 변환
   const formatUserData = (firebaseUser: User): UserData => {
     return {
       uid: firebaseUser.uid,
@@ -61,7 +58,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
   };
 
-  // Firestore에서 추가 사용자 정보 가져오기
   const fetchUserData = async (uid: string): Promise<UserData | null> => {
     try {
       const userDoc = await getDoc(doc(db, 'users', uid));
@@ -75,7 +71,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 로그인
   const login = async (email: string, password: string) => {
     try {
       setError(null);
@@ -87,22 +82,53 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (userData) {
         setUser(userData);
         
-        // 마지막 로그인 시간 업데이트
         await setDoc(doc(db, 'users', userCredential.user.uid), {
           lastLoginAt: new Date().toISOString()
         }, { merge: true });
+        
+        // 푸시 토큰 등록
+        try {
+          console.log('푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
+          
+          const { status: existingStatus } = await Notifications.getPermissionsAsync();
+          let finalStatus = existingStatus;
+          
+          if (existingStatus !== 'granted') {
+            console.log('알림 권한 없음 - 권한 요청 중...');
+            const { status } = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
+          }
+          
+          if (finalStatus === 'granted') {
+            const token = await Notifications.getExpoPushTokenAsync({
+              projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51'
+            });
+            
+            console.log('푸시 토큰 생성 성공:', token.data);
+            
+            await updateDoc(doc(db, 'users', userCredential.user.uid), {
+              pushToken: token.data,
+              tokenUpdatedAt: new Date().toISOString()
+            });
+            
+            console.log('푸시 토큰이 Firestore에 저장됨');
+          } else {
+            console.log('알림 권한 거부됨 - 토큰 생성 건너뜀');
+          }
+        } catch (tokenError) {
+          console.error('푸시 토큰 등록 오류:', tokenError);
+          // 토큰 등록 실패해도 로그인은 계속 진행
+        }
+        
       } else {
         setUser(formatUserData(userCredential.user));
       }
     } catch (error: any) {
       console.error('로그인 오류:', error);
       
-      // 에러 메시지 한글화
       let errorMessage = '로그인 중 오류가 발생했습니다.';
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = '존재하지 않는 사용자입니다.';
-      } else if (error.code === 'auth/wrong-password') {
-        errorMessage = '잘못된 비밀번호입니다.';
+      if (error.code === 'auth/invalid-credential') {
+        errorMessage = '이메일 또는 비밀번호가 올바르지 않습니다.';
       } else if (error.code === 'auth/invalid-email') {
         errorMessage = '올바른 이메일 형식이 아닙니다.';
       } else if (error.code === 'auth/too-many-requests') {
@@ -116,19 +142,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 회원가입
   const register = async (email: string, password: string, displayName: string) => {
     try {
       setError(null);
       setLoading(true);
       
-      // Firebase Auth에 사용자 생성
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       
-      // 프로필 업데이트
       await updateProfile(userCredential.user, { displayName });
       
-      // Firestore에 사용자 정보 저장
       const userData: UserData = {
         uid: userCredential.user.uid,
         email: userCredential.user.email,
@@ -141,7 +163,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       setUser(userData);
       
-      // 기본 그룹 생성 (개인 캘린더)
       await setDoc(doc(db, 'groups', `personal_${userCredential.user.uid}`), {
         name: '개인 캘린더',
         type: 'personal',
@@ -152,7 +173,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (error: any) {
       console.error('회원가입 오류:', error);
       
-      // 에러 메시지 한글화
       let errorMessage = '회원가입 중 오류가 발생했습니다.';
       if (error.code === 'auth/email-already-in-use') {
         errorMessage = '이미 사용 중인 이메일입니다.';
@@ -169,22 +189,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 로그아웃
   const logout = async () => {
     try {
       setLoading(true);
       
-      // 이벤트 구독 정리
       clearEventSubscriptions();
       
-      // 오프라인 캐시 정리
       await cacheService.clearAllCache();
       console.log('[AuthContext] 오프라인 캐시 정리 완료');
       
-      // 캐시 서비스 정리
       cacheService.cleanup();
       
-      // Firebase 로그아웃
       await signOut(auth);
       
       setUser(null);
@@ -197,7 +212,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 비밀번호 재설정
   const resetPassword = async (email: string) => {
     try {
       setError(null);
@@ -206,9 +220,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       console.error('비밀번호 재설정 오류:', error);
       
       let errorMessage = '비밀번호 재설정 중 오류가 발생했습니다.';
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = '존재하지 않는 사용자입니다.';
-      } else if (error.code === 'auth/invalid-email') {
+      if (error.code === 'auth/invalid-email') {
         errorMessage = '올바른 이메일 형식이 아닙니다.';
       }
       
@@ -217,7 +229,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 사용자 프로필 업데이트
   const updateUserProfile = async (displayName: string, photoURL?: string) => {
     try {
       setError(null);
@@ -226,7 +237,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         throw new Error('로그인이 필요합니다.');
       }
       
-      // Firebase Auth 프로필 업데이트
       const updateData: any = { displayName };
       if (photoURL !== undefined) {
         updateData.photoURL = photoURL;
@@ -234,7 +244,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       await updateProfile(auth.currentUser, updateData);
       
-      // Firestore 업데이트
       const firestoreData: any = {
         displayName,
         updatedAt: new Date().toISOString()
@@ -246,7 +255,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       await setDoc(doc(db, 'users', auth.currentUser.uid), firestoreData, { merge: true });
       
-      // 로컬 상태 업데이트
       if (user) {
         setUser({
           ...user,
@@ -261,7 +269,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 계정 삭제
   const deleteAccount = async (password: string) => {
     try {
       setError(null);
@@ -271,7 +278,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         throw new Error('로그인이 필요합니다.');
       }
       
-      // 재인증
       const credential = EmailAuthProvider.credential(
         auth.currentUser.email,
         password
@@ -281,33 +287,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       const userId = auth.currentUser.uid;
       
-      // 이벤트 구독 정리
       clearEventSubscriptions();
       
-      // 오프라인 캐시 정리
       await cacheService.clearAllCache();
       
-      // Firestore에서 관련 데이터 삭제
       const batch = writeBatch(db);
       
-      // 사용자 문서 삭제
       batch.delete(doc(db, 'users', userId));
       
-      // 사용자가 만든 그룹 삭제
       const groupsQuery = query(collection(db, 'groups'), where('createdBy', '==', userId));
       const groupsSnapshot = await getDocs(groupsQuery);
       groupsSnapshot.forEach((doc) => {
         batch.delete(doc.ref);
       });
       
-      // 그룹 멤버십 삭제
       const membershipsQuery = query(collection(db, 'groupMembers'), where('userId', '==', userId));
       const membershipsSnapshot = await getDocs(membershipsQuery);
       membershipsSnapshot.forEach((doc) => {
         batch.delete(doc.ref);
       });
       
-      // 개인 이벤트 삭제
       const eventsQuery = query(collection(db, 'events'), where('userId', '==', userId));
       const eventsSnapshot = await getDocs(eventsQuery);
       eventsSnapshot.forEach((doc) => {
@@ -316,7 +315,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       await batch.commit();
       
-      // Firebase Auth에서 계정 삭제
       await firebaseDeleteUser(auth.currentUser);
       
       setUser(null);
@@ -337,22 +335,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // 에러 초기화
   const clearError = () => {
     setError(null);
   };
 
-  // Auth 상태 변경 감지
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
         if (firebaseUser) {
-          // Firestore에서 추가 정보 가져오기
           const userData = await fetchUserData(firebaseUser.uid);
           if (userData) {
             setUser(userData);
           } else {
-            // Firestore에 데이터가 없으면 생성
             const newUserData = formatUserData(firebaseUser);
             await setDoc(doc(db, 'users', firebaseUser.uid), {
               ...newUserData,
@@ -374,12 +368,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  // 🔥 수정: isAuthenticated 추가
   const value = {
     user,
     loading,
     error,
-    isAuthenticated: !!user,  // 🔥 추가!
+    isAuthenticated: !!user,
     login,
     register,
     logout,
@@ -396,7 +389,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
 };
 
-// Hook
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {

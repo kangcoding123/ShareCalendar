@@ -11,7 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Group } from './groupService';
-import { isUserBannedFromGroup } from './groupService';
+import { isUserBannedFromGroup } from './bannedUserUtils'; // ✅ 새 파일에서 import
 
 // 초대 관련 타입 정의
 export interface InviteInfo {
@@ -278,8 +278,8 @@ export const createInviteMessage = (
   inviteCode: string,
   inviteLink?: string
 ): string => {
-  return `WE:IN 캘린더 초대\n` +  // \n 하나 = 줄바꿈 1번
-         `${groupName} 그룹에 초대합니다.\n` +  // \n\n = 줄바꿈 2번 (빈 줄 하나)
+  return `WE:IN 캘린더 초대\n` +
+         `${groupName} 그룹에 초대합니다.\n` +
          `초대 코드: ${inviteCode}\n` +
          `앱에서 [그룹] → [초대 코드로 가입]\n` +
          `위 코드를 입력해주세요.\n\n` +

@@ -71,18 +71,17 @@ export default function LoginScreen() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleLogin = async () => {
+const handleLogin = async () => {
   if (!validate()) return;
 
   setLoading(true);
   try {
-    console.log('로그인 시도:', email); // 🔍 디버깅
+    console.log('로그인 시도:', email);
     
     await login(email, password);
     
-    console.log('로그인 성공 - 화면 이동'); // 🔍 디버깅
+    console.log('로그인 성공 - 화면 이동');
     
-    // 약간의 지연 추가 (상태 업데이트 대기)
     setTimeout(() => {
       if (inviteCode && typeof inviteCode === 'string') {
         router.replace(`/invite/${inviteCode}`);
@@ -92,22 +91,16 @@ export default function LoginScreen() {
     }, 100);
     
   } catch (error: any) {
-    console.log('로그인 에러 catch:', error); // 🔍 디버깅
-    console.log('에러 타입:', typeof error); // 🔍 디버깅
-    console.log('에러 메시지:', error?.message); // 🔍 디버깅
+    console.log('로그인 에러:', error);
     
-    // 실제 에러일 때만 알림 표시
+    // 수정된 부분: AuthContext에서 보낸 한글 메시지를 그대로 사용
     if (error && error.message) {
-      let errorMessage = '로그인 중 오류가 발생했습니다.';
-      if (error.message.includes('user-not-found')) {
-        errorMessage = '존재하지 않는 사용자입니다.';
-      } else if (error.message.includes('wrong-password')) {
-        errorMessage = '잘못된 비밀번호입니다.';
-      } else if (error.message.includes('invalid-email')) {
-        errorMessage = '올바른 이메일 형식이 아닙니다.';
-      }
-      
-      Alert.alert('로그인 실패', errorMessage);
+      // AuthContext에서 이미 구체적인 한글 메시지를 보냄
+      // 그대로 사용하면 됨
+      Alert.alert('로그인 실패', error.message);
+    } else {
+      // error.message가 없는 경우 기본 메시지
+      Alert.alert('로그인 실패', '로그인 중 오류가 발생했습니다.');
     }
   } finally {
     setLoading(false);

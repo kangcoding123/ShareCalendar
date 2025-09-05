@@ -10,10 +10,11 @@ import {
   getDocs,
   getDoc,
   DocumentData,
-  writeBatch  // 추가
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { createUniqueInviteCode } from './inviteService';
+import { isUserBannedFromGroup } from './bannedUserUtils'; // ✅ 새 파일에서 import
 
 // 타입 정의 수정
 export interface Group {
@@ -270,45 +271,7 @@ export const removeMemberFromGroup = async (
   }
 };
 
-/**
- * 사용자가 그룹에서 차단되었는지 확인
- * @param {string} groupId - 그룹 ID
- * @param {string} userId - 사용자 ID
- * @param {string} email - 사용자 이메일
- * @returns {Promise<boolean>} 차단 여부
- */
-export const isUserBannedFromGroup = async (
-  groupId: string,
-  userId: string,
-  email: string
-): Promise<boolean> => {
-  try {
-    // userId로 확인
-    const bannedByIdQuery = query(
-      collection(db, 'groupBannedMembers'),
-      where('groupId', '==', groupId),
-      where('userId', '==', userId)
-    );
-    
-    const bannedByIdSnapshot = await getDocs(bannedByIdQuery);
-    if (!bannedByIdSnapshot.empty) {
-      return true;
-    }
-    
-    // email로도 확인 (계정을 다시 만든 경우 대비)
-    const bannedByEmailQuery = query(
-      collection(db, 'groupBannedMembers'),
-      where('groupId', '==', groupId),
-      where('email', '==', email)
-    );
-    
-    const bannedByEmailSnapshot = await getDocs(bannedByEmailQuery);
-    return !bannedByEmailSnapshot.empty;
-  } catch (error) {
-    console.error('차단 확인 오류:', error);
-    return false;
-  }
-};
+// ❌ isUserBannedFromGroup 함수 삭제됨 (bannedUserUtils.ts로 이동)
 
 /**
  * 사용자별 그룹 색상 설정
@@ -355,14 +318,14 @@ export const setUserGroupColor = async (
  */
 export const createGroup = async (groupData: Omit<Group, 'id'>): Promise<GroupResult> => {
   try {
-    // ⭐ 초대 코드 생성
+    // 초대 코드 생성
     const inviteCode = await createUniqueInviteCode();
     const inviteLink = `weincalendar://invite/${inviteCode}`;
     
     const docRef = await addDoc(collection(db, 'groups'), {
       ...groupData,
       createdAt: new Date().toISOString(),
-      // ⭐ 초대 정보 추가
+      // 초대 정보 추가
       inviteCode,
       inviteLink,
       inviteCreatedAt: new Date().toISOString(),
@@ -679,7 +642,6 @@ export const deleteGroup = async (groupId: string): Promise<GroupResult> => {
   }
 };
 
-// services/groupService.ts에 추가
 /**
  * 차단된 사용자 목록 가져오기
  */

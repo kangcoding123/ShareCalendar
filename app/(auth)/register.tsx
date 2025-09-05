@@ -91,31 +91,35 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    if (!validate()) return;
+  if (!validate()) return;
 
-    setLoading(true);
-    try {
-      const { success, error } = await register(email, password, name);
-      
-      if (success) {
-        // 회원가입 성공 후 로그아웃 처리 추가
-        await logout();
-        
-        Alert.alert(
-          '회원가입 성공',
-          '회원가입이 완료되었습니다. 로그인하여 서비스를 이용해주세요.',
-          [{ text: '확인', onPress: () => router.push('/login') }]
-        );
-      } else {
-        Alert.alert('회원가입 실패', error || '회원가입 중 오류가 발생했습니다.');
-      }
-    } catch (error) {
-      Alert.alert('회원가입 실패', '회원가입 중 오류가 발생했습니다.');
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  setLoading(true);
+  try {
+    // register 함수는 성공 시 정상 실행, 실패 시 에러 throw
+    await register(email, password, name);
+    
+    // 🔄 로그아웃 대신 바로 홈 화면으로 이동 (자동 로그인 상태)
+    Alert.alert(
+      '회원가입 성공',
+      '회원가입이 완료되었습니다. 서비스를 이용해주세요.',
+      [{ 
+        text: '확인', 
+        onPress: () => {
+          // 탭 화면으로 직접 이동 (로그인 상태 유지)
+          router.replace('/(tabs)');
+        }
+      }]
+    );
+    
+  } catch (error: any) {
+    // AuthContext의 register에서 throw한 에러 메시지 사용
+    const errorMessage = error.message || '회원가입 중 오류가 발생했습니다.';
+    Alert.alert('회원가입 실패', errorMessage);
+    console.error('회원가입 오류:', error);
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.secondary }]}>

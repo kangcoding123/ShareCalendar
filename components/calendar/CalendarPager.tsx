@@ -75,6 +75,9 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   // 🔥 추가: 현재 로딩 중인 연도 추적
   const loadingYears = useRef<Set<number>>(new Set());
   
+  // ✅ 삭제: pagerHeight 관련 state 제거
+  // const [pagerHeight, setPagerHeight] = useState(0);
+  
   // 플랫리스트 참조
   const flatListRef = useRef<FlatList>(null);
   
@@ -98,12 +101,12 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   
   // 🔥 추가: 공휴일 로드 함수 - 중복 방지 강화
   const loadHolidaysForYear = useCallback(async (year: number, forceReload: boolean = false) => {
-  // 🔥 강제 새로고침이면 무조건 로드
-  if (forceReload) {
-    console.log(`[CalendarPager] ${year}년 공휴일 강제 새로고침`);
-  } else if (loadedYears.current.has(year) || loadingYears.current.has(year)) {
-    return;
-  }
+    // 🔥 강제 새로고침이면 무조건 로드
+    if (forceReload) {
+      console.log(`[CalendarPager] ${year}년 공휴일 강제 새로고침`);
+    } else if (loadedYears.current.has(year) || loadingYears.current.has(year)) {
+      return;
+    }
     
     // 🔥 로딩 시작 표시
     loadingYears.current.add(year);
@@ -153,20 +156,20 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   
   // 🔥 수정: 초기 공휴일 로드 + 새로고침
   useEffect(() => {
-  // refreshHolidaysKey가 변경되면 캐시 초기화
-  if (refreshHolidaysKey && refreshHolidaysKey > 0) {
-    console.log('[CalendarPager] 공휴일 새로고침 트리거:', refreshHolidaysKey);
-    loadedYears.current.clear(); // 캐시 초기화!
-    loadingYears.current.clear(); // 로딩 상태도 초기화
-    setHolidays({}); // 기존 공휴일 초기화
-    
-    // 즉시 새로고침
-    loadHolidaysForVisibleMonths(currentMonth, true);
-  } else {
-    // 초기 로드
-    loadHolidaysForVisibleMonths(currentMonth);
-  }
-}, [refreshHolidaysKey]); // currentMonth 제거
+    // refreshHolidaysKey가 변경되면 캐시 초기화
+    if (refreshHolidaysKey && refreshHolidaysKey > 0) {
+      console.log('[CalendarPager] 공휴일 새로고침 트리거:', refreshHolidaysKey);
+      loadedYears.current.clear(); // 캐시 초기화!
+      loadingYears.current.clear(); // 로딩 상태도 초기화
+      setHolidays({}); // 기존 공휴일 초기화
+      
+      // 즉시 새로고침
+      loadHolidaysForVisibleMonths(currentMonth, true);
+    } else {
+      // 초기 로드
+      loadHolidaysForVisibleMonths(currentMonth);
+    }
+  }, [refreshHolidaysKey]); // currentMonth 제거
   
   // 월 데이터 생성
   const generateMonths = (baseMonth: Date) => {
@@ -197,7 +200,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     
     const monthKey = format(monthDate, 'yyyy-MM');
     
-    // 이미 프리로드됐거나 프리로딩 중이면 스킵
+    // 이미 프리로드되거나 프리로딩 중이면 스킵
     if (preloadedMonths.current.has(monthKey) || isPreloading.current.has(monthKey)) {
       return;
     }
@@ -429,7 +432,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     }
   };
   
-  // 🔥 수정: 캘린더 항목 렌더링 함수 - holidays props 전달
+  // ✅ 수정: 캘린더 항목 렌더링 함수 - containerHeight 제거
   const renderCalendarItem = ({ item }: { item: { date: Date; id: string } }) => {
     return (
       <View style={[styles.pageContainer, { width: SCREEN_WIDTH }]}>
@@ -441,7 +444,8 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
             colorScheme={colorScheme}
             initialMonth={item.date}
             onMonthChange={handleArrowNavigate}
-            holidays={holidays}  // 🔥 추가: 공휴일 props 전달
+            holidays={holidays}
+            // ✅ 삭제: containerHeight={pagerHeight} prop 제거
           />
         </View>
       </View>
@@ -460,14 +464,17 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
           animated: false
         });
         
-        // 🔥 초기 로드 시 주변 월 프리로드
-        const initialMonth = months[initialIndex].date;
-        preloadMonth(addMonths(initialMonth, -1));
-        preloadMonth(addMonths(initialMonth, 1));
+        // ✅ 프리로드를 더 늦게 시작 (초기 로드 부담 감소)
+        setTimeout(() => {
+          const initialMonth = months[initialIndex].date;
+          preloadMonth(addMonths(initialMonth, -1));
+          preloadMonth(addMonths(initialMonth, 1));
+        }, 1000); // ✅ 1초 후에 프리로드 시작
       }, 100);
     }
   }, [preloadMonth]);
   
+  // ✅ 수정: onLayout 제거
   return (
     <View style={styles.container}>
       <FlatList
@@ -498,8 +505,8 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
         onScrollEndDrag={handleScrollEnd}
         onMomentumScrollBegin={handleScrollBegin}
         onMomentumScrollEnd={handleScrollEnd}
-        onScroll={handleScroll}  // 🔥 스크롤 이벤트 추가
-        scrollEventThrottle={16}  // 🔥 60fps로 스크롤 이벤트 처리
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={styles.flatListContent}
       />
     </View>

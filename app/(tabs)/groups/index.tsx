@@ -1,5 +1,5 @@
 // app/(tabs)/groups/index.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,12 +12,14 @@ import {
   Alert,
   RefreshControl,
   Platform,
-  useWindowDimensions  // 🔴 추가
+  useWindowDimensions,
+  Keyboard
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../../context/AuthContext';
-import { Group, getUserGroups, createGroup, inviteToGroup } from '../../../services/groupService';
+import { useEvents } from '../../../context/EventContext';  // EventContext 사용
+import { Group, createGroup, inviteToGroup } from '../../../services/groupService';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -31,10 +33,7 @@ interface GroupItemProps {
 }
 
 const GroupItem = ({ group, onPress, onInvite, colors }: GroupItemProps) => {
-  // role 속성이 문자열인지 확인하고 소유자인지 체크
   const isOwner = typeof group.role === 'string' && group.role.toLowerCase() === 'owner';
-  
-  console.log(`[GroupItem] Group: ${group.name}, Role: ${group.role}, isOwner: ${isOwner}`);
   
   return (
     <TouchableOpacity 
@@ -58,7 +57,7 @@ const GroupItem = ({ group, onPress, onInvite, colors }: GroupItemProps) => {
             <TouchableOpacity 
               style={[styles.quickInviteButton, {backgroundColor: colors.tint}]}
               onPress={(e) => {
-                e.stopPropagation(); // 그룹 클릭 이벤트 방지
+                e.stopPropagation();
                 onInvite(group);
               }}
             >
@@ -74,7 +73,7 @@ const GroupItem = ({ group, onPress, onInvite, colors }: GroupItemProps) => {
   );
 };
 
-// 그룹 생성 모달
+// 단순화된 그룹 생성 모달
 interface CreateGroupModalProps {
   visible: boolean;
   onClose: () => void;
@@ -88,6 +87,19 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
   const [description, setDescription] = useState('');
   const [errors, setErrors] = useState<{ name?: string }>({});
 
+  // 모달 닫힐 때 초기화
+  useEffect(() => {
+    if (!visible) {
+      const timer = setTimeout(() => {
+        setName('');
+        setDescription('');
+        setErrors({});
+      }, 300);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [visible]);
+
   const handleSubmit = () => {
     const newErrors: { name?: string } = {};
     
@@ -98,6 +110,7 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
     setErrors(newErrors);
     
     if (Object.keys(newErrors).length === 0) {
+      Keyboard.dismiss();
       onSubmit({
         name: name.trim(),
         description: description.trim()
@@ -105,12 +118,18 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
     }
   };
 
+  const handleClose = () => {
+    Keyboard.dismiss();
+    onClose();
+  };
+
+  // 단순화된 Modal 구조
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
-      onRequestClose={onClose}
+      animationType="none"  // 애니메이션 제거
+      onRequestClose={handleClose}
     >
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContent, {backgroundColor: colors.card}]}>
@@ -153,7 +172,7 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
           <View style={styles.modalActions}>
             <TouchableOpacity 
               style={[styles.modalButton, styles.cancelButton, {backgroundColor: colors.secondary}]} 
-              onPress={onClose}
+              onPress={handleClose}
               disabled={loading}
             >
               <Text style={[styles.cancelButtonText, {color: colors.darkGray}]}>취소</Text>
@@ -184,117 +203,65 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
 export default function GroupListScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const { groups, refreshGroups } = useEvents();  // EventContext 사용
   
-  // 색상 테마 설정
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
   
-  // 🔴 화면 크기 및 비율 계산 추가
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const screenRatio = screenHeight / screenWidth;
   
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
   
-  // 초대 관련 상태 추가
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviting, setInviting] = useState(false);
+  
+  const lastRefreshRef = useRef(0);
 
-  // 디버깅용 정보 로그
   useEffect(() => {
     console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}, colorScheme: ${colorScheme}`);
   }, [colorScheme]);
 
-  // 그룹 데이터 로드
-  const loadGroups = async () => {
-    try {
-      setLoading(true);
-      
-      if (!user || !user.uid) {
-        // 비로그인 사용자
-        setGroups([]);
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-      
-      console.log('[loadGroups] 그룹 데이터 로드 시작');
-      const result = await getUserGroups(user.uid);
-      
-      if (result.success && Array.isArray(result.groups)) {
-        // 그룹 데이터 디버깅
-        const groups = result.groups as Group[];
-        console.log('Loaded groups:', groups.map(g => ({
-          id: g.id, 
-          name: g.name,
-          role: g.role
-        })));
-        
-        setGroups(groups);
-      } else {
-        console.error('그룹 로드 실패:', result.error);
-        Alert.alert('오류', '그룹 목록을 불러오는 중 오류가 발생했습니다.');
-      }
-    } catch (error) {
-      console.error('그룹 로드 중 오류:', error);
-      Alert.alert('오류', '그룹 목록을 불러오는 중 오류가 발생했습니다.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  // 초기 데이터 로드
-  useEffect(() => {
-    if (user) {
-      loadGroups();
-    } else {
-      setLoading(false);
-    }
-  }, [user]);
-
-  // 화면이 포커스될 때마다 데이터 새로고침
   useFocusEffect(
     React.useCallback(() => {
       if (user) {
-        console.log('그룹 목록 화면 포커스 - 데이터 새로고침');
-        setRefreshing(true);
-        loadGroups();
-      } else {
-        setRefreshing(false);
+        const now = Date.now();
+        if (now - lastRefreshRef.current < 1000) {
+          return;
+        }
+        lastRefreshRef.current = now;
+        
+        console.log('그룹 목록 화면 포커스');
+        refreshGroups();
       }
       return () => {};
-    }, [user])
+    }, [user?.uid])
   );
 
-  // 새로고침 핸들러
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setRefreshing(true);
-    loadGroups();
+    await refreshGroups();
+    setRefreshing(false);
   };
 
-  // 그룹 선택 핸들러
   const handleGroupPress = (group: Group) => {
     router.push(`/groups/${group.id}`);
   };
   
-  // 로그인 화면으로 이동 핸들러
   const handleNavigateToLogin = () => {
     router.push('/(auth)/login');
   };
   
-  // 그룹 초대 핸들러
   const handleInvitePress = (group: Group) => {
     setSelectedGroup(group);
     setInviteModalVisible(true);
   };
   
-  // 초대 제출 핸들러
   const handleInvite = async (email: string) => {
     console.log(`[handleInvite] 초대 시도. 이메일: ${email}, 선택된 그룹:`, selectedGroup);
     
@@ -304,7 +271,6 @@ export default function GroupListScreen() {
       return;
     }
     
-    // 이메일 유효성 검사
     if (!email || !email.trim()) {
       Alert.alert('오류', '이메일을 입력해주세요.');
       return;
@@ -325,9 +291,9 @@ export default function GroupListScreen() {
       
       if (result.success) {
         setInviteModalVisible(false);
-        setInviteEmail(''); // 초대 후 이메일 초기화
+        setInviteEmail('');
+        Keyboard.dismiss();
         Alert.alert('성공', `${email} 님을 그룹에 초대했습니다.`);
-        // 그룹 목록 새로고침
         handleRefresh();
       } else {
         Alert.alert('초대 실패', result.error || '사용자 초대 중 오류가 발생했습니다.');
@@ -340,7 +306,7 @@ export default function GroupListScreen() {
     }
   };
 
-  // 그룹 생성 핸들러
+  // 원래대로 복원
   const handleCreateGroup = async (groupData: { name: string; description: string }) => {
     try {
       setCreatingGroup(true);
@@ -355,8 +321,7 @@ export default function GroupListScreen() {
       
       if (result.success) {
         setCreateModalVisible(false);
-        // 새 그룹 추가 후 목록 새로고침
-        loadGroups();
+        await refreshGroups();  // EventContext의 refreshGroups 사용
       } else {
         Alert.alert('오류', '그룹 생성 중 오류가 발생했습니다.');
       }
@@ -371,15 +336,13 @@ export default function GroupListScreen() {
   return (
     <SafeAreaView 
       style={[styles.container, {backgroundColor: colors.secondary}]}
-      edges={['top', 'right', 'left']}  // 🔴 bottom 제외
+      edges={['top', 'right', 'left']}
     >
-      
       <View style={[styles.header, {backgroundColor: colors.headerBackground, borderBottomColor: colors.border}]}>
         <Text style={[styles.headerTitle, {color: colors.text}]}>내 그룹</Text>
       </View>
       
       {!user ? (
-        // 비로그인 사용자를 위한 UI
         <View style={styles.guestModeContainer}>
           <Text style={[styles.guestModeText, {color: colors.text}]}>
             그룹 기능을 사용하려면 로그인이 필요합니다.
@@ -394,9 +357,41 @@ export default function GroupListScreen() {
             <Text style={[styles.guestLoginButtonText, {color: colors.buttonText}]}>로그인하기</Text>
           </TouchableOpacity>
         </View>
-      ) : loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.tint} />
+      ) : groups.length === 0 && !refreshing ? (
+        <View style={styles.emptyStateContainer}>
+          <Text style={[styles.emptyStateTitle, {color: colors.text}]}>
+            아직 속한 그룹이 없습니다
+          </Text>
+          <Text style={[styles.emptyStateText, {color: colors.lightGray}]}>
+            새 그룹을 생성하거나{'\n'}초대 코드로 그룹에 가입해보세요
+          </Text>
+          
+          <View style={styles.emptyStateActions}>
+            <TouchableOpacity
+              style={[styles.emptyActionButton, {backgroundColor: colors.tint}]}
+              onPress={() => setCreateModalVisible(true)}
+            >
+              <Text style={[styles.emptyActionText, {color: colors.buttonText}]}>
+                + 새 그룹 생성
+              </Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={[
+                styles.emptyActionButton, 
+                {
+                  backgroundColor: colors.secondary,
+                  borderWidth: 2,
+                  borderColor: colors.tint
+                }
+              ]}
+              onPress={() => router.push('/groups/join')}
+            >
+              <Text style={[styles.emptyActionText, {color: colors.tint}]}>
+                초대 코드로 가입
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : (
         <View style={{ flex: 1 }}>
@@ -420,15 +415,8 @@ export default function GroupListScreen() {
                 colors={[colors.tint]}
               />
             }
-            ListEmptyComponent={
-              <View style={styles.emptyContainer}>
-                <Text style={[styles.emptyText, {color: colors.lightGray}]}>
-                  아직 속한 그룹이 없습니다.{'\n'}새 그룹을 생성해보세요.
-                </Text>
-              </View>
-            }
             ListFooterComponent={
-              <View style={{ height: screenRatio > 2.3 ? 120 : 180 }} />  // 🔴 동적 높이
+              <View style={{ height: screenRatio > 2.3 ? 120 : 180 }} />
             }
           />
           
@@ -438,12 +426,12 @@ export default function GroupListScreen() {
               {
                 backgroundColor: colors.secondary, 
                 borderColor: colors.tint,
-                bottom: screenRatio > 2.3 ? 90 : 150  // 🔴 동적 위치
+                bottom: screenRatio > 2.3 ? 90 : 150
               }
             ]}
             onPress={() => router.push('/groups/join')}
           >
-            <Text style={[styles.joinButtonText, {color: colors.tint}]}>🎟️ 초대 코드로 가입</Text>
+            <Text style={[styles.joinButtonText, {color: colors.tint}]}>초대 코드로 가입</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -452,7 +440,7 @@ export default function GroupListScreen() {
               {
                 backgroundColor: colors.buttonBackground, 
                 zIndex: 100,
-                bottom: screenRatio > 2.3 ? 20 : 80  // 🔴 동적 위치
+                bottom: screenRatio > 2.3 ? 20 : 80
               }
             ]}
             onPress={() => {
@@ -463,15 +451,7 @@ export default function GroupListScreen() {
             <Text style={[styles.createButtonText, {color: colors.buttonText}]}>+ 새 그룹 생성</Text>
           </TouchableOpacity>
           
-          <CreateGroupModal
-            visible={createModalVisible}
-            onClose={() => setCreateModalVisible(false)}
-            onSubmit={handleCreateGroup}
-            loading={creatingGroup}
-            colors={colors}
-          />
-          
-          {/* 멤버 초대 모달 */}
+          {/* 초대 모달 */}
           <Modal
             visible={inviteModalVisible}
             transparent
@@ -479,6 +459,7 @@ export default function GroupListScreen() {
             onRequestClose={() => {
               setInviteModalVisible(false);
               setInviteEmail('');
+              Keyboard.dismiss();
             }}
           >
             <View style={styles.modalOverlay}>
@@ -534,11 +515,21 @@ export default function GroupListScreen() {
           </Modal>
         </View>
       )}
+      
+      {/* CreateGroupModal */}
+      {user && (
+        <CreateGroupModal
+          visible={createModalVisible}
+          onClose={() => setCreateModalVisible(false)}
+          onSubmit={handleCreateGroup}
+          loading={creatingGroup}
+          colors={colors}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
-// 🔴 스타일 수정 - 동적 위치는 인라인 스타일로 처리
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -551,11 +542,6 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center'
   },
   listContent: {
     padding: 15
@@ -616,18 +602,40 @@ const styles = StyleSheet.create({
   arrow: {
     fontSize: 18,
   },
-  emptyContainer: {
-    padding: 30,
-    alignItems: 'center'
+  emptyStateContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
   },
-  emptyText: {
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  emptyStateText: {
     fontSize: 16,
     textAlign: 'center',
-    lineHeight: 24
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  emptyStateActions: {
+    gap: 12,
+    width: '100%',
+    maxWidth: 300,
+  },
+  emptyActionButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  emptyActionText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   createButton: {
     position: 'absolute',
-    // bottom은 인라인 스타일로 동적 처리
     left: 20,
     right: 20,
     borderRadius: 10,
@@ -645,7 +653,6 @@ const styles = StyleSheet.create({
   },
   joinButton: {
     position: 'absolute',
-    // bottom은 인라인 스타일로 동적 처리
     left: 20,
     right: 20,
     borderRadius: 10,
@@ -662,7 +669,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold'
   },
-  // 모달 스타일
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -728,7 +734,6 @@ const styles = StyleSheet.create({
   submitButtonText: {
     fontWeight: '600'
   },
-  // 비로그인 사용자 UI 스타일 추가
   guestModeContainer: {
     flex: 1,
     justifyContent: 'center',

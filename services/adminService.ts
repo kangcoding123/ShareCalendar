@@ -63,3 +63,18 @@ export const authenticateWithAdminPassword = async (password: string): Promise<b
     return false;
   }
 };
+
+/**
+ * 사용자가 관리자인지 확인
+ * @param userId 사용자 ID
+ * @returns 관리자 여부
+ */
+export const checkIsAdmin = async (userId: string): Promise<boolean> => {
+  try {
+    const adminDoc = await getDoc(doc(db, 'admins', userId));
+    return adminDoc.exists();
+  } catch (error) {
+    console.error('관리자 확인 오류:', error);
+    return false;
+  }
+};

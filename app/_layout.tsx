@@ -9,16 +9,16 @@ import { Platform, StatusBar as RNStatusBar, NativeModules, AppState, AppStateSt
 import * as Notifications from 'expo-notifications'; 
 import Constants from 'expo-constants';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context'; // 추가
 
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { EventProvider } from '../context/EventContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
 import { testLocalNotification } from '@/services/notificationService';
 import UpdatePopup from '../components/UpdatePopup';
 import { checkForUpdates } from '../services/updateService';
 import { initializeAdConfig } from '../services/adConfigService';
-
-// 🔥 AdMob 초기화 코드 완전 제거! - AdMobBanner 컴포넌트에서 처리
 
 // 알림 채널 생성 함수
 const createNotificationChannel = () => {
@@ -60,13 +60,15 @@ function RootLayoutNav() {
   const [requiredUpdate, setRequiredUpdate] = useState(false);
   const [versionInfo, setVersionInfo] = useState<any>(null);
   
-  // 앱 시작 시 업데이트 체크 및 광고 설정 초기화
+  // 🚀 최적화: 앱 시작 시 병렬 초기화 (타입 오류 수정)
   useEffect(() => {
-    const checkAppUpdates = async () => {
-      try {
-        const result = await checkForUpdates();
-        
-        if (result.updateAvailable) {
+    if (authLoading) return;
+    
+    // 🚀 각각 비동기로 실행 (병렬 처리)
+    const initializeApp = async () => {
+      // 버전 체크 (독립적으로 실행)
+      checkForUpdates().then(result => {
+        if (result && result.updateAvailable) {
           setUpdateAvailable(true);
           setRequiredUpdate(result.requiredUpdate);
           setVersionInfo(result.versionInfo);
@@ -74,26 +76,24 @@ function RootLayoutNav() {
         } else {
           console.log('앱이 최신 버전입니다');
         }
-      } catch (error) {
-        console.error('업데이트 체크 오류:', error);
-      }
-    };
-    
-    const initAds = async () => {
-      try {
-        const success = await initializeAdConfig();
+      }).catch(err => {
+        console.log('버전 체크 실패 (무시):', err);
+      });
+      
+      // 광고 초기화 (독립적으로 실행)
+      initializeAdConfig().then(success => {
         if (success) {
           console.log('광고 설정 초기화 완료');
         }
-      } catch (error) {
-        console.error('광고 설정 초기화 오류:', error);
-      }
+      }).catch(err => {
+        console.log('광고 초기화 실패 (무시):', err);
+      });
     };
     
-    if (!authLoading) {
-      checkAppUpdates();
-      initAds();
-    }
+    // 🚀 비동기로 실행 (메인 스레드 블록하지 않음)
+    requestAnimationFrame(() => {
+      initializeApp();
+    });
   }, [authLoading]);
   
   const handleCloseUpdatePopup = () => {
@@ -216,9 +216,13 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <AuthProvider>
-        <RootLayoutNav />
-      </AuthProvider>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <EventProvider>
+            <RootLayoutNav />
+          </EventProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

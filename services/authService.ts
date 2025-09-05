@@ -21,7 +21,8 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications'; 
+import * as Notifications from 'expo-notifications';
+import { Alert } from 'react-native'; // Alert 추가
 
 // 인증 상태 저장을 위한 키
 const AUTH_CREDENTIALS_KEY = 'auth_credentials';
@@ -221,9 +222,7 @@ export const loginUser = async (
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     
-    // 로그인 성공 시 인증 정보 저장
     try {
-      // 사용자 정보 저장
       const userData = {
         uid: userCredential.user.uid,
         email: userCredential.user.email,
@@ -231,46 +230,78 @@ export const loginUser = async (
       };
       await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData));
       
-      // 자격 증명 저장 (자동 로그인용)
       await AsyncStorage.setItem(AUTH_CREDENTIALS_KEY, JSON.stringify({ email, password }));
       
-      // 푸시 토큰 등록 시도 (추가된 부분)
+      // 디버깅 Alert 추가된 푸시 토큰 등록 부분
       try {
         console.log('푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
+        Alert.alert('디버그 1', '푸시 토큰 프로세스 시작');
         
-        const { status } = await Notifications.getPermissionsAsync();
-        if (status === 'granted') {
-          const token = await Notifications.getExpoPushTokenAsync({
-            projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51'
-          });
+        // 현재 권한 상태 확인
+        Alert.alert('디버그 2', '권한 확인 시작...');
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        Alert.alert('디버그 3', `현재 권한: ${existingStatus}`);
+        
+        let finalStatus = existingStatus;
+        
+        // 권한이 없으면 요청
+        if (existingStatus !== 'granted') {
+          console.log('알림 권한 없음 - 권한 요청 중...');
+          Alert.alert('디버그 4', '권한 요청 팝업을 띄웁니다...');
           
-          console.log('푸시 토큰 생성 성공:', token.data);
-          
-          // Firestore에 토큰 저장
-          await updateDoc(doc(db, 'users', userCredential.user.uid), {
-            pushToken: token.data,
-            tokenUpdatedAt: new Date().toISOString()
-          });
-          
-          console.log('푸시 토큰이 Firestore에 저장됨');
+          try {
+            const { status } = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
+            Alert.alert('디버그 5', `권한 요청 결과: ${finalStatus}`);
+          } catch (permError: any) {
+            Alert.alert('권한 요청 에러', `에러: ${permError.message}`);
+            console.error('권한 요청 에러:', permError);
+          }
         }
-      } catch (tokenError) {
+        
+        // 권한이 허용된 경우에만 토큰 생성
+        if (finalStatus === 'granted') {
+          Alert.alert('디버그 6', '토큰 생성 시작...');
+          
+          try {
+            const token = await Notifications.getExpoPushTokenAsync({
+              projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51'
+            });
+            
+            console.log('푸시 토큰 생성 성공:', token.data);
+            Alert.alert('디버그 7', `토큰: ${token.data.substring(0, 20)}...`);
+            
+            // Firestore에 토큰 저장
+            await updateDoc(doc(db, 'users', userCredential.user.uid), {
+              pushToken: token.data,
+              tokenUpdatedAt: new Date().toISOString()
+            });
+            
+            console.log('푸시 토큰이 Firestore에 저장됨');
+            Alert.alert('디버그 8', 'Firestore 저장 완료!');
+          } catch (tokenGenError: any) {
+            Alert.alert('토큰 생성 에러', `에러: ${tokenGenError.message}`);
+            console.error('토큰 생성 에러:', tokenGenError);
+          }
+        } else {
+          console.log('알림 권한 거부됨 - 토큰 생성 건너뜀');
+          Alert.alert('디버그', `권한 거부됨: ${finalStatus}`);
+        }
+      } catch (tokenError: any) {
         console.error('푸시 토큰 등록 오류:', tokenError);
+        Alert.alert('전체 프로세스 에러', `에러: ${tokenError.message}`);
       }
       
-      // Firestore에 새 필드 추가
+      // 나머지 Firestore 업데이트 코드
       const userRef = doc(db, 'users', userCredential.user.uid);
       
       try {
-        // 먼저 사용자 문서가 존재하는지 확인
         const userDoc = await getDoc(userRef);
         
         if (userDoc.exists()) {
-          // 기존 문서에 새 필드 추가 (updateDoc 사용)
           const userData = userDoc.data();
           const fieldsToUpdate: Record<string, any> = {};
           
-          // 필드가 없는 경우에만 추가
           if (userData.pushToken === undefined) {
             fieldsToUpdate.pushToken = null;
           }
@@ -283,13 +314,11 @@ export const loginUser = async (
             fieldsToUpdate.unreadNotifications = 0;
           }
           
-          // 업데이트할 필드가 있는 경우만 실행
           if (Object.keys(fieldsToUpdate).length > 0) {
             await updateDoc(userRef, fieldsToUpdate);
             console.log(`사용자 ${userCredential.user.uid}의 문서에 새 필드 추가 완료`);
           }
         } else {
-          // 사용자 문서가 없으면 새로 생성
           await setDoc(userRef, {
             uid: userCredential.user.uid,
             email: userCredential.user.email,

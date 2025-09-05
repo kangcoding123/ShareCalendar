@@ -6,11 +6,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import { 
-  CalendarEvent, 
-  getUserEvents,
-  subscribeToUserEvents
-} from '../../services/calendarService';
+import { useEvents } from '../../context/EventContext';  // ✅ EventContext 추가
+import { CalendarEvent } from '../../services/calendarService';
 import { formatDate } from '../../utils/dateUtils';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -28,36 +25,29 @@ import Constants from 'expo-constants';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user, logout } = useAuth();
-  const [loading, setLoading] = useState(true);
+  const { user, logout, loading: authLoading } = useAuth();  // ✅ loading 추가
+  const { events, groups, refreshAll } = useEvents();  // ✅ EventContext 사용
+  
+  const [loading, setLoading] = useState(false);
   const [todayEvents, setTodayEvents] = useState<CalendarEvent[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const screenRatio = screenHeight / screenWidth;
   
-  // 색상 테마 설정
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
   
-  // Safe Area Insets 추가
   const insets = useSafeAreaInsets();
   
-  // 구독 취소 함수 참조 저장을 위한 ref 추가
-  const unsubscribeRef = useRef<(() => void) | null>(null);
-  
-  // 프로필 관련 상태 추가
   const [profileModalVisible, setProfileModalVisible] = useState(false);
   const [profileName, setProfileName] = useState('');
   const [updatingProfile, setUpdatingProfile] = useState(false);
   const [userDetails, setUserDetails] = useState<any>(null);
   
-  // 개인정보처리방침 모달 상태 추가
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
   
-  // 관리자 모드 관련 상태 추가
   const [isAdmin, setIsAdmin] = useState(false);
   
-  // 업데이트 관련 상태 추가
   const [updateInfo, setUpdateInfo] = useState<{
     visible: boolean;
     versionInfo: any;
@@ -67,32 +57,14 @@ export default function HomeScreen() {
     versionInfo: null,
     isRequired: false
   });
-
-  // 로딩 타임아웃 추가 - 무한 로딩 방지
-  useEffect(() => {
-    const loadingTimeout = setTimeout(() => {
-      if (loading) {
-        console.log('로딩 타임아웃 발생 - 강제 완료');
-        setLoading(false);
-      }
-    }, 10000); // 10초 후 타임아웃
-    
-    return () => clearTimeout(loadingTimeout);
-  }, [loading]);
   
-  // 사용자 상태에 따른 데이터 초기화 처리 추가
+  // 사용자 상태에 따른 데이터 초기화 처리
   useEffect(() => {
     if (!user) {
       console.log('비로그인 상태 감지 - 홈 화면 데이터 초기화');
       setTodayEvents([]);
       setUpcomingEvents([]);
       setLoading(false);
-      
-      // 구독이 존재하면 해제
-      if (unsubscribeRef.current) {
-        unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
     }
   }, [user]);
   
@@ -116,23 +88,20 @@ export default function HomeScreen() {
     checkAdmin();
   }, [user]);
 
-  // 하루에 한 번 업데이트 체크
-    useEffect(() => {
-      const checkForDailyUpdate = async () => {
-        if (!user) return;
+  // 버전 체크를 비동기로 변경
+  useEffect(() => {
+    const checkForDailyUpdate = async () => {
+      if (!user) return;
+      
+      try {
+        const today = new Date().toDateString();
+        const lastCheckDate = await AsyncStorage.getItem('lastUpdateCheck');
         
-        try {
-          const today = new Date().toDateString();
-          const lastCheckDate = await AsyncStorage.getItem('lastUpdateCheck');
-          
-          // 오늘 이미 체크했으면 패스
-          if (lastCheckDate === today) {
-            return;
-          }
-          
-          console.log('업데이트 체크 시작...');
-          const updateResult = await checkForUpdates();
-          
+        if (lastCheckDate === today) {
+          return;
+        }
+        
+        checkForUpdates().then(updateResult => {
           if (updateResult.updateAvailable) {
             setUpdateInfo({
               visible: true,
@@ -140,82 +109,66 @@ export default function HomeScreen() {
               isRequired: updateResult.requiredUpdate
             });
           }
-          
-          // 체크 날짜 저장
-          await AsyncStorage.setItem('lastUpdateCheck', today);
-        } catch (error) {
-          console.error('업데이트 체크 오류:', error);
-        }
-      };
-      
+        }).catch(error => {
+          console.log('업데이트 체크 실패 (무시):', error);
+        });
+        
+        await AsyncStorage.setItem('lastUpdateCheck', today);
+      } catch (error) {
+        console.error('업데이트 체크 오류:', error);
+      }
+    };
+    
+    setTimeout(() => {
       checkForDailyUpdate();
-    }, [user]);
+    }, 1000);
+  }, [user]);
 
-  // 업데이트 팝업 닫기
-    const handleCloseUpdatePopup = () => {
-      setUpdateInfo(prev => ({ ...prev, visible: false }));
-    };  
+  const handleCloseUpdatePopup = () => {
+    setUpdateInfo(prev => ({ ...prev, visible: false }));
+  };  
   
-  // 이벤트 데이터 처리 함수 (분리된 로직)
-  const processEvents = useCallback((events: CalendarEvent[]) => {
+  // ✅ EventContext의 events를 사용하여 이벤트 처리
+  const processEvents = useCallback(() => {
     if (!Array.isArray(events)) return;
     
-    // 오늘 날짜 문자열 가져오기 (YYYY-MM-DD 형식)
     const now = new Date();
     const todayString = formatDate(now, 'yyyy-MM-dd');
     
     console.log('오늘 날짜 문자열:', todayString);
     
-    // 오늘 일정 필터링
+    // startDate 사용 (date 대신)
     const todayEvts = events.filter((event: CalendarEvent) => {
-      return event.startDate === todayString;
+      const eventDate = event.startDate.split('T')[0];
+      // 다일 일정인 경우 오늘이 기간에 포함되는지 확인
+      if (event.isMultiDay) {
+        const startDate = event.startDate.split('T')[0];
+        const endDate = event.endDate.split('T')[0];
+        return startDate <= todayString && endDate >= todayString;
+      }
+      return eventDate === todayString;
     });
     
     setTodayEvents(todayEvts);
     
-    // 다가오는 일정 필터링 (오늘 이후 날짜)
     const upcoming = events.filter((event: CalendarEvent) => {
-      return event.startDate > todayString;
+      const eventDate = event.startDate.split('T')[0];
+      return eventDate > todayString;
     }).sort((a, b) => 
       new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
     );
     
-    // 다가오는 일정 중 최대 5개만 표시
     setUpcomingEvents(upcoming.slice(0, 5));
-  }, []);
+  }, [events]);
   
-  // 실시간 구독 설정
+  // ✅ events가 변경될 때마다 processEvents 실행
   useEffect(() => {
-    if (user && user.uid) {
-      console.log('[HomeScreen] 실시간 이벤트 구독 설정...');
-      
-      // 로딩 상태 표시
-      setLoading(true);
-      
-      // 중앙 구독 시스템 사용
-      const unsubscribe = subscribeToUserEvents(user.uid, (updatedEvents) => {
-        console.log(`[HomeScreen] 이벤트 업데이트 수신: ${updatedEvents.length}개`);
-        processEvents(updatedEvents);
-        setLoading(false);
-      });
-      
-      unsubscribeRef.current = unsubscribe;
-      
-      // 컴포넌트 언마운트 시 구독 해제
-      return () => {
-        console.log('[HomeScreen] 이벤트 구독 해제');
-        if (unsubscribeRef.current) {
-          unsubscribeRef.current();
-          unsubscribeRef.current = null;
-        }
-      };
-    }
-  }, [user, processEvents]);
+    processEvents();
+  }, [events, processEvents]);
   
   // 사용자 상세 정보 가져오기
   useEffect(() => {
     if (user && user.uid) {
-      // Firestore에서 사용자 추가 정보 가져오기
       const fetchUserDetails = async () => {
         try {
           const userDoc = await getDoc(doc(db, 'users', user.uid));
@@ -231,45 +184,10 @@ export default function HomeScreen() {
     }
   }, [user]);
   
-  // 화면이 포커스될 때마다 데이터 새로고침(백업용)
-  useFocusEffect(
-    useCallback(() => {
-      if (user && !unsubscribeRef.current) {
-        // 구독이 활성화되지 않은 경우에만 데이터 새로고침
-        loadEvents();
-      }
-      return () => {};
-    }, [user])
-  );
-  
-  // 기존 로드 함수 (백업용)
-  const loadEvents = async () => {
-    if (!user) return;
-    
-    try {
-      setLoading(true);
-      const result = await getUserEvents(user.uid);
-      
-      if (result.success && Array.isArray(result.events)) {
-        processEvents(result.events);
-      }
-    } catch (error) {
-      console.error('일정 로드 오류:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const navigateToCalendar = () => {
-    router.push('/(tabs)/calendar');
-  };
-  
-  // 관리자 모드로 이동
   const navigateToAdmin = () => {
     router.push('/admin' as any);
   };
   
-  // 로그아웃 처리 함수
   const handleLogout = async () => {
     Alert.alert(
       '로그아웃',
@@ -279,18 +197,17 @@ export default function HomeScreen() {
         { 
           text: '로그아웃', 
           onPress: async () => {
-            setLoading(true); // 로그아웃 중 로딩 표시
+            setLoading(true);
             try {
-            await logout();  // ✅ result 변수 제거
-            // ✅ if (result.success) 제거하고 바로 성공 처리
-            setTodayEvents([]);
-            setUpcomingEvents([]);
-            router.replace('/(auth)/login' as any);
-          } catch (error) {
-            console.error('로그아웃 오류:', error);
-            Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
-          } finally {
-            setLoading(false);
+              await logout();
+              setTodayEvents([]);
+              setUpcomingEvents([]);
+              router.replace('/(auth)/login' as any);
+            } catch (error) {
+              console.error('로그아웃 오류:', error);
+              Alert.alert('오류', '로그아웃 중 문제가 발생했습니다.');
+            } finally {
+              setLoading(false);
             }
           } 
         }
@@ -298,13 +215,11 @@ export default function HomeScreen() {
     );
   };
   
-  // 프로필 수정 모달을 열 때 현재 이름으로 초기화
   const handleOpenProfileModal = () => {
     setProfileName(user?.displayName || '');
     setProfileModalVisible(true);
   };
 
-  // 프로필 업데이트 함수
   const handleUpdateProfile = async () => {
     if (!user) return;
     
@@ -315,18 +230,14 @@ export default function HomeScreen() {
     
     setUpdatingProfile(true);
     try {
-      // auth.currentUser를 직접 사용
       if (auth.currentUser) {
-        // Firebase Auth 사용자 프로필 업데이트
         await updateProfile(auth.currentUser, { displayName: profileName });
         
-        // Firestore 사용자 문서 업데이트
         await updateDoc(doc(db, 'users', user.uid), {
           displayName: profileName,
           updatedAt: new Date().toISOString()
         });
         
-        // 성공 알림
         Alert.alert('성공', '프로필이 업데이트되었습니다.');
         setProfileModalVisible(false);
       } else {
@@ -340,11 +251,10 @@ export default function HomeScreen() {
     }
   };
 
-  // 회원탈퇴 처리 함수
   const handleDeleteAccount = () => {
     Alert.alert(
       '회원 탈퇴',
-      '정말로 회원 탈퇴하시겠습니까? 모든 개인 정보와 일정이 삭제되며 이 작업은 되돌릴 수 없습니다.',
+      '정말로 회원 탈퇴하시겠습니까? 모든 개인정보와 일정이 삭제되며 이 작업은 되돌릴 수 없습니다.',
       [
         { text: '취소', style: 'cancel' },
         { 
@@ -359,7 +269,6 @@ export default function HomeScreen() {
                 Alert.alert('성공', '회원 탈퇴가 완료되었습니다.', [
                   { text: '확인' }
                 ]);
-                // 로그아웃은 자동으로 처리됨 (AuthContext에서)
               } else {
                 Alert.alert('오류', result.error || '회원 탈퇴 중 오류가 발생했습니다.');
               }
@@ -376,17 +285,23 @@ export default function HomeScreen() {
     );
   };
 
-  // 디버깅용 코드 - 실행 환경 확인
+  // ✅ 새로고침 핸들러 추가
+  const handleRefresh = async () => {
+    setLoading(true);
+    await refreshAll();
+    setLoading(false);
+  };
+
   useEffect(() => {
     console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}, colorScheme: ${colorScheme}`);
   }, [colorScheme]);
   
-  if (loading) {
+  if (loading || authLoading) { 
     return (
       <SafeAreaView 
-  style={[styles.container, { backgroundColor: colors.secondary }]}
-  edges={['top', 'left', 'right']}  // bottom 제외
->
+        style={[styles.container, { backgroundColor: colors.secondary }]}
+        edges={['top', 'right', 'left', 'bottom']}
+      >
         <ActivityIndicator size="large" color={colors.tint} />
       </SafeAreaView>
     );
@@ -394,9 +309,9 @@ export default function HomeScreen() {
   
   return (
     <SafeAreaView 
-  style={[styles.container, { backgroundColor: colors.secondary }]}
-  edges={['top', 'right', 'left']}  // bottom 제외 추가!
->
+      style={[styles.container, { backgroundColor: colors.secondary }]}
+      edges={['top', 'right', 'left']}
+    >
       <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <View style={styles.headerTop}>
           <View style={styles.titleContainer}>
@@ -406,11 +321,8 @@ export default function HomeScreen() {
             </Text>
           </View>
           
-          {/* 로그인 상태에 따라 다른 UI 표시 */}
           {user ? (
-            // 로그인 상태: 관리자 아이콘, 프로필 아바타와 로그아웃 버튼
             <View style={styles.profileContainer}>
-              {/* 관리자인 경우만 톱니바퀴 아이콘 표시 */}
               {isAdmin && (
                 <TouchableOpacity 
                   onPress={navigateToAdmin}
@@ -437,7 +349,6 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
           ) : (
-            // 비로그인 상태: 로그인 버튼
             <TouchableOpacity 
               onPress={() => router.push('/(auth)/login' as any)} 
               style={[styles.loginButton, { backgroundColor: colors.tint }]}
@@ -457,96 +368,100 @@ export default function HomeScreen() {
       </View>
       
       <ScrollView 
-  style={styles.content}
-  contentInsetAdjustmentBehavior="never"  // automatic에서 never로 변경
-  contentContainerStyle={{
-    paddingBottom: screenRatio > 2.3 ? 20 : 40  // 고정값 사용
-  }}
->
-          {/* 오늘 일정 섹션 */}
-          <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
+        style={styles.content}
+        contentInsetAdjustmentBehavior="automatic"  // ✅ never → automatic
+        contentContainerStyle={{
+          paddingBottom: 30  // ✅ 고정값으로 단순화
+        }}
+        showsVerticalScrollIndicator={false}  // ✅ 스크롤바 숨김 (선택사항)
+      >
+        <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>오늘 일정</Text>
           <Text style={[styles.dateText, { color: colors.lightGray }]}>{formatDate(new Date(), 'yyyy년 MM월 dd일 (eee)')}</Text>
           
           {todayEvents.length > 0 ? (
-            todayEvents.map((calendarEvent: CalendarEvent) => (
-              <View key={calendarEvent.id} style={[styles.eventCard, { backgroundColor: colors.eventCardBackground }]}>
-                <View 
-                  style={[
-                    styles.eventColor, 
-                    { backgroundColor: calendarEvent.color || colors.tint }
-                  ]} 
-                />
-                <View style={styles.eventInfo}>
-                  <Text style={[styles.eventTitle, { color: colors.text }]}>{calendarEvent.title}</Text>
-                  
-                  {/* 시간 정보 추가 */}
-                  {calendarEvent.time && (
-                    <Text style={[styles.eventTime, { color: colors.lightGray }]}>
-                      {calendarEvent.time}
+            todayEvents.map((calendarEvent: CalendarEvent) => {
+              // ✅ groups에서 그룹 정보 찾기
+              const group = groups.find(g => g.id === calendarEvent.groupId);
+              return (
+                <View key={calendarEvent.id} style={[styles.eventCard, { backgroundColor: colors.eventCardBackground }]}>
+                  <View 
+                    style={[
+                      styles.eventColor, 
+                      { backgroundColor: group?.color || calendarEvent.color || colors.tint }
+                    ]} 
+                  />
+                  <View style={styles.eventInfo}>
+                    <Text style={[styles.eventTitle, { color: colors.text }]}>{calendarEvent.title}</Text>
+                    
+                    {calendarEvent.time && (
+                      <Text style={[styles.eventTime, { color: colors.lightGray }]}>
+                        {calendarEvent.time}
+                      </Text>
+                    )}
+                    
+                    <Text style={[styles.eventGroup, { color: colors.darkGray }]}>
+                      {group?.name || calendarEvent.groupName || '개인 일정'}
                     </Text>
-                  )}
-                  
-                  <Text style={[styles.eventGroup, { color: colors.darkGray }]}>{calendarEvent.groupName || '개인 일정'}</Text>
+                  </View>
                 </View>
-              </View>
-            ))
+              );
+            })
           ) : (
             <Text style={[styles.emptyText, { color: colorScheme === 'dark' ? '#999' : '#999' }]}>오늘은 일정이 없습니다.</Text>
           )}
         </View>
         
-        {/* 다가오는 일정 섹션 */}
         <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>다가오는 일정</Text>
           
           {upcomingEvents.length > 0 ? (
-            upcomingEvents.map((calendarEvent: CalendarEvent) => (
-              <View key={calendarEvent.id} style={[styles.eventCard, { backgroundColor: colors.eventCardBackground }]}>
-                <View 
-                  style={[
-                    styles.eventColor, 
-                    { backgroundColor: calendarEvent.color || colors.tint }
-                  ]} 
-                />
-                <View style={styles.eventInfo}>
-                  <Text style={[styles.eventTitle, { color: colors.text }]}>{calendarEvent.title}</Text>
-                  <Text style={[styles.eventDate, { color: colors.lightGray }]}>
-                    {formatDate(new Date(calendarEvent.startDate), 'MM월 dd일 (eee)')}
-                    {calendarEvent.time && ` ${calendarEvent.time}`} {/* 날짜와 시간 함께 표시 */}
-                  </Text>
-                  <Text style={[styles.eventGroup, { color: colors.darkGray }]}>{calendarEvent.groupName || '개인 일정'}</Text>
+            upcomingEvents.map((calendarEvent: CalendarEvent) => {
+              // ✅ groups에서 그룹 정보 찾기
+              const group = groups.find(g => g.id === calendarEvent.groupId);
+              return (
+                <View key={calendarEvent.id} style={[styles.eventCard, { backgroundColor: colors.eventCardBackground }]}>
+                  <View 
+                    style={[
+                      styles.eventColor, 
+                      { backgroundColor: group?.color || calendarEvent.color || colors.tint }
+                    ]} 
+                  />
+                  <View style={styles.eventInfo}>
+                    <Text style={[styles.eventTitle, { color: colors.text }]}>{calendarEvent.title}</Text>
+                    <Text style={[styles.eventDate, { color: colors.lightGray }]}>
+                      {formatDate(new Date(calendarEvent.startDate), 'MM월 dd일 (eee)')}
+                      {calendarEvent.time && ` ${calendarEvent.time}`}
+                    </Text>
+                    <Text style={[styles.eventGroup, { color: colors.darkGray }]}>
+                      {group?.name || calendarEvent.groupName || '개인 일정'}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            ))
+              );
+            })
           ) : (
             <Text style={[styles.emptyText, { color: colorScheme === 'dark' ? '#999' : '#999' }]}>다가오는 일정이 없습니다.</Text>
           )}
         </View>
-        
-        <TouchableOpacity 
-          style={[styles.calendarButton, { backgroundColor: colors.buttonBackground }]} 
-          onPress={navigateToCalendar}
-        >
-          <Text style={[styles.calendarButtonText, { color: colors.buttonText }]}>캘린더 보기</Text>
-        </TouchableOpacity>
+
       </ScrollView>
 
-    {/* UpdatePopup 컴포넌트 추가 */}
-    <UpdatePopup
-      visible={updateInfo.visible}
-      versionInfo={updateInfo.versionInfo}
-      isRequired={updateInfo.isRequired}
-      onClose={handleCloseUpdatePopup}
-    />   
+      <UpdatePopup
+        visible={updateInfo.visible}
+        versionInfo={updateInfo.versionInfo}
+        isRequired={updateInfo.isRequired}
+        onClose={handleCloseUpdatePopup}
+      />   
 
-      {/* 프로필 수정 모달 */}
+      {/* 프로필 모달 - 기존 코드 유지 */}
       <Modal
         visible={profileModalVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setProfileModalVisible(false)}
       >
+        {/* 모달 내용은 기존과 동일 */}
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>프로필 수정</Text>
@@ -580,7 +495,6 @@ export default function HomeScreen() {
               </Text>
             </View>
             
-            {/* 개인정보처리방침 섹션 추가 */}
             <TouchableOpacity 
               style={styles.privacyPolicyContainer}
               onPress={() => {
@@ -638,7 +552,6 @@ export default function HomeScreen() {
         </View>
       </Modal>
       
-      {/* 개인정보처리방침 모달 추가 */}
       <PrivacyPolicyModal
         visible={privacyModalVisible}
         onClose={() => setPrivacyModalVisible(false)}
@@ -647,7 +560,9 @@ export default function HomeScreen() {
   );
 }
 
+// styles는 기존과 동일
 const styles = StyleSheet.create({
+  // ... 기존 스타일 모두 유지
   container: {
     flex: 1,
   },
@@ -713,7 +628,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 15
   },
-  // 관리자 아이콘 스타일 추가
   adminIconContainer: {
     marginRight: 12,
     padding: 4,
@@ -771,17 +685,6 @@ const styles = StyleSheet.create({
     padding: 20,
     fontStyle: 'italic'
   },
-  calendarButton: {
-    padding: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-    marginBottom: 20
-  },
-  calendarButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold'
-  },
-  // 모달 관련 스타일
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -822,7 +725,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 15,
     fontSize: 16,
-    paddingTop: 14, // TextInput과 비슷한 정렬을 위한 패딩
+    paddingTop: 14,
   },
   emailNote: {
     fontSize: 12,
@@ -849,7 +752,6 @@ const styles = StyleSheet.create({
   submitButtonText: {
     fontWeight: '600',
   },
-  // 회원 탈퇴 관련 스타일
   deleteAccountContainer: {
     marginTop: 10,
     marginBottom: 20,
@@ -874,7 +776,6 @@ const styles = StyleSheet.create({
   disabledButton: {
     opacity: 0.7,
   },
-  // 개인정보처리방침 스타일 추가
   privacyPolicyContainer: {
     marginBottom: 20,
     padding: 15,

@@ -11,8 +11,10 @@ import {
   ActivityIndicator,
   Alert,
   Switch,
-  KeyboardAvoidingView,
-  Platform
+  Platform,
+  ScrollView,
+  TouchableWithoutFeedback,
+  Keyboard
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -171,10 +173,10 @@ export default function HolidaysScreen() {
         isHoliday: isHolidayEnabled
       };
 
-        // description이 있을 때만 추가
-        if (holidayDescription.trim()) {
-          holidayData.description = holidayDescription.trim();
-        }
+      // description이 있을 때만 추가
+      if (holidayDescription.trim()) {
+        holidayData.description = holidayDescription.trim();
+      }
       
       let result;
       
@@ -332,121 +334,130 @@ export default function HolidaysScreen() {
         </>
       )}
       
-      {/* 공휴일 추가/수정 모달 */}
+      {/* 공휴일 추가/수정 모달 - KeyboardAvoidingView 제거 */}
       <Modal
         visible={modalVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setModalVisible(false)}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalContainer}
-        >
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <Text style={[styles.modalTitle, { color: colors.text }]}>{modalTitle}</Text>
-            
-            <View style={styles.formGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>공휴일 이름</Text>
-              <TextInput
-                style={[styles.input, { 
-                  backgroundColor: colors.inputBackground, 
-                  borderColor: colors.inputBorder,
-                  color: colors.text
-                }]}
-                placeholder="공휴일 이름"
-                placeholderTextColor={colors.lightGray}
-                value={holidayName}
-                onChangeText={setHolidayName}
-              />
-            </View>
-            
-            <View style={styles.formGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>날짜</Text>
-              <TouchableOpacity
-                style={[styles.datePickerButton, { 
-                  backgroundColor: colors.inputBackground, 
-                  borderColor: colors.inputBorder
-                }]}
-                onPress={() => setShowDatePicker(true)}
-              >
-                <Text style={[styles.datePickerButtonText, { color: colors.text }]}>
-                  {holidayDate.toLocaleDateString('ko-KR')}
-                </Text>
-              </TouchableOpacity>
-              
-              {showDatePicker && (
-                <DateTimePicker
-                  value={holidayDate}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={handleDateChange}
-                />
-              )}
-            </View>
-            
-            <View style={styles.formGroup}>
-              <View style={styles.switchContainer}>
-                <Text style={[styles.label, { color: colors.text }]}>공휴일 여부</Text>
-                <Switch
-                  value={isHolidayEnabled}
-                  onValueChange={setIsHolidayEnabled}
-                  trackColor={{ false: '#767577', true: '#81b0ff' }}
-                  thumbColor={isHolidayEnabled ? colors.tint : '#f4f3f4'}
-                />
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalContainer}>
+            <ScrollView 
+              contentContainerStyle={{ 
+                flexGrow: 1, 
+                justifyContent: 'center',
+                paddingVertical: 20 
+              }}
+              keyboardShouldPersistTaps="handled"
+              bounces={false}
+            >
+              <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>{modalTitle}</Text>
+                
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>공휴일 이름</Text>
+                  <TextInput
+                    style={[styles.input, { 
+                      backgroundColor: colors.inputBackground, 
+                      borderColor: colors.inputBorder,
+                      color: colors.text
+                    }]}
+                    placeholder="공휴일 이름"
+                    placeholderTextColor={colors.lightGray}
+                    value={holidayName}
+                    onChangeText={setHolidayName}
+                  />
+                </View>
+                
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>날짜</Text>
+                  <TouchableOpacity
+                    style={[styles.datePickerButton, { 
+                      backgroundColor: colors.inputBackground, 
+                      borderColor: colors.inputBorder
+                    }]}
+                    onPress={() => setShowDatePicker(true)}
+                  >
+                    <Text style={[styles.datePickerButtonText, { color: colors.text }]}>
+                      {holidayDate.toLocaleDateString('ko-KR')}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  {showDatePicker && (
+                    <DateTimePicker
+                      value={holidayDate}
+                      mode="date"
+                      display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                      onChange={handleDateChange}
+                    />
+                  )}
+                </View>
+                
+                <View style={styles.formGroup}>
+                  <View style={styles.switchContainer}>
+                    <Text style={[styles.label, { color: colors.text }]}>공휴일 여부</Text>
+                    <Switch
+                      value={isHolidayEnabled}
+                      onValueChange={setIsHolidayEnabled}
+                      trackColor={{ false: '#767577', true: '#81b0ff' }}
+                      thumbColor={isHolidayEnabled ? colors.tint : '#f4f3f4'}
+                    />
+                  </View>
+                  <Text style={[styles.switchHelp, { color: colors.lightGray }]}>
+                    {isHolidayEnabled 
+                      ? '휴일로 설정됩니다. 캘린더에 강조 표시됩니다.' 
+                      : '기념일로 설정됩니다. 캘린더에 일반 표시됩니다.'}
+                  </Text>
+                </View>
+                
+                <View style={styles.formGroup}>
+                  <Text style={[styles.label, { color: colors.text }]}>설명 (선택사항)</Text>
+                  <TextInput
+                    style={[styles.input, styles.textArea, { 
+                      backgroundColor: colors.inputBackground, 
+                      borderColor: colors.inputBorder,
+                      color: colors.text
+                    }]}
+                    placeholder="공휴일에 대한 설명"
+                    placeholderTextColor={colors.lightGray}
+                    value={holidayDescription}
+                    onChangeText={setHolidayDescription}
+                    multiline
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                  />
+                </View>
+                
+                <View style={styles.modalActions}>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.secondary }]}
+                    onPress={() => setModalVisible(false)}
+                    disabled={saving}
+                  >
+                    <Text style={[styles.cancelButtonText, { color: colors.darkGray }]}>취소</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    style={[
+                      styles.modalButton, 
+                      { backgroundColor: colors.tint },
+                      saving && { opacity: 0.7 }
+                    ]}
+                    onPress={handleSave}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>저장</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
-              <Text style={[styles.switchHelp, { color: colors.lightGray }]}>
-                {isHolidayEnabled 
-                  ? '휴일로 설정됩니다. 캘린더에 강조 표시됩니다.' 
-                  : '기념일로 설정됩니다. 캘린더에 일반 표시됩니다.'}
-              </Text>
-            </View>
-            
-            <View style={styles.formGroup}>
-              <Text style={[styles.label, { color: colors.text }]}>설명 (선택사항)</Text>
-              <TextInput
-                style={[styles.input, styles.textArea, { 
-                  backgroundColor: colors.inputBackground, 
-                  borderColor: colors.inputBorder,
-                  color: colors.text
-                }]}
-                placeholder="공휴일에 대한 설명"
-                placeholderTextColor={colors.lightGray}
-                value={holidayDescription}
-                onChangeText={setHolidayDescription}
-                multiline
-                numberOfLines={3}
-                textAlignVertical="top"
-              />
-            </View>
-            
-            <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={[styles.modalButton, styles.cancelButton, { backgroundColor: colors.secondary }]}
-                onPress={() => setModalVisible(false)}
-                disabled={saving}
-              >
-                <Text style={[styles.cancelButtonText, { color: colors.darkGray }]}>취소</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[
-                  styles.modalButton, 
-                  { backgroundColor: colors.tint },
-                  saving && { opacity: 0.7 }
-                ]}
-                onPress={handleSave}
-                disabled={saving}
-              >
-                {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.saveButtonText}>저장</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+            </ScrollView>
           </View>
-        </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
       </Modal>
     </SafeAreaView>
   );
@@ -570,7 +581,7 @@ const styles = StyleSheet.create({
   },
   addButton: {
     position: 'absolute',
-    bottom: 20,
+    bottom: 80,  // 20에서 80으로 수정 - 네비게이션 바 높이 고려
     left: 20,
     right: 20,
     padding: 16,
