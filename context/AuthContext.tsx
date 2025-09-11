@@ -86,7 +86,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           lastLoginAt: new Date().toISOString()
         }, { merge: true });
         
-        // 푸시 토큰 등록
+        // 푸시 토큰 등록 (수정됨)
         try {
           console.log('푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
           
@@ -106,6 +106,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             
             console.log('푸시 토큰 생성 성공:', token.data);
             
+            // ✅ 새로 추가: 이 토큰을 가진 다른 사용자 찾기
+            const usersWithToken = await getDocs(
+              query(collection(db, 'users'), 
+              where('pushToken', '==', token.data))
+            );
+            
+            // ✅ 새로 추가: 다른 사용자의 토큰 제거
+            for (const userDoc of usersWithToken.docs) {
+              if (userDoc.id !== userCredential.user.uid) {
+                await updateDoc(userDoc.ref, { 
+                  pushToken: null,
+                  tokenRemovedAt: new Date().toISOString()
+                });
+                console.log(`이전 사용자(${userDoc.id})의 토큰 제거됨`);
+              }
+            }
+            
+            // 현재 사용자에게 토큰 할당
             await updateDoc(doc(db, 'users', userCredential.user.uid), {
               pushToken: token.data,
               tokenUpdatedAt: new Date().toISOString()
@@ -163,6 +181,59 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       setUser(userData);
       
+      // ✨ 새로 추가: 회원가입 직후 푸시 토큰 등록 (login 함수와 동일한 코드)
+      try {
+        console.log('회원가입 - 푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
+        
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        
+        if (existingStatus !== 'granted') {
+          console.log('알림 권한 없음 - 권한 요청 중...');
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        
+        if (finalStatus === 'granted') {
+          const token = await Notifications.getExpoPushTokenAsync({
+            projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51'
+          });
+          
+          console.log('푸시 토큰 생성 성공:', token.data);
+          
+          // 이 토큰을 가진 다른 사용자 찾기
+          const usersWithToken = await getDocs(
+            query(collection(db, 'users'), 
+            where('pushToken', '==', token.data))
+          );
+          
+          // 다른 사용자의 토큰 제거
+          for (const userDoc of usersWithToken.docs) {
+            if (userDoc.id !== userCredential.user.uid) {
+              await updateDoc(userDoc.ref, { 
+                pushToken: null,
+                tokenRemovedAt: new Date().toISOString()
+              });
+              console.log(`이전 사용자(${userDoc.id})의 토큰 제거됨`);
+            }
+          }
+          
+          // 현재 사용자에게 토큰 할당
+          await updateDoc(doc(db, 'users', userCredential.user.uid), {
+            pushToken: token.data,
+            tokenUpdatedAt: new Date().toISOString()
+          });
+          
+          console.log('회원가입 - 푸시 토큰이 Firestore에 저장됨');
+        } else {
+          console.log('회원가입 - 알림 권한 거부됨 - 토큰 생성 건너뜀');
+        }
+      } catch (tokenError) {
+        console.error('회원가입 - 푸시 토큰 등록 오류:', tokenError);
+        // 토큰 등록 실패해도 회원가입은 계속 진행
+      }
+      // ✨ 추가 끝
+      
       await setDoc(doc(db, 'groups', `personal_${userCredential.user.uid}`), {
         name: '개인 캘린더',
         type: 'personal',
@@ -192,6 +263,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = async () => {
     try {
       setLoading(true);
+      
+      // ✅ 새로 추가: 로그아웃 시 토큰 제거
+      if (user?.uid) {
+        await updateDoc(doc(db, 'users', user.uid), {
+          pushToken: null,
+          tokenRemovedAt: new Date().toISOString()
+        });
+        console.log('로그아웃: 푸시 토큰 제거됨');
+      }
       
       clearEventSubscriptions();
       

@@ -2,7 +2,7 @@
   "expo": {
     "name": "WE:IN",
     "slug": "ShareCalendar",
-    "version": "1.2.11",
+    "version": "1.2.12",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weincalendar",
@@ -25,7 +25,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.kangcoding.sharecalendar",
-      "versionCode": 26,
+      "versionCode": 27,
       "softwareKeyboardLayoutMode": "pan",
       "googleServicesFile": "./google-services.json",
       "permissions": [
@@ -46,8 +46,8 @@
             "useFrameworks": "static"
           },
           "android": {
-            "kotlinVersion": "1.9.24",
-            "kspVersion": "1.9.24-1.0.20",
+            "kotlinVersion": "1.9.0",
+            "kspVersion": "1.9.0-1.0.13",
             "packagingOptions": {
               "pickFirst": ["**/libc++_shared.so"]
             },
