@@ -13,12 +13,13 @@ import {
   RefreshControl,
   Platform,
   useWindowDimensions,
-  Keyboard
+  Keyboard,
+  KeyboardAvoidingView  // ✅ 이미 import 되어 있음
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../../context/AuthContext';
-import { useEvents } from '../../../context/EventContext';  // EventContext 사용
+import { useEvents } from '../../../context/EventContext';
 import { Group, createGroup, inviteToGroup } from '../../../services/groupService';
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
@@ -73,7 +74,7 @@ const GroupItem = ({ group, onPress, onInvite, colors }: GroupItemProps) => {
   );
 };
 
-// 단순화된 그룹 생성 모달
+// ✅ 수정된 CreateGroupModal 컴포넌트
 interface CreateGroupModalProps {
   visible: boolean;
   onClose: () => void;
@@ -123,15 +124,18 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
     onClose();
   };
 
-  // 단순화된 Modal 구조
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="none"  // 애니메이션 제거
+      animationType="none"
       onRequestClose={handleClose}
     >
-      <View style={styles.modalOverlay}>
+      {/* ✅ View를 KeyboardAvoidingView로 변경 */}
+      <KeyboardAvoidingView 
+        style={styles.modalOverlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <View style={[styles.modalContent, {backgroundColor: colors.card}]}>
           <Text style={[styles.modalTitle, {color: colors.text}]}>새 그룹 생성</Text>
           
@@ -195,7 +199,7 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };
@@ -203,7 +207,7 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
 export default function GroupListScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const { groups, refreshGroups } = useEvents();  // EventContext 사용
+  const { groups, refreshGroups } = useEvents();
   
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
@@ -306,7 +310,6 @@ export default function GroupListScreen() {
     }
   };
 
-  // 원래대로 복원
   const handleCreateGroup = async (groupData: { name: string; description: string }) => {
     try {
       setCreatingGroup(true);
@@ -321,7 +324,7 @@ export default function GroupListScreen() {
       
       if (result.success) {
         setCreateModalVisible(false);
-        await refreshGroups();  // EventContext의 refreshGroups 사용
+        await refreshGroups();
       } else {
         Alert.alert('오류', '그룹 생성 중 오류가 발생했습니다.');
       }
@@ -451,7 +454,7 @@ export default function GroupListScreen() {
             <Text style={[styles.createButtonText, {color: colors.buttonText}]}>+ 새 그룹 생성</Text>
           </TouchableOpacity>
           
-          {/* 초대 모달 */}
+          {/* ✅ 초대 모달도 수정 */}
           <Modal
             visible={inviteModalVisible}
             transparent
@@ -462,7 +465,10 @@ export default function GroupListScreen() {
               Keyboard.dismiss();
             }}
           >
-            <View style={styles.modalOverlay}>
+            <KeyboardAvoidingView 
+              style={styles.modalOverlay}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            >
               <View style={[styles.modalContent, {backgroundColor: colors.card}]}>
                 <Text style={[styles.modalTitle, {color: colors.text}]}>
                   {selectedGroup?.name} 그룹에 멤버 초대
@@ -511,7 +517,7 @@ export default function GroupListScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-            </View>
+            </KeyboardAvoidingView>
           </Modal>
         </View>
       )}

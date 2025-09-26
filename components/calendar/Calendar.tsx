@@ -124,7 +124,7 @@ const Calendar = ({
   }, [calendarDays]);
   
 const cellHeight = useMemo(() => {
-  const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 70 : 60;
+  const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 85 : 60;
   const AD_BANNER_HEIGHT = 60;
   
   // 화면 비율 계산 추가
