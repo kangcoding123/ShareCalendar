@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import { CalendarEvent } from './calendarService';
 import { Group } from './groupService';
-import { format, subMonths, addMonths } from 'date-fns';
+import { format, subMonths, addMonths } from 'date-fns'; // ✅ addMonths 이미 있음
 
 // 캐시 키 상수
 const CACHE_KEYS = {
@@ -63,11 +63,12 @@ class CacheService {
     }
   }
 
-  // 🔥 이벤트 캐시 저장
+  // 🔥 이벤트 캐시 저장 - 수정됨
   async saveEventsToCache(userId: string, events: CalendarEvent[]): Promise<void> {
     try {
       const now = new Date();
-      const startMonth = subMonths(now, CACHE_CONFIG.MAX_MONTHS);
+      const startMonth = subMonths(now, 3);  // 과거 3개월
+      const endMonth = addMonths(now, 3);    // 🆕 미래 3개월 추가
       
       // 월별로 이벤트 그룹화
       const eventsByMonth: Record<string, CalendarEvent[]> = {};
@@ -75,8 +76,8 @@ class CacheService {
       events.forEach(event => {
         const eventDate = new Date(event.startDate);
         
-        // 최근 3개월 이내의 이벤트만 저장
-        if (eventDate >= startMonth) {
+        // 🆕 과거 3개월 ~ 미래 3개월 범위의 이벤트 저장
+        if (eventDate >= startMonth && eventDate <= endMonth) {
           const monthKey = format(eventDate, 'yyyy-MM');
           if (!eventsByMonth[monthKey]) {
             eventsByMonth[monthKey] = [];
@@ -102,15 +103,28 @@ class CacheService {
     }
   }
 
-  // 🔥 캐시에서 이벤트 로드
+  // 🔥 캐시에서 이벤트 로드 - 수정됨
   async loadEventsFromCache(userId: string): Promise<CalendarEvent[]> {
     try {
       const now = new Date();
       const events: CalendarEvent[] = [];
       
-      // 최근 3개월 데이터 로드
-      for (let i = 0; i < CACHE_CONFIG.MAX_MONTHS; i++) {
+      // 🆕 과거 3개월 로드 (3개월 전 ~ 현재)
+      for (let i = 3; i >= 0; i--) {
         const monthDate = subMonths(now, i);
+        const monthKey = format(monthDate, 'yyyy-MM');
+        const cacheKey = `${CACHE_KEYS.EVENTS_PREFIX}${userId}_${monthKey}`;
+        
+        const cachedData = await AsyncStorage.getItem(cacheKey);
+        if (cachedData) {
+          const monthEvents = JSON.parse(cachedData) as CalendarEvent[];
+          events.push(...monthEvents);
+        }
+      }
+      
+      // 🆕 미래 3개월 로드 (다음달 ~ 3개월 후)
+      for (let i = 1; i <= 3; i++) {
+        const monthDate = addMonths(now, i);
         const monthKey = format(monthDate, 'yyyy-MM');
         const cacheKey = `${CACHE_KEYS.EVENTS_PREFIX}${userId}_${monthKey}`;
         
@@ -239,19 +253,23 @@ class CacheService {
     }
   }
 
-  // 🔥 캐시 정리 (오래된 데이터 삭제)
+  // 🔥 캐시 정리 (오래된 데이터 삭제) - 수정됨
   async cleanupOldCache(userId: string): Promise<void> {
     try {
       const keys = await AsyncStorage.getAllKeys();
       const eventKeys = keys.filter(key => key.startsWith(`${CACHE_KEYS.EVENTS_PREFIX}${userId}_`));
       
       const now = new Date();
-      const oldestMonth = subMonths(now, CACHE_CONFIG.MAX_MONTHS);
+      const oldestMonth = subMonths(now, 3);  // 과거 3개월
+      const newestMonth = addMonths(now, 3);  // 🆕 미래 3개월
+      
       const oldestMonthKey = format(oldestMonth, 'yyyy-MM');
+      const newestMonthKey = format(newestMonth, 'yyyy-MM');
       
       const keysToDelete = eventKeys.filter(key => {
         const monthKey = key.split('_').pop() || '';
-        return monthKey < oldestMonthKey;
+        // 🆕 과거 3개월보다 오래되거나 미래 3개월보다 먼 데이터 삭제
+        return monthKey < oldestMonthKey || monthKey > newestMonthKey;
       });
       
       if (keysToDelete.length > 0) {

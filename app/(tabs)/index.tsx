@@ -1,12 +1,25 @@
 // app/(tabs)/index.tsx
 import { Feather } from '@expo/vector-icons';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, Modal, TextInput, useWindowDimensions } from 'react-native';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  ScrollView, 
+  TouchableOpacity, 
+  ActivityIndicator, 
+  Alert, 
+  Platform, 
+  Modal, 
+  TextInput, 
+  useWindowDimensions,
+  AppState  // ✅ 추가
+} from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import { useEvents } from '../../context/EventContext';  // ✅ EventContext 추가
+import { useEvents } from '../../context/EventContext';
 import { CalendarEvent } from '../../services/calendarService';
 import { formatDate } from '../../utils/dateUtils';
 import { Colors } from '@/constants/Colors';
@@ -25,14 +38,17 @@ import Constants from 'expo-constants';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user, logout, loading: authLoading } = useAuth();  // ✅ loading 추가
-  const { events, groups, refreshAll } = useEvents();  // ✅ EventContext 사용
+  const { user, logout, loading: authLoading } = useAuth();
+  const { events, groups, refreshAll } = useEvents();
   
   const [loading, setLoading] = useState(false);
   const [todayEvents, setTodayEvents] = useState<CalendarEvent[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const screenRatio = screenHeight / screenWidth;
+  
+  // ✅ 추가: 마지막 처리 날짜 저장
+  const lastProcessedDate = useRef<string>('');
   
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
@@ -65,6 +81,7 @@ export default function HomeScreen() {
       setTodayEvents([]);
       setUpcomingEvents([]);
       setLoading(false);
+      lastProcessedDate.current = '';  // ✅ 추가
     }
   }, [user]);
   
@@ -128,14 +145,21 @@ export default function HomeScreen() {
     setUpdateInfo(prev => ({ ...prev, visible: false }));
   };  
   
-  // ✅ EventContext의 events를 사용하여 이벤트 처리
+  // ✅ 수정: processEvents 함수에 중복 체크 추가
   const processEvents = useCallback(() => {
     if (!Array.isArray(events)) return;
     
     const now = new Date();
     const todayString = formatDate(now, 'yyyy-MM-dd');
     
-    console.log('오늘 날짜 문자열:', todayString);
+    // ✅ 날짜가 같으면 스킵 (중복 실행 방지)
+    if (lastProcessedDate.current === todayString && todayEvents.length > 0) {
+      console.log('[HomeScreen] 같은 날짜 - 이벤트 처리 스킵');
+      return;
+    }
+    
+    console.log('[HomeScreen] 날짜 변경 감지 또는 초기 로드:', todayString);
+    lastProcessedDate.current = todayString;
     
     // startDate 사용 (date 대신)
     const todayEvts = events.filter((event: CalendarEvent) => {
@@ -159,12 +183,48 @@ export default function HomeScreen() {
     );
     
     setUpcomingEvents(upcoming.slice(0, 5));
-  }, [events]);
+  }, [events, todayEvents.length]);
   
-  // ✅ events가 변경될 때마다 processEvents 실행
+  // ✅ 기존 useEffect 유지 (초기 로드 및 events 변경 시)
   useEffect(() => {
     processEvents();
-  }, [events, processEvents]);
+  }, [events]);
+  
+  // ✅ 추가: 앱 활성화 감지
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        console.log('[HomeScreen] 앱 활성화 감지');
+        const currentDate = formatDate(new Date(), 'yyyy-MM-dd');
+        
+        // 날짜가 변경되었거나 이벤트가 없으면 처리
+        if (lastProcessedDate.current !== currentDate || todayEvents.length === 0) {
+          processEvents();
+        }
+      }
+    });
+    
+    return () => {
+      subscription.remove();
+    };
+  }, [processEvents, todayEvents.length]);
+  
+  // ✅ 추가: 화면 포커스 감지
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[HomeScreen] 화면 포커스');
+      const currentDate = formatDate(new Date(), 'yyyy-MM-dd');
+      
+      // 날짜가 변경되었거나 초기 로드면 처리
+      if (lastProcessedDate.current !== currentDate || lastProcessedDate.current === '') {
+        processEvents();
+      }
+      
+      return () => {
+        // cleanup if needed
+      };
+    }, [processEvents])
+  );
   
   // 사용자 상세 정보 가져오기
   useEffect(() => {
@@ -285,7 +345,7 @@ export default function HomeScreen() {
     );
   };
 
-  // ✅ 새로고침 핸들러 추가
+  // 새로고침 핸들러
   const handleRefresh = async () => {
     setLoading(true);
     await refreshAll();
@@ -369,11 +429,11 @@ export default function HomeScreen() {
       
       <ScrollView 
         style={styles.content}
-        contentInsetAdjustmentBehavior="automatic"  // ✅ never → automatic
+        contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
-          paddingBottom: 30  // ✅ 고정값으로 단순화
+          paddingBottom: 30
         }}
-        showsVerticalScrollIndicator={false}  // ✅ 스크롤바 숨김 (선택사항)
+        showsVerticalScrollIndicator={false}
       >
         <View style={[styles.section, { backgroundColor: colors.card, shadowColor: colorScheme === 'dark' ? 'transparent' : '#000' }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>오늘 일정</Text>
@@ -381,7 +441,6 @@ export default function HomeScreen() {
           
           {todayEvents.length > 0 ? (
             todayEvents.map((calendarEvent: CalendarEvent) => {
-              // ✅ groups에서 그룹 정보 찾기
               const group = groups.find(g => g.id === calendarEvent.groupId);
               return (
                 <View key={calendarEvent.id} style={[styles.eventCard, { backgroundColor: colors.eventCardBackground }]}>
@@ -417,7 +476,6 @@ export default function HomeScreen() {
           
           {upcomingEvents.length > 0 ? (
             upcomingEvents.map((calendarEvent: CalendarEvent) => {
-              // ✅ groups에서 그룹 정보 찾기
               const group = groups.find(g => g.id === calendarEvent.groupId);
               return (
                 <View key={calendarEvent.id} style={[styles.eventCard, { backgroundColor: colors.eventCardBackground }]}>
@@ -454,14 +512,13 @@ export default function HomeScreen() {
         onClose={handleCloseUpdatePopup}
       />   
 
-      {/* 프로필 모달 - 기존 코드 유지 */}
+      {/* 프로필 모달 */}
       <Modal
         visible={profileModalVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setProfileModalVisible(false)}
       >
-        {/* 모달 내용은 기존과 동일 */}
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>프로필 수정</Text>
@@ -562,7 +619,6 @@ export default function HomeScreen() {
 
 // styles는 기존과 동일
 const styles = StyleSheet.create({
-  // ... 기존 스타일 모두 유지
   container: {
     flex: 1,
   },

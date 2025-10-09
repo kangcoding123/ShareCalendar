@@ -17,6 +17,7 @@ import { doc, setDoc, getDoc, deleteDoc, collection, query, where, getDocs, writ
 import { clearEventSubscriptions } from '../services/calendarService';
 import { cacheService } from '../services/cacheService';
 import * as Notifications from 'expo-notifications';
+import NetInfo from '@react-native-community/netinfo';  // ✅ 추가
 
 // 사용자 타입 정의
 interface UserData {
@@ -71,6 +72,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // login 함수 (변경 없음)
   const login = async (email: string, password: string) => {
     try {
       setError(null);
@@ -86,7 +88,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           lastLoginAt: new Date().toISOString()
         }, { merge: true });
         
-        // 푸시 토큰 등록 (수정됨)
+        // 푸시 토큰 등록 (기존 코드 유지)
         try {
           console.log('푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
           
@@ -106,13 +108,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             
             console.log('푸시 토큰 생성 성공:', token.data);
             
-            // ✅ 새로 추가: 이 토큰을 가진 다른 사용자 찾기
             const usersWithToken = await getDocs(
               query(collection(db, 'users'), 
               where('pushToken', '==', token.data))
             );
             
-            // ✅ 새로 추가: 다른 사용자의 토큰 제거
             for (const userDoc of usersWithToken.docs) {
               if (userDoc.id !== userCredential.user.uid) {
                 await updateDoc(userDoc.ref, { 
@@ -123,7 +123,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               }
             }
             
-            // 현재 사용자에게 토큰 할당
             await updateDoc(doc(db, 'users', userCredential.user.uid), {
               pushToken: token.data,
               tokenUpdatedAt: new Date().toISOString()
@@ -135,7 +134,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           }
         } catch (tokenError) {
           console.error('푸시 토큰 등록 오류:', tokenError);
-          // 토큰 등록 실패해도 로그인은 계속 진행
         }
         
       } else {
@@ -160,7 +158,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // register 함수 (변경 없음 - 기존 코드 유지)
   const register = async (email: string, password: string, displayName: string) => {
+    // ... 기존 코드 그대로 유지
     try {
       setError(null);
       setLoading(true);
@@ -181,7 +181,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       setUser(userData);
       
-      // ✨ 새로 추가: 회원가입 직후 푸시 토큰 등록 (login 함수와 동일한 코드)
+      // 푸시 토큰 등록 부분도 유지
       try {
         console.log('회원가입 - 푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
         
@@ -201,13 +201,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           
           console.log('푸시 토큰 생성 성공:', token.data);
           
-          // 이 토큰을 가진 다른 사용자 찾기
           const usersWithToken = await getDocs(
             query(collection(db, 'users'), 
             where('pushToken', '==', token.data))
           );
           
-          // 다른 사용자의 토큰 제거
           for (const userDoc of usersWithToken.docs) {
             if (userDoc.id !== userCredential.user.uid) {
               await updateDoc(userDoc.ref, { 
@@ -218,7 +216,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
           }
           
-          // 현재 사용자에게 토큰 할당
           await updateDoc(doc(db, 'users', userCredential.user.uid), {
             pushToken: token.data,
             tokenUpdatedAt: new Date().toISOString()
@@ -230,9 +227,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       } catch (tokenError) {
         console.error('회원가입 - 푸시 토큰 등록 오류:', tokenError);
-        // 토큰 등록 실패해도 회원가입은 계속 진행
       }
-      // ✨ 추가 끝
       
       await setDoc(doc(db, 'groups', `personal_${userCredential.user.uid}`), {
         name: '개인 캘린더',
@@ -260,11 +255,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // logout, resetPassword, updateUserProfile, deleteAccount 함수들 (변경 없음)
   const logout = async () => {
     try {
       setLoading(true);
       
-      // ✅ 새로 추가: 로그아웃 시 토큰 제거
       if (user?.uid) {
         await updateDoc(doc(db, 'users', user.uid), {
           pushToken: null,
@@ -419,33 +414,105 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
   };
 
+  // ✅ 핵심 수정: onAuthStateChanged with 타임아웃 및 네트워크 체크
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let authTimeout: NodeJS.Timeout;
+    let isHandled = false;
+    
+    // ✅ 1. 네트워크 상태 먼저 확인
+    const checkNetworkAndAuth = async () => {
       try {
-        if (firebaseUser) {
-          const userData = await fetchUserData(firebaseUser.uid);
-          if (userData) {
-            setUser(userData);
+        const netState = await NetInfo.fetch();
+        console.log('[Auth] 네트워크 상태:', netState.isConnected ? '온라인' : '오프라인');
+        
+        // 오프라인이거나 인터넷 연결 불가능한 경우
+        if (!netState.isConnected || !netState.isInternetReachable) {
+          console.log('[Auth] 오프라인 감지 - 캐시된 사용자 정보 사용');
+          
+          // Firebase Auth의 로컬 캐시 확인
+          if (auth.currentUser) {
+            const cachedUser = formatUserData(auth.currentUser);
+            setUser(cachedUser);
+            console.log('[Auth] 캐시된 사용자 발견:', cachedUser.email);
           } else {
-            const newUserData = formatUserData(firebaseUser);
-            await setDoc(doc(db, 'users', firebaseUser.uid), {
-              ...newUserData,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            });
-            setUser(newUserData);
+            console.log('[Auth] 캐시된 사용자 없음');
+            setUser(null);
           }
+          
+          setLoading(false);
+          isHandled = true;
+        }
+      } catch (error) {
+        console.error('[Auth] 네트워크 상태 확인 실패:', error);
+      }
+    };
+    
+    // 네트워크 체크 시작
+    checkNetworkAndAuth();
+    
+    // ✅ 2. 3초 타임아웃 설정 (네트워크는 있지만 느린 경우 대비)
+    authTimeout = setTimeout(() => {
+      if (!isHandled && loading) {
+        console.log('[Auth] 인증 타임아웃 (3초) - 캐시 사용으로 전환');
+        
+        if (auth.currentUser) {
+          const cachedUser = formatUserData(auth.currentUser);
+          setUser(cachedUser);
+          console.log('[Auth] 타임아웃 후 캐시 사용자:', cachedUser.email);
         } else {
           setUser(null);
         }
+        
+        setLoading(false);
+        isHandled = true;
+      }
+    }, 3000);
+    
+    // ✅ 3. Firebase Auth 리스너 (기존 로직)
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      // 이미 처리됐으면 무시
+      if (isHandled) {
+        console.log('[Auth] 이미 처리됨 - onAuthStateChanged 응답 무시');
+        return;
+      }
+      
+      clearTimeout(authTimeout);
+      
+      try {
+        if (firebaseUser) {
+          console.log('[Auth] Firebase 사용자 확인:', firebaseUser.email);
+          
+          // 먼저 빠르게 로컬 사용자 설정
+          setUser(formatUserData(firebaseUser));
+          
+          // Firestore에서 추가 정보 가져오기 (비동기)
+          fetchUserData(firebaseUser.uid)
+            .then(userData => {
+              if (userData) {
+                setUser(userData);
+                console.log('[Auth] Firestore 사용자 정보 업데이트 완료');
+              }
+            })
+            .catch(error => {
+              console.log('[Auth] Firestore 접근 실패 (오프라인?):', error);
+            });
+        } else {
+          console.log('[Auth] 사용자 없음 - 로그아웃 상태');
+          setUser(null);
+        }
       } catch (error) {
-        console.error('인증 상태 변경 처리 오류:', error);
+        console.error('[Auth] 인증 상태 변경 처리 오류:', error);
       } finally {
         setLoading(false);
+        isHandled = true;
       }
     });
 
-    return () => unsubscribe();
+    // ✅ 4. 클린업
+    return () => {
+      clearTimeout(authTimeout);
+      unsubscribe();
+    };
   }, []);
 
   const value = {

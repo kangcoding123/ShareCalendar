@@ -2,7 +2,7 @@
   "expo": {
     "name": "WE:IN",
     "slug": "ShareCalendar",
-    "version": "1.2.13",
+    "version": "1.2.16",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weincalendar",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kangcoding.sharecalendar",
-      "buildNumber": "28",
+      "buildNumber": "34",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification"
@@ -25,7 +25,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.kangcoding.sharecalendar",
-      "versionCode": 28,
+      "versionCode": 34,
       "softwareKeyboardLayoutMode": "pan",
       "googleServicesFile": "./google-services.json",
       "permissions": [
@@ -48,6 +48,7 @@
           "android": {
             "kotlinVersion": "1.9.0",
             "kspVersion": "1.9.0-1.0.13",
+            "ndkVersion": "27.1.12297006",
             "packagingOptions": {
               "pickFirst": ["**/libc++_shared.so"]
             },
