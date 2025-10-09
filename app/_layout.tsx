@@ -9,7 +9,8 @@ import { Platform, StatusBar as RNStatusBar, NativeModules, AppState, AppStateSt
 import * as Notifications from 'expo-notifications'; 
 import Constants from 'expo-constants';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context'; // 추가
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import analytics from '@react-native-firebase/analytics';  // ✅ 추가
 
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { EventProvider } from '../context/EventContext';
@@ -20,7 +21,7 @@ import UpdatePopup from '../components/UpdatePopup';
 import { checkForUpdates } from '../services/updateService';
 import { initializeAdConfig } from '../services/adConfigService';
 
-// 알림 채널 생성 함수
+// Create notification channel
 const createNotificationChannel = () => {
   if (Platform.OS === 'android') {
     Notifications.setNotificationChannelAsync('default', {
@@ -32,7 +33,7 @@ const createNotificationChannel = () => {
   }
 };
 
-// 알림 핸들러 설정
+// Set notification handler
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -44,7 +45,7 @@ Notifications.setNotificationHandler({
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-// 인증 상태에 따른 라우팅 처리를 위한 컴포넌트
+// Component for handling routing based on auth state
 function RootLayoutNav() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
@@ -60,37 +61,66 @@ function RootLayoutNav() {
   const [requiredUpdate, setRequiredUpdate] = useState(false);
   const [versionInfo, setVersionInfo] = useState<any>(null);
   
-  // 🚀 최적화: 앱 시작 시 병렬 초기화 (타입 오류 수정)
+  // ✅ Firebase Analytics 초기화
+  useEffect(() => {
+    // App open event
+    analytics().logAppOpen();
+    console.log('[Analytics] Firebase Analytics initialized');
+    
+    // Set user ID if logged in
+    if (user?.uid) {
+      analytics().setUserId(user.uid);
+      console.log('[Analytics] User ID set:', user.uid);
+    }
+  }, [user]);
+  
+  // ✅ 화면 전환 추적
+  useEffect(() => {
+    if (segments.length > 0) {
+      const screenName = segments.join('/');
+      analytics().logScreenView({
+        screen_name: screenName,
+        screen_class: segments[0] || 'unknown'
+      });
+      console.log('[Analytics] Screen view tracked:', screenName);
+    }
+  }, [segments]);
+  
+  // Parallel initialization on app start
   useEffect(() => {
     if (authLoading) return;
     
-    // 🚀 각각 비동기로 실행 (병렬 처리)
     const initializeApp = async () => {
-      // 버전 체크 (독립적으로 실행)
+      // Version check (run independently)
       checkForUpdates().then(result => {
         if (result && result.updateAvailable) {
           setUpdateAvailable(true);
           setRequiredUpdate(result.requiredUpdate);
           setVersionInfo(result.versionInfo);
-          console.log('업데이트가 필요합니다:', result.versionInfo);
+          console.log('Update required:', result.versionInfo);
         } else {
-          console.log('앱이 최신 버전입니다');
+          console.log('App is up to date');
         }
       }).catch(err => {
-        console.log('버전 체크 실패 (무시):', err);
+        console.log('Version check failed (ignored):', err);
       });
       
-      // 광고 초기화 (독립적으로 실행)
+      // Ad initialization (run independently)
       initializeAdConfig().then(success => {
         if (success) {
-          console.log('광고 설정 초기화 완료');
+          console.log('Ad config initialized');
         }
       }).catch(err => {
-        console.log('광고 초기화 실패 (무시):', err);
+        console.log('Ad initialization failed (ignored):', err);
+      });
+      
+      // ✅ Analytics 세션 시작
+      analytics().logEvent('session_start', {
+        timestamp: new Date().toISOString()
       });
     };
     
-    // 🚀 비동기로 실행 (메인 스레드 블록하지 않음)
+    // Run async (don't block main thread)
     requestAnimationFrame(() => {
       initializeApp();
     });
@@ -108,10 +138,10 @@ function RootLayoutNav() {
       
       try {
         if (NativeModules.StatusBarManager && Platform.Version >= 21) {
-          console.log('Android API 레벨 21 이상, 네비게이션 바는 앱 테마에 따라 설정됩니다');
+          console.log('Android API level 21+, navigation bar follows app theme');
         }
       } catch (error) {
-        console.error('내비게이션 바 처리 중 오류:', error);
+        console.error('Navigation bar error:', error);
       }
     }
     
@@ -132,12 +162,22 @@ function RootLayoutNav() {
   useEffect(() => {
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
       const data = notification.request.content.data;
-      console.log('알림 수신됨:', data);
+      console.log('Notification received:', data);
+      
+      // ✅ Analytics: 알림 수신 추적
+      analytics().logEvent('notification_receive', {
+        type: data.type || 'unknown'
+      });
     });
     
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
-      console.log('알림 응답 수신됨:', data);
+      console.log('Notification response:', data);
+      
+      // ✅ Analytics: 알림 클릭 추적
+      analytics().logEvent('notification_open', {
+        type: data.type || 'unknown'
+      });
       
       if (data.type === 'new_event' || data.type === 'update_event') {
         if (data.groupId && data.date) {
@@ -156,7 +196,12 @@ function RootLayoutNav() {
         nextAppState === 'active' &&
         isAuthenticated
       ) {
-        console.log('앱이 포그라운드로 돌아옴 - 데이터 새로고침 필요');
+        console.log('App returned to foreground - data refresh needed');
+        
+        // ✅ Analytics: 앱 포그라운드 복귀
+        analytics().logEvent('app_foreground', {
+          previous_state: appState.current
+        });
       }
       
       appState.current = nextAppState;
