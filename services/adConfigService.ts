@@ -1,6 +1,5 @@
 // services/adConfigService.ts
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { nativeDb } from '../config/firebase';
 
 // 광고 설정 타입 정의
 export interface AdConfig {
@@ -14,14 +13,14 @@ export interface AdConfig {
 // 광고 설정 초기화 함수
 export const initializeAdConfig = async (): Promise<boolean> => {
   try {
-    const adConfigRef = doc(db, 'app_config', 'ad_settings');
+    const adConfigRef = nativeDb.collection('app_config').doc('ad_settings');
     
     // 기존 문서가 있는지 확인
-    const docSnap = await getDoc(adConfigRef);
+    const docSnap = await adConfigRef.get();
     
-    if (!docSnap.exists()) {
+    if (!(docSnap as any).exists) {  // Native SDK에서는 속성
       // 문서가 없으면 새로 생성
-      await setDoc(adConfigRef, {
+      await adConfigRef.set({
         ios_banner_unit_id: 'ca-app-pub-7310506169021656/3493072152',      // iOS용 ID
         android_banner_unit_id: 'ca-app-pub-7310506169021656/1974323964',  // Android용 ID
         ad_enabled: true,
@@ -45,10 +44,10 @@ export const getAdConfig = async (): Promise<{
   error?: any;
 }> => {
   try {
-    const adConfigRef = doc(db, 'app_config', 'ad_settings');
-    const docSnap = await getDoc(adConfigRef);
+    const adConfigRef = nativeDb.collection('app_config').doc('ad_settings');
+    const docSnap = await adConfigRef.get();
     
-    if (docSnap.exists()) {
+    if ((docSnap as any).exists) {  // Native SDK에서는 속성
       return {
         success: true,
         config: docSnap.data() as AdConfig
@@ -58,10 +57,11 @@ export const getAdConfig = async (): Promise<{
       await initializeAdConfig();
       
       // 다시 가져오기
-      const newDocSnap = await getDoc(adConfigRef);
+      const newDocSnap = await adConfigRef.get();
+      const exists = (newDocSnap as any).exists;  // Native SDK에서는 속성
       return {
-        success: newDocSnap.exists(),
-        config: newDocSnap.exists() ? newDocSnap.data() as AdConfig : undefined
+        success: exists,
+        config: exists ? newDocSnap.data() as AdConfig : undefined
       };
     }
   } catch (error) {
@@ -79,8 +79,8 @@ export const toggleAdEnabled = async (enabled: boolean): Promise<{
   error?: any;
 }> => {
   try {
-    const adConfigRef = doc(db, 'app_config', 'ad_settings');
-    await updateDoc(adConfigRef, {
+    const adConfigRef = nativeDb.collection('app_config').doc('ad_settings');
+    await adConfigRef.update({
       ad_enabled: enabled,
       updated_at: new Date().toISOString()
     });
@@ -98,8 +98,8 @@ export const setTestMode = async (testMode: boolean): Promise<{
   error?: any;
 }> => {
   try {
-    const adConfigRef = doc(db, 'app_config', 'ad_settings');
-    await updateDoc(adConfigRef, {
+    const adConfigRef = nativeDb.collection('app_config').doc('ad_settings');
+    await adConfigRef.update({
       test_mode: testMode,
       updated_at: new Date().toISOString()
     });

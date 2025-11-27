@@ -3,13 +3,12 @@ import React, { useEffect, useState, memo, useRef } from 'react';
 import { View, StyleSheet, Platform, Text } from 'react-native';
 import { getAdConfig } from '../services/adConfigService';
 
-// 정적 import로 변경 - Metro 번들러가 인식할 수 있도록
+// AdMob 모듈 import
 let BannerAd: any = null;
 let BannerAdSize: any = null;
 let TestIds: any = null;
 let MobileAds: any = null;
 
-// try-catch로 안전하게 import
 try {
   const admobModule = require('react-native-google-mobile-ads');
   BannerAd = admobModule.BannerAd;
@@ -20,17 +19,11 @@ try {
   console.log('AdMob module not available:', error);
 }
 
-// 애드몹 광고 ID
-const adUnitIds = {
-  ios: 'ca-app-pub-7310506169021656/3493072152',
-  android: 'ca-app-pub-7310506169021656/1974323964',
-};
-
 interface AdMobBannerProps {
   size?: 'banner' | 'largeBanner';
 }
 
-// 초기화 상태를 전역으로 관리
+// 초기화 상태 전역 관리
 let isAdMobInitialized = false;
 let initializationPromise: Promise<void> | null = null;
 
@@ -51,7 +44,6 @@ const initializeAdMob = async () => {
     })
     .catch((error: any) => {
       console.error('AdMob initialization error:', error);
-      // 초기화 실패해도 앱은 계속 동작하도록
       isAdMobInitialized = false;
     });
   
@@ -59,60 +51,69 @@ const initializeAdMob = async () => {
 };
 
 const AdMobBanner = memo(({ size = 'banner' }: AdMobBannerProps) => {
-  const [isEnabled, setIsEnabled] = useState(true);
-  const [isTestMode, setIsTestMode] = useState(__DEV__);
-  const [adError, setAdError] = useState(false);
-  const [customAdUnitId, setCustomAdUnitId] = useState<string | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  // 1️⃣ 기본값으로 즉시 시작
+  const [adUnitId, setAdUnitId] = useState(() => {
+    return Platform.select({
+      ios: 'ca-app-pub-7310506169021656/3493072152',
+      android: 'ca-app-pub-7310506169021656/1974323964',
+    });
+  });
   
-  const isInitialized = useRef(false);
+  const [isEnabled, setIsEnabled] = useState(true);
+  const [adError, setAdError] = useState(false);
+  const [isTestMode, setIsTestMode] = useState(__DEV__);
+  
+  const hasCheckedFirebase = useRef(false);
 
   useEffect(() => {
-    const setup = async () => {
-      if (!isInitialized.current) {
-        isInitialized.current = true;
-        
-        // AdMob 초기화 (프로덕션에서만)
-        if (!__DEV__ && MobileAds) {
-          await initializeAdMob();
-        }
-        
-        // 광고 설정 로드
-        await loadAdConfig();
-        
-        setIsReady(true);
-      }
-    };
+    // AdMob 초기화 (프로덕션에서만)
+    if (!__DEV__ && MobileAds) {
+      initializeAdMob();
+    }
     
-    setup();
+    // 2️⃣ 백그라운드에서 Firebase 체크
+    if (!hasCheckedFirebase.current) {
+      hasCheckedFirebase.current = true;
+      checkFirebaseConfig();
+    }
   }, []);
 
-  const loadAdConfig = async () => {
+  const checkFirebaseConfig = async () => {
     try {
+      // 약간의 지연 후 Firebase 조회 (광고 로드 우선순위)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
       const result = await getAdConfig();
       if (result.success && result.config) {
-        setIsEnabled(result.config.ad_enabled);
-        setIsTestMode(result.config.test_mode);
+        console.log('Firebase 광고 설정 로드 완료');
         
-        if (result.config.ios_banner_unit_id || result.config.android_banner_unit_id) {
-          const platformId = Platform.select({
-            ios: result.config.ios_banner_unit_id,
-            android: result.config.android_banner_unit_id,
-          });
-          
-          if (platformId) {
-            setCustomAdUnitId(platformId);
-          }
+        // 광고 활성화 상태 체크
+        if (!result.config.ad_enabled) {
+          console.log('광고가 비활성화되어 있음');
+          setIsEnabled(false);
+        }
+        
+        // 테스트 모드 체크
+        setIsTestMode(result.config.test_mode || __DEV__);
+        
+        // 커스텀 광고 ID가 있으면 업데이트
+        const customId = Platform.select({
+          ios: result.config.ios_banner_unit_id,
+          android: result.config.android_banner_unit_id,
+        });
+        
+        if (customId && customId !== adUnitId) {
+          console.log('광고 ID 업데이트:', customId);
+          setAdUnitId(customId);
         }
       }
     } catch (error) {
-      console.error('광고 설정 로드 오류:', error);
-      setIsEnabled(true);
-      setIsTestMode(__DEV__);
+      // Firebase 조회 실패해도 기본값으로 계속 작동
+      console.log('Firebase 조회 실패, 기본 설정 유지');
     }
   };
 
-  // 개발 환경에서는 플레이스홀더 표시
+  // 개발 환경에서는 플레이스홀더
   if (__DEV__) {
     return (
       <View style={[styles.container, styles.placeholder]}>
@@ -121,48 +122,45 @@ const AdMobBanner = memo(({ size = 'banner' }: AdMobBannerProps) => {
     );
   }
 
-  // AdMob 모듈이 없거나 초기화 전이면 표시하지 않음
-  if (!BannerAd || !isReady) {
-    return null;
+  // AdMob 모듈이 없으면 빈 공간 유지
+  if (!BannerAd) {
+    return <View style={[styles.container, { height: 60 }]} />;
   }
 
-  // 광고가 비활성화되거나 에러가 있으면 표시하지 않음
-  if (!isEnabled || adError) {
-    return null;
+  // 광고 비활성화면 빈 공간 유지
+  if (!isEnabled) {
+    return <View style={[styles.container, { height: 60 }]} />;
   }
 
-  // 광고 ID 결정
-  const unitId = isTestMode 
-    ? TestIds?.BANNER || 'ca-app-pub-3940256099942544/6300978111' // 기본 테스트 ID
-    : customAdUnitId || Platform.select({
-        ios: adUnitIds.ios,
-        android: adUnitIds.android,
-      }) || adUnitIds.android;
-
-  try {
-    return (
-      <View style={styles.container}>
-        <BannerAd
-          unitId={unitId}
-          size={BannerAdSize?.ANCHORED_ADAPTIVE_BANNER || 'ANCHORED_ADAPTIVE_BANNER'}
-          requestOptions={{
-            requestNonPersonalizedAdsOnly: true,
-          }}
-          onAdLoaded={() => {
-            console.log('광고 로드 완료');
-            setAdError(false);
-          }}
-          onAdFailedToLoad={(error: any) => {
-            console.error('광고 로드 실패:', error);
-            setAdError(true);
-          }}
-        />
-      </View>
-    );
-  } catch (error) {
-    console.error('광고 렌더링 오류:', error);
-    return null;
+  // 광고 오류 시 빈 공간 유지
+  if (adError) {
+    return <View style={[styles.container, { height: 60 }]} />;
   }
+
+  // 테스트 모드 체크
+  const finalAdUnitId = isTestMode 
+    ? (TestIds?.BANNER || 'ca-app-pub-3940256099942544/6300978111')
+    : adUnitId;
+
+  return (
+    <View style={[styles.container, { minHeight: 60 }]}>
+      <BannerAd
+        unitId={finalAdUnitId}
+        size={BannerAdSize?.ANCHORED_ADAPTIVE_BANNER || 'ANCHORED_ADAPTIVE_BANNER'}
+        requestOptions={{
+          requestNonPersonalizedAdsOnly: true,
+        }}
+        onAdLoaded={() => {
+          console.log('광고 로드 완료');
+          setAdError(false);
+        }}
+        onAdFailedToLoad={(error: any) => {
+          console.error('광고 로드 실패:', error);
+          setAdError(true);
+        }}
+      />
+    </View>
+  );
 });
 
 AdMobBanner.displayName = 'AdMobBanner';
@@ -175,7 +173,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   placeholder: {
-    height: 50,
+    height: 60,
     backgroundColor: '#f0f0f0',
     justifyContent: 'center',
     alignItems: 'center',

@@ -1,15 +1,5 @@
 // services/inviteService.ts
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  updateDoc,
-  doc,
-  getDoc,
-  addDoc
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { nativeDb } from '../config/firebase';
 import { Group } from './groupService';
 import { isUserBannedFromGroup } from './bannedUserUtils'; // ✅ 새 파일에서 import
 
@@ -59,12 +49,11 @@ const generateInviteCode = (): string => {
  */
 const isInviteCodeExists = async (code: string): Promise<boolean> => {
   try {
-    const groupsQuery = query(
-      collection(db, 'groups'),
-      where('inviteCode', '==', code)
-    );
+    const snapshot = await nativeDb
+      .collection('groups')
+      .where('inviteCode', '==', code)
+      .get();
     
-    const snapshot = await getDocs(groupsQuery);
     return !snapshot.empty;
   } catch (error) {
     console.error('초대 코드 중복 확인 오류:', error);
@@ -104,17 +93,16 @@ export const createUniqueInviteCode = async (): Promise<string> => {
 export const generateInviteForGroup = async (groupId: string): Promise<InviteResult> => {
   try {
     // 그룹 존재 확인
-    const groupRef = doc(db, 'groups', groupId);
-    const groupDoc = await getDoc(groupRef);
+    const groupDoc = await nativeDb.collection('groups').doc(groupId).get();
     
-    if (!groupDoc.exists()) {
+    if (!(groupDoc as any).exists) {  // Native SDK에서는 속성
       return { success: false, error: '그룹을 찾을 수 없습니다.' };
     }
     
     const groupData = groupDoc.data();
     
     // 이미 초대 코드가 있는지 확인
-    if (groupData.inviteCode) {
+    if (groupData?.inviteCode) {
       return {
         success: true,
         inviteCode: groupData.inviteCode,
@@ -127,7 +115,7 @@ export const generateInviteForGroup = async (groupId: string): Promise<InviteRes
     const inviteLink = `weincalendar://invite/${inviteCode}`;
     
     // 그룹 문서 업데이트
-    await updateDoc(groupRef, {
+    await nativeDb.collection('groups').doc(groupId).update({
       inviteCode,
       inviteLink,
       inviteCreatedAt: new Date().toISOString()
@@ -156,12 +144,10 @@ export const findGroupByInviteCode = async (inviteCode: string): Promise<InviteR
     // 대소문자 구분 없이 검색하기 위해 대문자로 변환
     const normalizedCode = inviteCode.toUpperCase().trim();
     
-    const groupsQuery = query(
-      collection(db, 'groups'),
-      where('inviteCode', '==', normalizedCode)
-    );
-    
-    const snapshot = await getDocs(groupsQuery);
+    const snapshot = await nativeDb
+      .collection('groups')
+      .where('inviteCode', '==', normalizedCode)
+      .get();
     
     if (snapshot.empty) {
       return { success: false, error: '유효하지 않은 초대 코드입니다.' };
@@ -174,10 +160,10 @@ export const findGroupByInviteCode = async (inviteCode: string): Promise<InviteR
       success: true,
       group: {
         id: groupDoc.id,
-        name: groupData.name,
-        description: groupData.description,
-        createdBy: groupData.createdBy,
-        memberCount: groupData.memberCount,
+        name: groupData?.name,
+        description: groupData?.description,
+        createdBy: groupData?.createdBy,
+        memberCount: groupData?.memberCount,
         ...groupData
       } as Group
     };
@@ -216,20 +202,18 @@ export const joinGroupWithInviteCode = async (
     }
     
     // 이미 멤버인지 확인
-    const membersQuery = query(
-      collection(db, 'groupMembers'),
-      where('groupId', '==', group.id),
-      where('userId', '==', userId)
-    );
-    
-    const memberSnapshot = await getDocs(membersQuery);
+    const memberSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('groupId', '==', group.id)
+      .where('userId', '==', userId)
+      .get();
     
     if (!memberSnapshot.empty) {
       return { success: false, error: '이미 이 그룹의 멤버입니다.' };
     }
     
     // 그룹 멤버로 추가
-    await addDoc(collection(db, 'groupMembers'), {
+    await nativeDb.collection('groupMembers').add({
       groupId: group.id,
       userId,
       email: userEmail,
@@ -240,17 +224,18 @@ export const joinGroupWithInviteCode = async (
     });
     
     // 멤버 수 업데이트
-    const groupRef = doc(db, 'groups', group.id);
     const currentCount = group.memberCount || 0;
     
-    await updateDoc(groupRef, {
+    await nativeDb.collection('groups').doc(group.id).update({
       memberCount: currentCount + 1,
       lastJoinedAt: new Date().toISOString()
     });
     
     // 초대 사용 횟수 업데이트 (선택사항)
-    const usageCount = (await getDoc(groupRef)).data()?.inviteUsageCount || 0;
-    await updateDoc(groupRef, {
+    const updatedGroupDoc = await nativeDb.collection('groups').doc(group.id).get();
+    const usageCount = updatedGroupDoc.data()?.inviteUsageCount || 0;
+    
+    await nativeDb.collection('groups').doc(group.id).update({
       inviteUsageCount: usageCount + 1
     });
     
@@ -303,19 +288,18 @@ export const getInviteStats = async (groupId: string): Promise<{
   createdAt?: string;
 }> => {
   try {
-    const groupRef = doc(db, 'groups', groupId);
-    const groupDoc = await getDoc(groupRef);
+    const groupDoc = await nativeDb.collection('groups').doc(groupId).get();
     
-    if (!groupDoc.exists()) {
+    if (!(groupDoc as any).exists) {  // Native SDK에서는 속성
       return { usageCount: 0 };
     }
     
     const data = groupDoc.data();
     
     return {
-      inviteCode: data.inviteCode,
-      usageCount: data.inviteUsageCount || 0,
-      createdAt: data.inviteCreatedAt
+      inviteCode: data?.inviteCode,
+      usageCount: data?.inviteUsageCount || 0,
+      createdAt: data?.inviteCreatedAt
     };
   } catch (error) {
     console.error('초대 통계 조회 오류:', error);

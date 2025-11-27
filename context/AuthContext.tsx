@@ -1,23 +1,12 @@
 // context/AuthContext.tsx
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-import { 
-  User,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-  updateProfile,
-  sendPasswordResetEmail,
-  deleteUser as firebaseDeleteUser,
-  EmailAuthProvider,
-  reauthenticateWithCredential
-} from 'firebase/auth';
-import { auth, db } from '../config/firebase';
-import { doc, setDoc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
+import auth from '@react-native-firebase/auth';
+import type { FirebaseAuthTypes } from '@react-native-firebase/auth';
+import { nativeDb } from '../config/firebase';
 import { clearEventSubscriptions } from '../services/calendarService';
 import { cacheService } from '../services/cacheService';
 import * as Notifications from 'expo-notifications';
-import NetInfo from '@react-native-community/netinfo';  // ✅ 추가
+import NetInfo from '@react-native-community/netinfo';
 
 // 사용자 타입 정의
 interface UserData {
@@ -50,7 +39,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const formatUserData = (firebaseUser: User): UserData => {
+  const formatUserData = (firebaseUser: FirebaseAuthTypes.User): UserData => {
     return {
       uid: firebaseUser.uid,
       email: firebaseUser.email,
@@ -61,8 +50,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchUserData = async (uid: string): Promise<UserData | null> => {
     try {
-      const userDoc = await getDoc(doc(db, 'users', uid));
-      if (userDoc.exists()) {
+      const userDoc = await nativeDb.collection('users').doc(uid).get();
+      if ((userDoc as any).exists) {
         return { uid, ...userDoc.data() } as UserData;
       }
       return null;
@@ -72,23 +61,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // login 함수 (변경 없음)
   const login = async (email: string, password: string) => {
     try {
       setError(null);
       setLoading(true);
       
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await auth().signInWithEmailAndPassword(email, password);
       const userData = await fetchUserData(userCredential.user.uid);
       
       if (userData) {
         setUser(userData);
         
-        await setDoc(doc(db, 'users', userCredential.user.uid), {
+        await nativeDb.collection('users').doc(userCredential.user.uid).set({
           lastLoginAt: new Date().toISOString()
         }, { merge: true });
         
-        // 푸시 토큰 등록 (기존 코드 유지)
+        // 푸시 토큰 등록
         try {
           console.log('푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
           
@@ -108,14 +96,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             
             console.log('푸시 토큰 생성 성공:', token.data);
             
-            const usersWithToken = await getDocs(
-              query(collection(db, 'users'), 
-              where('pushToken', '==', token.data))
-            );
+            const usersWithToken = await nativeDb.collection('users')
+              .where('pushToken', '==', token.data)
+              .get();
             
             for (const userDoc of usersWithToken.docs) {
               if (userDoc.id !== userCredential.user.uid) {
-                await updateDoc(userDoc.ref, { 
+                await nativeDb.collection('users').doc(userDoc.id).update({ 
                   pushToken: null,
                   tokenRemovedAt: new Date().toISOString()
                 });
@@ -123,7 +110,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               }
             }
             
-            await updateDoc(doc(db, 'users', userCredential.user.uid), {
+            await nativeDb.collection('users').doc(userCredential.user.uid).update({
               pushToken: token.data,
               tokenUpdatedAt: new Date().toISOString()
             });
@@ -158,16 +145,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // register 함수 (변경 없음 - 기존 코드 유지)
   const register = async (email: string, password: string, displayName: string) => {
-    // ... 기존 코드 그대로 유지
     try {
       setError(null);
       setLoading(true);
       
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await auth().createUserWithEmailAndPassword(email, password);
       
-      await updateProfile(userCredential.user, { displayName });
+      await userCredential.user.updateProfile({ displayName });
       
       const userData: UserData = {
         uid: userCredential.user.uid,
@@ -177,11 +162,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         updatedAt: new Date().toISOString()
       };
       
-      await setDoc(doc(db, 'users', userCredential.user.uid), userData);
+      await nativeDb.collection('users').doc(userCredential.user.uid).set(userData);
       
       setUser(userData);
       
-      // 푸시 토큰 등록 부분도 유지
+      // 푸시 토큰 등록
       try {
         console.log('회원가입 - 푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
         
@@ -201,14 +186,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           
           console.log('푸시 토큰 생성 성공:', token.data);
           
-          const usersWithToken = await getDocs(
-            query(collection(db, 'users'), 
-            where('pushToken', '==', token.data))
-          );
+          const usersWithToken = await nativeDb.collection('users')
+            .where('pushToken', '==', token.data)
+            .get();
           
           for (const userDoc of usersWithToken.docs) {
             if (userDoc.id !== userCredential.user.uid) {
-              await updateDoc(userDoc.ref, { 
+              await nativeDb.collection('users').doc(userDoc.id).update({ 
                 pushToken: null,
                 tokenRemovedAt: new Date().toISOString()
               });
@@ -216,7 +200,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
           }
           
-          await updateDoc(doc(db, 'users', userCredential.user.uid), {
+          await nativeDb.collection('users').doc(userCredential.user.uid).update({
             pushToken: token.data,
             tokenUpdatedAt: new Date().toISOString()
           });
@@ -229,7 +213,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.error('회원가입 - 푸시 토큰 등록 오류:', tokenError);
       }
       
-      await setDoc(doc(db, 'groups', `personal_${userCredential.user.uid}`), {
+      await nativeDb.collection('groups').doc(`personal_${userCredential.user.uid}`).set({
         name: '개인 캘린더',
         type: 'personal',
         createdBy: userCredential.user.uid,
@@ -255,13 +239,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  // logout, resetPassword, updateUserProfile, deleteAccount 함수들 (변경 없음)
   const logout = async () => {
     try {
       setLoading(true);
       
       if (user?.uid) {
-        await updateDoc(doc(db, 'users', user.uid), {
+        await nativeDb.collection('users').doc(user.uid).update({
           pushToken: null,
           tokenRemovedAt: new Date().toISOString()
         });
@@ -275,7 +258,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       cacheService.cleanup();
       
-      await signOut(auth);
+      await auth().signOut();
       
       setUser(null);
       setError(null);
@@ -290,7 +273,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const resetPassword = async (email: string) => {
     try {
       setError(null);
-      await sendPasswordResetEmail(auth, email);
+      await auth().sendPasswordResetEmail(email);
     } catch (error: any) {
       console.error('비밀번호 재설정 오류:', error);
       
@@ -308,7 +291,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       setError(null);
       
-      if (!auth.currentUser) {
+      const currentUser = auth().currentUser;
+      if (!currentUser) {
         throw new Error('로그인이 필요합니다.');
       }
       
@@ -317,7 +301,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         updateData.photoURL = photoURL;
       }
       
-      await updateProfile(auth.currentUser, updateData);
+      await currentUser.updateProfile(updateData);
       
       const firestoreData: any = {
         displayName,
@@ -328,7 +312,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         firestoreData.photoURL = photoURL;
       }
       
-      await setDoc(doc(db, 'users', auth.currentUser.uid), firestoreData, { merge: true });
+      await nativeDb.collection('users').doc(currentUser.uid).set(firestoreData, { merge: true });
       
       if (user) {
         setUser({
@@ -349,48 +333,52 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setError(null);
       setLoading(true);
       
-      if (!auth.currentUser || !auth.currentUser.email) {
+      const currentUser = auth().currentUser;
+      if (!currentUser || !currentUser.email) {
         throw new Error('로그인이 필요합니다.');
       }
       
-      const credential = EmailAuthProvider.credential(
-        auth.currentUser.email,
+      const credential = auth.EmailAuthProvider.credential(
+        currentUser.email,
         password
       );
       
-      await reauthenticateWithCredential(auth.currentUser, credential);
+      await currentUser.reauthenticateWithCredential(credential);
       
-      const userId = auth.currentUser.uid;
+      const userId = currentUser.uid;
       
       clearEventSubscriptions();
       
       await cacheService.clearAllCache();
       
-      const batch = writeBatch(db);
+      const batch = nativeDb.batch();
       
-      batch.delete(doc(db, 'users', userId));
+      batch.delete(nativeDb.collection('users').doc(userId));
       
-      const groupsQuery = query(collection(db, 'groups'), where('createdBy', '==', userId));
-      const groupsSnapshot = await getDocs(groupsQuery);
+      const groupsSnapshot = await nativeDb.collection('groups')
+        .where('createdBy', '==', userId)
+        .get();
       groupsSnapshot.forEach((doc) => {
         batch.delete(doc.ref);
       });
       
-      const membershipsQuery = query(collection(db, 'groupMembers'), where('userId', '==', userId));
-      const membershipsSnapshot = await getDocs(membershipsQuery);
+      const membershipsSnapshot = await nativeDb.collection('groupMembers')
+        .where('userId', '==', userId)
+        .get();
       membershipsSnapshot.forEach((doc) => {
         batch.delete(doc.ref);
       });
       
-      const eventsQuery = query(collection(db, 'events'), where('userId', '==', userId));
-      const eventsSnapshot = await getDocs(eventsQuery);
+      const eventsSnapshot = await nativeDb.collection('events')
+        .where('userId', '==', userId)
+        .get();
       eventsSnapshot.forEach((doc) => {
         batch.delete(doc.ref);
       });
       
       await batch.commit();
       
-      await firebaseDeleteUser(auth.currentUser);
+      await currentUser.delete();
       
       setUser(null);
     } catch (error: any) {
@@ -414,24 +402,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
   };
 
-  // ✅ 핵심 수정: onAuthStateChanged with 타임아웃 및 네트워크 체크
   useEffect(() => {
     let authTimeout: NodeJS.Timeout;
     let isHandled = false;
     
-    // ✅ 1. 네트워크 상태 먼저 확인
     const checkNetworkAndAuth = async () => {
       try {
         const netState = await NetInfo.fetch();
         console.log('[Auth] 네트워크 상태:', netState.isConnected ? '온라인' : '오프라인');
         
-        // 오프라인이거나 인터넷 연결 불가능한 경우
         if (!netState.isConnected || !netState.isInternetReachable) {
           console.log('[Auth] 오프라인 감지 - 캐시된 사용자 정보 사용');
           
-          // Firebase Auth의 로컬 캐시 확인
-          if (auth.currentUser) {
-            const cachedUser = formatUserData(auth.currentUser);
+          const currentUser = auth().currentUser;
+          if (currentUser) {
+            const cachedUser = formatUserData(currentUser);
             setUser(cachedUser);
             console.log('[Auth] 캐시된 사용자 발견:', cachedUser.email);
           } else {
@@ -447,16 +432,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     };
     
-    // 네트워크 체크 시작
     checkNetworkAndAuth();
     
-    // ✅ 2. 3초 타임아웃 설정 (네트워크는 있지만 느린 경우 대비)
     authTimeout = setTimeout(() => {
       if (!isHandled && loading) {
         console.log('[Auth] 인증 타임아웃 (3초) - 캐시 사용으로 전환');
         
-        if (auth.currentUser) {
-          const cachedUser = formatUserData(auth.currentUser);
+        const currentUser = auth().currentUser;
+        if (currentUser) {
+          const cachedUser = formatUserData(currentUser);
           setUser(cachedUser);
           console.log('[Auth] 타임아웃 후 캐시 사용자:', cachedUser.email);
         } else {
@@ -468,9 +452,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     }, 3000);
     
-    // ✅ 3. Firebase Auth 리스너 (기존 로직)
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      // 이미 처리됐으면 무시
+    const unsubscribe = auth().onAuthStateChanged(async (firebaseUser) => {
       if (isHandled) {
         console.log('[Auth] 이미 처리됨 - onAuthStateChanged 응답 무시');
         return;
@@ -482,10 +464,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (firebaseUser) {
           console.log('[Auth] Firebase 사용자 확인:', firebaseUser.email);
           
-          // 먼저 빠르게 로컬 사용자 설정
           setUser(formatUserData(firebaseUser));
           
-          // Firestore에서 추가 정보 가져오기 (비동기)
           fetchUserData(firebaseUser.uid)
             .then(userData => {
               if (userData) {
@@ -508,7 +488,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     });
 
-    // ✅ 4. 클린업
     return () => {
       clearTimeout(authTimeout);
       unsubscribe();

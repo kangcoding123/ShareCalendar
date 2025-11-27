@@ -1,19 +1,12 @@
 // services/calendarService.ts (최적화 버전)
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  query, 
-  where, 
-  getDocs,
-  onSnapshot,
-  Unsubscribe,
-  getDoc
-} from 'firebase/firestore';
-import { db, auth } from '../config/firebase';
+import { nativeDb, auth } from '../config/firebase';
 import { sendGroupNotification } from './notificationService';
+// 🌟 알림 관련 함수들 import 추가
+import { 
+  scheduleEventNotification, 
+  cancelEventNotification,
+  rescheduleEventNotification 
+} from './notificationService';
 import { getDatesBetween } from '../utils/dateUtils';
 import { cacheService } from './cacheService';
 import { Platform } from 'react-native';
@@ -55,7 +48,7 @@ interface EventResult {
 const globalEventState = {
   events: [] as CalendarEvent[],
   callbacks: new Set<(events: CalendarEvent[]) => void>(),
-  subscription: null as Unsubscribe | null,
+  subscription: null as (() => void) | null,
   lastUserId: null as string | null,
   groupColors: new Map<string, string>(),
 };
@@ -98,239 +91,115 @@ const recentSubmissions = new Map<string, number>();
 export const clearEventSubscriptions = () => {
   console.log('[GlobalEvents] 모든 이벤트 구독 및 상태 초기화 시작');
   
+  // 구독 해제를 먼저 수행
   if (globalEventState.subscription) {
-    globalEventState.subscription();
+    try {
+      globalEventState.subscription();
+    } catch (error) {
+      console.error('[GlobalEvents] 구독 해제 오류:', error);
+    }
     globalEventState.subscription = null;
   }
   
+  // 모든 콜백 제거
+  globalEventState.callbacks.clear();
+  
+  // 상태 초기화
   globalEventState.events = [];
   globalEventState.lastUserId = null;
-  globalEventState.callbacks.clear();
   globalEventState.groupColors.clear();
   
+  // 이벤트 리스너 모두 해제
   eventListeners.forEach(unsubscribe => {
     if (typeof unsubscribe === 'function') {
-      unsubscribe();
+      try {
+        unsubscribe();
+      } catch (error) {
+        console.error('[GlobalEvents] 리스너 해제 오류:', error);
+      }
     }
   });
   eventListeners.clear();
   
-  recentSubmissions.clear();
+  // 캐시 삭제
   clearAllCache();
   
-  console.log('[GlobalEvents] 모든 이벤트 구독 및 상태 초기화 완료');
+  console.log('[GlobalEvents] 구독 및 캐시 초기화 완료');
 };
 
-// 그룹 색상 업데이트 함수
-export const updateGroupColorInMemory = (groupId: string, newColor: string) => {
-  console.log(`[updateGroupColorInMemory] 그룹 ${groupId} 색상을 ${newColor}로 변경`);
-  
-  globalEventState.groupColors.set(groupId, newColor);
-  
-  globalEventState.events = globalEventState.events.map(event => {
-    if (event.groupId === groupId) {
-      return { ...event, color: newColor };
-    }
-    return event;
-  });
-  
+// 그룹 색상 메모리 업데이트
+export const updateGroupColorInMemory = (groupId: string, color: string) => {
+  globalEventState.groupColors.set(groupId, color);
+  console.log(`[GroupColor] 그룹 ${groupId}의 색상이 ${color}로 메모리에 업데이트되었습니다`);
+
+  // 해당 그룹의 모든 이벤트 색상 업데이트
+  globalEventState.events = globalEventState.events.map(event =>
+    event.groupId === groupId ? { ...event, color } : event
+  );
+
+  // UI 업데이트를 위해 콜백 호출
   globalEventState.callbacks.forEach(cb => {
     try {
       cb(globalEventState.events);
     } catch (error) {
-      console.error('[updateGroupColorInMemory] 콜백 실행 오류:', error);
+      console.error('[GroupColor] 콜백 호출 오류:', error);
     }
   });
+
+  console.log(`[GroupColor] ${groupId} 그룹의 이벤트 색상이 실시간으로 업데이트되었습니다`);
 };
 
-// 중복 이벤트 제출 감지 함수
-function isDuplicateSubmission(eventData: any): boolean {
-  if (!eventData.userId || !eventData.groupId || !eventData.title || !eventData.startDate) {
-    return false;
-  }
-  
-  const key = `${eventData.userId}-${eventData.groupId}-${eventData.title}-${eventData.startDate}`;
-  const now = Date.now();
-  
-  if (recentSubmissions.has(key)) {
-    const lastSubmitTime = recentSubmissions.get(key) || 0;
-    if (now - lastSubmitTime < 3000) {
-      console.log('중복 이벤트 감지, 제출 취소됨:', key);
-      return true;
+// 중복 이벤트 제거 함수
+const removeDuplicateEvents = (events: CalendarEvent[]): CalendarEvent[] => {
+  const seen = new Map<string, CalendarEvent>();
+  events.forEach(event => {
+    if (event.id && !seen.has(event.id)) {
+      seen.set(event.id, event);
     }
-  }
-  
-  recentSubmissions.set(key, now);
-  
-  if (recentSubmissions.size > 100) {
-    const oldestKey = recentSubmissions.keys().next().value;
-    if (oldestKey !== undefined) {
-      recentSubmissions.delete(oldestKey);
-    }
-  }
-  
-  return false;
-}
+  });
+  return Array.from(seen.values());
+};
 
-/**
- * 중앙 이벤트 구독 시스템
- */
-export const subscribeToEvents = (
-  userId: string, 
-  callback: (events: CalendarEvent[]) => void
-): (() => void) => {
-  if (!cacheService.getIsOnline()) {
-    console.log('[GlobalEvents] 오프라인 모드 - 캐시에서 데이터 로드');
-    cacheService.loadEventsFromCache(userId).then(cachedEvents => {
-      callback(cachedEvents);
-    });
-  }
+// 이벤트 리스너 관리
+const eventListeners = new Map<string, () => void>();
 
-  if (userId !== globalEventState.lastUserId || !globalEventState.subscription) {
-    if (globalEventState.subscription) {
-      console.log(`[GlobalEvents] 사용자 변경으로 구독 재설정 (${globalEventState.lastUserId} -> ${userId})`);
-      globalEventState.subscription();
-      globalEventState.subscription = null;
-    }
-    
-    globalEventState.lastUserId = userId;
-    
-    loadUserGroupColors(userId);
-    
-    const eventsQuery = collection(db, 'events');
-    const eventsUnsubscribe = onSnapshot(
-      eventsQuery,
-      async (snapshot) => {
-        if (!globalEventState.lastUserId) return;
-        
-        // 초기 로드 시 개별 로그 대신 요약만 표시
-        const isInitialLoad = snapshot.docChanges().length > 10;
-        
-        if (isInitialLoad) {
-          console.log(`[GlobalEvents] Firestore 초기 로드: ${snapshot.docChanges().length}개 이벤트`);
-        } else {
-          console.log(`[GlobalEvents] Firestore 이벤트 변경 감지`);
-          
-          let hasRelevantChanges = false;
-          const userGroupIds = Array.from(globalEventState.groupColors.keys());
-          
-          snapshot.docChanges().forEach((change) => {
-            const eventData = change.doc.data();
-            if (userGroupIds.includes(eventData.groupId) || 
-                (eventData.userId === globalEventState.lastUserId && eventData.groupId === 'personal')) {
-              hasRelevantChanges = true;
-              if (!isInitialLoad) {
-                console.log(`[GlobalEvents] 관련 이벤트 변경 감지: ${change.type}`, eventData.title);
-              }
-            }
-          });
-          
-          if (hasRelevantChanges) {
-            clearUserCache(globalEventState.lastUserId);
-            const result = await getUserEvents(globalEventState.lastUserId, true);
-            
-            if (result.success && Array.isArray(result.events)) {
-              globalEventState.events = result.events;
-              await cacheService.saveEventsToCache(globalEventState.lastUserId, result.events);
-              
-              globalEventState.callbacks.forEach(cb => {
-                try {
-                  cb(globalEventState.events);
-                } catch (error) {
-                  console.error('[GlobalEvents] 콜백 실행 오류:', error);
-                }
-              });
-            }
-          }
-        }
-      },
-      (error) => {
-        console.error('[GlobalEvents] Firestore 구독 오류:', error);
-        cacheService.loadEventsFromCache(userId).then(cachedEvents => {
-          callback(cachedEvents);
-        });
-      }
-    );
-    
-    const membershipQuery = query(
-      collection(db, 'groupMembers'),
-      where('userId', '==', userId)
-    );
-    
-    const membershipUnsubscribe = onSnapshot(
-      membershipQuery,
-      async (snapshot) => {
-        if (!globalEventState.lastUserId) return;
-        
-        console.log(`[GlobalEvents] 그룹 멤버십 변경 감지`);
-        
-        let colorChanged = false;
-        snapshot.docChanges().forEach((change) => {
-          if (change.type === 'modified') {
-            const data = change.doc.data();
-            if (data.color && globalEventState.groupColors.get(data.groupId) !== data.color) {
-              colorChanged = true;
-              updateGroupColorInMemory(data.groupId, data.color);
-            }
-          }
-        });
-        
-        const result = await getUserEvents(globalEventState.lastUserId, true);
-        
-        if (result.success && Array.isArray(result.events)) {
-          globalEventState.events = result.events;
-          await cacheService.saveEventsToCache(globalEventState.lastUserId, result.events);
-          
-          globalEventState.callbacks.forEach(cb => {
-            try {
-              cb(globalEventState.events);
-            } catch (error) {
-              console.error('[GlobalEvents] 콜백 실행 오류:', error);
-            }
-          });
-        }
-      },
-      (error) => {
-        console.error('[GlobalEvents] 멤버십 구독 오류:', error);
-      }
-    );
-    
-    globalEventState.subscription = () => {
-      eventsUnsubscribe();
-      membershipUnsubscribe();
-    };
-  }
-  
+// 글로벌 이벤트 등록
+export const registerGlobalEventCallback = (callback: (events: CalendarEvent[]) => void) => {
   globalEventState.callbacks.add(callback);
-  
   if (globalEventState.events.length > 0) {
-    setTimeout(() => callback(globalEventState.events), 0);
+    callback(globalEventState.events);
   }
   
   return () => {
     globalEventState.callbacks.delete(callback);
-    
-    if (globalEventState.callbacks.size === 0 && globalEventState.subscription) {
-      console.log(`[GlobalEvents] 마지막 콜백 제거로 구독 해제`);
-      globalEventState.subscription();
-      globalEventState.subscription = null;
-      globalEventState.lastUserId = null;
-    }
   };
 };
 
-// 사용자의 그룹 색상 정보 로드
-async function loadUserGroupColors(userId: string) {
+// undefined 값 제거 헬퍼 함수
+const removeUndefinedValues = (obj: any): any => {
+  const cleanObj: any = {};
+  for (const key in obj) {
+    if (obj[key] !== undefined && obj[key] !== null) {
+      if (typeof obj[key] === 'object' && !Array.isArray(obj[key]) && obj[key] !== null) {
+        cleanObj[key] = removeUndefinedValues(obj[key]);
+      } else {
+        cleanObj[key] = obj[key];
+      }
+    }
+  }
+  return cleanObj;
+};
+
+// 그룹 멤버 색상 로드
+const loadUserGroupColors = async (userId: string, groupIds: string[]) => {
   try {
-    const membersQuery = query(
-      collection(db, 'groupMembers'),
-      where('userId', '==', userId)
-    );
+    const membershipsSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('userId', '==', userId)
+      .where('groupId', 'in', groupIds)
+      .get();
     
-    const snapshot = await getDocs(membersQuery);
-    globalEventState.groupColors.clear();
-    
-    snapshot.forEach((doc) => {
+    membershipsSnapshot.docs.forEach(doc => {
       const data = doc.data();
       if (data.groupId && data.color) {
         globalEventState.groupColors.set(data.groupId, data.color);
@@ -339,184 +208,275 @@ async function loadUserGroupColors(userId: string) {
     
     console.log('[loadUserGroupColors] 그룹 색상 로드 완료:', globalEventState.groupColors.size);
   } catch (error) {
-    console.error('[loadUserGroupColors] 오류:', error);
+    console.error('[loadUserGroupColors] 그룹 색상 로드 실패:', error);
   }
-}
+};
 
-// 실시간 구독을 관리하기 위한 Map
-const eventListeners: Map<string, Unsubscribe> = new Map();
-
-// undefined 값을 필터링하여 Firestore에 저장 가능한 객체로 변환
-function removeUndefinedValues(data: Record<string, any>): Record<string, any> {
-  return Object.entries(data).reduce((acc, [key, value]) => {
-    if (value !== undefined) {
-      acc[key] = value;
-    }
-    return acc;
-  }, {} as Record<string, any>);
-}
-
-// 알림 전송을 별도 비동기 함수로 분리
-async function sendEventNotificationsAsync(eventId: string, eventData: any) {
-  try {
-    if (!eventData.groupId || !eventData.title) {
-      console.log('알림 전송에 필요한 필드가 없습니다');
-      return;
-    }
+// 사용자가 속한 그룹의 모든 이벤트를 실시간으로 구독
+export const subscribeToUserEvents = async (userId: string, forceRefresh: boolean = false) => {
+  console.log(`[subscribeToUserEvents] 사용자 ID: ${userId}에 대한 이벤트 구독 시작`);
+  
+  if (!forceRefresh && globalEventState.lastUserId === userId && globalEventState.subscription) {
+    console.log('[subscribeToUserEvents] 이미 동일한 사용자에 대해 구독 중');
+    return () => {};
+  }
+  
+  if (globalEventState.subscription) {
+    console.log('[subscribeToUserEvents] 기존 구독 해제');
+    globalEventState.subscription();
+    globalEventState.subscription = null;
+  }
+  
+  globalEventState.lastUserId = userId;
+  globalEventState.events = [];
+  
+  if (!cacheService.getIsOnline()) {
+    const cachedEvents = await cacheService.loadEventsFromCache(userId);
+    console.log(`[subscribeToUserEvents] 캐시에서 ${cachedEvents.length}개 이벤트 즉시 표시`);
     
-    const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
-    if (groupDoc.exists()) {
-      const groupName = groupDoc.data().name || '그룹';
-      
-      let creatorName = "회원";
-      if (eventData.userId) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', eventData.userId));
-          if (userDoc.exists()) {
-            creatorName = userDoc.data().displayName || creatorName;
-          }
-        } catch (error) {
-          console.error('사용자 정보 가져오기 오류:', error);
+    globalEventState.events = cachedEvents;
+    globalEventState.callbacks.forEach(cb => cb(cachedEvents));
+    return () => {};
+  }
+  
+  const userGroupIds: string[] = [];
+  
+  try {
+    const membershipsSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('userId', '==', userId)
+      .get();
+    
+    for (const doc of membershipsSnapshot.docs) {
+      const data = doc.data();
+      if (data.groupId) {
+        userGroupIds.push(data.groupId);
+        if (data.color) {
+          globalEventState.groupColors.set(data.groupId, data.color);
         }
       }
-      
-      let notificationTitle = `새 일정: ${eventData.title}`;
-      let notificationBody = `${creatorName}님이 ${groupName} 그룹에 새 일정을 추가했습니다.`;
-      
-      if (eventData.isMultiDay && eventData.startDate && eventData.endDate) {
-        notificationBody += ` (${eventData.startDate} ~ ${eventData.endDate})`;
-      }
-      
-      if (eventData.isSharedEvent && eventData.targetGroupIds && eventData.targetGroupIds.length > 1) {
-        notificationBody += ` (${eventData.targetGroupIds.length}개 그룹에 공유됨)`;
-      }
-      
-      await sendGroupNotification(
-        eventData.groupId,
-        notificationTitle,
-        notificationBody,
-        { 
-          type: 'new_event',
-          eventId: eventId,
-          groupId: eventData.groupId,
-          date: eventData.startDate || ''
-        },
-        eventData.userId
-      );
-      
-      console.log('그룹 멤버들에게 새 일정 알림 전송 완료');
     }
-  } catch (error) {
-    console.error('알림 전송 중 오류:', error);
-  }
-}
-
-// 일정 수정 알림 함수 (새로 추가)
-async function sendEventUpdateNotificationAsync(eventId: string, eventData: any, oldEventData: any) {
-  try {
-    if (!eventData.groupId || !eventData.title) return;
     
-    const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
-    if (groupDoc.exists()) {
-      const groupName = groupDoc.data().name || '그룹';
-      
-      let creatorName = "회원";
-      if (eventData.userId) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', eventData.userId));
-          if (userDoc.exists()) {
-            creatorName = userDoc.data().displayName || creatorName;
-          }
-        } catch (error) {
-          console.error('사용자 정보 가져오기 오류:', error);
-        }
-      }
-      
-      let notificationTitle = `일정 수정: ${eventData.title}`;
-      let notificationBody = `${creatorName}님이 ${groupName} 그룹의 일정을 수정했습니다.`;
-      
-      // 날짜 변경된 경우 추가 정보
-      if (oldEventData && oldEventData.startDate !== eventData.startDate) {
-        notificationBody += ` (${oldEventData.startDate} → ${eventData.startDate})`;
-      }
-      
-      await sendGroupNotification(
-        eventData.groupId,
-        notificationTitle,
-        notificationBody,
-        { 
-          type: 'event_updated',
-          eventId: eventId,
-          groupId: eventData.groupId,
-          date: eventData.startDate || ''
-        },
-        eventData.userId
-      );
-      
-      console.log('그룹 멤버들에게 일정 수정 알림 전송 완료');
-    }
+    console.log('[subscribeToUserEvents] 사용자가 속한 그룹:', userGroupIds);
   } catch (error) {
-    console.error('수정 알림 전송 중 오류:', error);
+    console.error('[subscribeToUserEvents] 그룹 멤버십 조회 오류:', error);
   }
-}
+  
+  if (userGroupIds.length === 0) {
+    console.log('[subscribeToUserEvents] 사용자가 속한 그룹이 없음');
+    return () => {};
+  }
+  
+  const [query1, query2] = createEventQueries(userGroupIds, userId);
+  
+  let listenerCount = 0;
+  const updateEvents = () => {
+    listenerCount++;
+    if (listenerCount >= 2) {
+      if (userId) {
+        cacheService.saveEventsToCache(userId, globalEventState.events).catch(err =>
+          console.error('[subscribeToUserEvents] 이벤트 캐시 저장 실패:', err)
+        );
+      }
+    }
+  };
+  
+  const unsubscribe1 = query1.onSnapshot(
+    (snapshot: any) => {
+      console.log('[GlobalEvents] Firestore 이벤트 변경 감지');
+      
+      const events: CalendarEvent[] = [];
+      snapshot.docs.forEach((doc: any) => {
+        const data = doc.data();
+        const groupColor = globalEventState.groupColors.get(data.groupId);
+        events.push({
+          ...data,
+          id: doc.id,
+          color: groupColor || data.color || '#4CAF50'
+        } as CalendarEvent);
+      });
+      
+      const personalEvents = globalEventState.events.filter(e => e.userId === userId && e.groupId === 'personal');
+      const sharedEvents = globalEventState.events.filter(e => e.isSharedEvent);
+      globalEventState.events = removeDuplicateEvents([...events, ...personalEvents, ...sharedEvents]);
+      
+      console.log(`[EventContext] 실시간 업데이트: ${globalEventState.events.length}개 이벤트`);
+      globalEventState.callbacks.forEach(cb => cb(globalEventState.events));
+      updateEvents();
+    },
+    (error: any) => {
+      console.error('[GlobalEvents] Firestore 구독 오류:', error);
+    }
+  );
+  
+  const unsubscribe2 = query2.onSnapshot(
+    (snapshot: any) => {
+      console.log('[GlobalEvents] 개인 이벤트 변경 감지');
+      
+      const personalEvents: CalendarEvent[] = [];
+      snapshot.docs.forEach((doc: any) => {
+        personalEvents.push({
+          ...doc.data(),
+          id: doc.id,
+          color: '#4CAF50'
+        } as CalendarEvent);
+      });
+      
+      const groupEvents = globalEventState.events.filter(e => e.groupId !== 'personal' || e.isSharedEvent);
+      globalEventState.events = removeDuplicateEvents([...groupEvents, ...personalEvents]);
+      
+      console.log(`[EventContext] 실시간 업데이트: ${globalEventState.events.length}개 이벤트`);
+      globalEventState.callbacks.forEach(cb => cb(globalEventState.events));
+      updateEvents();
+    },
+    (error: any) => {
+      console.error('[GlobalEvents] 개인 이벤트 구독 오류:', error);
+    }
+  );
+  
+  globalEventState.subscription = () => {
+    console.log('[GlobalEvents] 이벤트 구독 해제');
+    unsubscribe1();
+    unsubscribe2();
+  };
+  
+  return globalEventState.subscription;
+};
 
-// 일정 삭제 알림 함수 (새로 추가)
-async function sendEventDeleteNotificationAsync(eventId: string, eventData: any) {
-  try {
-    if (!eventData.groupId || !eventData.title) return;
-    
-    const groupDoc = await getDoc(doc(db, 'groups', eventData.groupId));
-    if (groupDoc.exists()) {
-      const groupName = groupDoc.data().name || '그룹';
-      
-      let creatorName = "회원";
-      if (eventData.userId) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', eventData.userId));
-          if (userDoc.exists()) {
-            creatorName = userDoc.data().displayName || creatorName;
-          }
-        } catch (error) {
-          console.error('사용자 정보 가져오기 오류:', error);
-        }
-      }
-      
-      let notificationTitle = `일정 삭제: ${eventData.title}`;
-      let notificationBody = `${creatorName}님이 ${groupName} 그룹의 일정을 삭제했습니다.`;
-      
-      if (eventData.startDate) {
-        notificationBody += ` (${eventData.startDate})`;
-      }
-      
-      await sendGroupNotification(
-        eventData.groupId,
-        notificationTitle,
-        notificationBody,
-        { 
-          type: 'event_deleted',
-          eventId: eventId,
-          groupId: eventData.groupId
-        },
-        eventData.userId
-      );
-      
-      console.log('그룹 멤버들에게 일정 삭제 알림 전송 완료');
-    }
-  } catch (error) {
-    console.error('삭제 알림 전송 중 오류:', error);
+// 이벤트 쿼리 생성
+const createEventQueries = (groupIds: string[], userId: string) => {
+  const query1 = nativeDb
+    .collection('events')
+    .where('groupId', 'in', groupIds);
+  
+  const query2 = nativeDb
+    .collection('events')
+    .where('userId', '==', userId)
+    .where('groupId', '==', 'personal');
+  
+  return [query1, query2];
+};
+
+// 중복 제출 체크
+const isDuplicateSubmission = (eventData: Partial<CalendarEvent>): boolean => {
+  const key = `${eventData.title}_${eventData.startDate}_${eventData.groupId}`;
+  const now = Date.now();
+  const lastSubmit = recentSubmissions.get(key);
+  
+  if (lastSubmit && (now - lastSubmit) < 2000) {
+    console.log('Duplicate submission detected');
+    return true;
   }
-}
+  
+  recentSubmissions.set(key, now);
+  setTimeout(() => recentSubmissions.delete(key), 5000);
+  
+  return false;
+};
+
+// 알림 전송 함수들
+const sendEventNotificationsAsync = async (eventId: string, eventData: any) => {
+  try {
+    if (!eventData.groupId || eventData.groupId === 'personal') return;
+    
+    const currentUser = auth().currentUser;
+    if (!currentUser) return;
+    
+    const creatorName = currentUser.displayName || currentUser.email || '멤버';
+    const title = '새로운 일정';
+    const body = `${creatorName}님이 일정을 추가했습니다: ${eventData.title}`;
+    const notificationData = {
+      type: 'new_event',
+      eventId,
+      groupId: eventData.groupId,
+      date: eventData.startDate
+    };
+    
+    await sendGroupNotification(
+      eventData.groupId,
+      title,
+      body,
+      notificationData,
+      currentUser.uid
+    );
+  } catch (error) {
+    console.error('[sendEventNotifications] 알림 전송 오류:', error);
+  }
+};
+
+const sendEventUpdateNotificationAsync = async (eventId: string, eventData: any, oldEventData: any) => {
+  try {
+    if (!eventData.groupId || eventData.groupId === 'personal') return;
+    
+    const currentUser = auth().currentUser;
+    if (!currentUser) return;
+    
+    const updaterName = currentUser.displayName || currentUser.email || '멤버';
+    const changes: string[] = [];
+    
+    if (oldEventData?.title !== eventData.title) changes.push('제목');
+    if (oldEventData?.startDate !== eventData.startDate) changes.push('날짜');
+    if (oldEventData?.time !== eventData.time) changes.push('시간');
+    
+    if (changes.length === 0) return;
+    
+    const title = '일정 수정';
+    const body = `${updaterName}님이 일정을 수정했습니다: ${eventData.title} (${changes.join(', ')})`;
+    const notificationData = {
+      type: 'update_event',
+      eventId,
+      groupId: eventData.groupId,
+      date: eventData.startDate
+    };
+    
+    await sendGroupNotification(
+      eventData.groupId,
+      title,
+      body,
+      notificationData,
+      currentUser.uid
+    );
+  } catch (error) {
+    console.error('[sendEventUpdateNotification] 알림 전송 오류:', error);
+  }
+};
+
+const sendEventDeleteNotificationAsync = async (eventId: string, eventData: any) => {
+  try {
+    if (!eventData.groupId || eventData.groupId === 'personal') return;
+    
+    const currentUser = auth().currentUser;
+    if (!currentUser) return;
+    
+    const deleterName = currentUser.displayName || currentUser.email || '멤버';
+    const title = '일정 삭제';
+    const body = `${deleterName}님이 일정을 삭제했습니다: ${eventData.title}`;
+    const notificationData = {
+      type: 'delete_event',
+      eventId,
+      groupId: eventData.groupId
+    };
+    
+    await sendGroupNotification(
+      eventData.groupId,
+      title,
+      body,
+      notificationData,
+      currentUser.uid
+    );
+  } catch (error) {
+    console.error('[sendEventDeleteNotification] 알림 전송 오류:', error);
+  }
+};
 
 /**
- * 새 이벤트 추가
+ * 이벤트 추가
  */
-export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<EventResult> => {
+export const addEvent = async (eventData: Partial<CalendarEvent>): Promise<EventResult> => {
   try {
-    console.log('Adding event to Firebase:', eventData);
-    
     const safeData = {
       ...eventData,
-      title: eventData.title || '제목 없음',
+      title: eventData.title || '새 이벤트',
       startDate: eventData.startDate || new Date().toISOString().split('T')[0],
       groupId: eventData.groupId || 'personal'
     };
@@ -589,12 +549,22 @@ export const addEvent = async (eventData: Omit<CalendarEvent, 'id'>): Promise<Ev
       cleanData.notificationId = null;
     }
     
-    if (!cleanData.createdByName && auth.currentUser) {
-      cleanData.createdByName = auth.currentUser.displayName || '사용자';
+    if (!cleanData.createdByName) {
+      const currentUser = auth().currentUser;
+      if (currentUser) {
+        cleanData.createdByName = currentUser.displayName || '사용자';
+      }
     }
     
-    const docRef = await addDoc(collection(db, 'events'), cleanData);
+    const docRef = await nativeDb.collection('events').add(cleanData);
     console.log('Event added with ID:', docRef.id);
+    
+    // 🌟 알림 예약 추가
+    const eventWithId = {
+      ...cleanData,
+      id: docRef.id
+    } as CalendarEvent;
+    await scheduleEventNotification(eventWithId);
     
     globalEventState.events = globalEventState.events.map(event => 
       event.id === tempId ? { ...event, id: docRef.id } : event
@@ -670,9 +640,9 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
       return { success: true };
     }
 
-    const eventRef = doc(db, 'events', eventId);
-    const eventDoc = await getDoc(eventRef);
-    const oldEventData = eventDoc.exists() ? eventDoc.data() : null;
+    const eventRef = nativeDb.collection('events').doc(eventId);
+    const eventDoc = await eventRef.get();
+    const oldEventData = (eventDoc as any).exists ? eventDoc.data() : null;
     
     if (!eventData.endDate) {
       eventData.endDate = eventData.startDate;
@@ -700,7 +670,14 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
     
     cleanData.updatedAt = new Date().toISOString();
     
-    await updateDoc(eventRef, cleanData);
+    await eventRef.update(cleanData);
+    
+    // 🌟 알림 재예약 추가
+    const updatedEventWithId = {
+      ...cleanData,
+      id: eventId
+    } as CalendarEvent;
+    await rescheduleEventNotification(updatedEventWithId);
     
     if (eventData.userId) {
       const eventDate = new Date(eventData.startDate);
@@ -712,7 +689,6 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
       }
     }
     
-    // 알림 처리는 비동기로 (수정됨)
     if (eventData.groupId && eventData.groupId !== 'personal') {
       sendEventUpdateNotificationAsync(eventId, eventData, oldEventData);
     }
@@ -769,18 +745,20 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
       return { success: true };
     }
 
-    const eventRef = doc(db, 'events', eventId);
-    const eventDoc = await getDoc(eventRef);
-    const eventData = eventDoc.exists() ? eventDoc.data() as CalendarEvent : null;
+    const eventRef = nativeDb.collection('events').doc(eventId);
+    const eventDoc = await eventRef.get();
+    const eventData = (eventDoc as any).exists ? eventDoc.data() as CalendarEvent : null;
     
-    await deleteDoc(eventRef);
+    // 🌟 알림 취소 추가
+    await cancelEventNotification(eventId);
+    
+    await eventRef.delete();
     
     if (eventData && eventData.userId) {
       const eventDate = new Date(eventData.startDate);
       clearMonthCache(eventData.userId, eventDate.getFullYear(), eventDate.getMonth());
     }
     
-    // 알림 처리는 비동기로 (수정됨)
     if (eventData && eventData.groupId && eventData.groupId !== 'personal') {
       sendEventDeleteNotificationAsync(eventId, eventData);
     }
@@ -811,7 +789,6 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
 export const getUserEvents = async (userId: string, forceRefresh: boolean = false): Promise<EventResult> => {
   const cacheKey = `user_${userId}_all`;
   
-  // 중복 요청 방지
   if (!forceRefresh && eventCache.get(`${cacheKey}_loading`)) {
     console.log('[getUserEvents] 이미 로드 중 - 대기');
     const cached = eventCache.get(cacheKey);
@@ -819,125 +796,137 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
     return { success: true, events: [] };
   }
   
-  const cached = eventCache.get(cacheKey);
-  
-  if (!forceRefresh && cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
-    console.log('[getUserEvents] 캐시에서 데이터 반환');
-    return cached.data;
-  }
-  
-  if (!cacheService.getIsOnline()) {
-    console.log('[getUserEvents] 오프라인 모드 - 영구 캐시에서 데이터 로드');
-    const cachedEvents = await cacheService.loadEventsFromCache(userId);
-    return { success: true, events: cachedEvents, isFromCache: true };
+  if (!forceRefresh) {
+    const cached = eventCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+      console.log('[getUserEvents] 캐시에서 데이터 반환');
+      return cached.data;
+    }
   }
   
   eventCache.set(`${cacheKey}_loading`, { data: { success: true }, timestamp: Date.now() });
   
   try {
-    const events: CalendarEvent[] = [];
+    if (!cacheService.getIsOnline()) {
+      console.log('[getUserEvents] 오프라인 모드 - 캐시 데이터 사용');
+      const cachedEvents = await cacheService.loadEventsFromCache(userId);
+      return { success: true, events: cachedEvents, isFromCache: true };
+    }
     
-    // ✅ 완전 자동화: 현재 날짜 기준 전후 12개월
-    const now = new Date();
-    const startDate = new Date(now);
-    const endDate = new Date(now);
-    
-    // 12개월 전부터
-    startDate.setMonth(now.getMonth() - 12);
-    startDate.setDate(1); // 월 첫날로 설정
-    
-    // 12개월 후까지
-    endDate.setMonth(now.getMonth() + 12);
-    endDate.setMonth(endDate.getMonth() + 1); // 다음달로
-    endDate.setDate(0); // 이전달 마지막 날 = 12개월 후 마지막 날
+    const today = new Date();
+    const startDate = new Date(today.getFullYear(), today.getMonth() - 12, 1);
+    const endDate = new Date(today.getFullYear(), today.getMonth() + 12, 31);
     
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
     
     console.log(`[getUserEvents] 자동 기간 설정: ${startDateStr} ~ ${endDateStr} (전후 12개월)`);
     
-    // 그룹 멤버십 조회
-    const membersQuery = query(
-      collection(db, 'groupMembers'),
-      where('userId', '==', userId)
-    );
+    const groups = await getUserGroups(userId);
     
-    const membersSnapshot = await getDocs(membersQuery);
-    const groupIds: string[] = [];
-    const groupColors: Record<string, string> = {};
+    if (!groups || groups.length === 0) {
+      console.log('[getUserEvents] 사용자가 속한 그룹이 없음');
+      return { success: true, events: [] };
+    }
     
-    membersSnapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data.groupId) {
-        groupIds.push(data.groupId);
-        if (data.color) {
-          groupColors[data.groupId] = data.color;
-          globalEventState.groupColors.set(data.groupId, data.color);
-        }
-      }
-    });
-    
+    const groupIds = groups.map((g: any) => g.id);
     console.log(`[getUserEvents] 사용자(${userId})가 속한 그룹 IDs:`, groupIds);
-    console.log(`[getUserEvents] 사용자의 그룹 색상:`, groupColors);
     
-    const eventMap: Record<string, CalendarEvent> = {};
+    const groupColors: { [key: string]: string } = {};
+    groups.forEach((g: any) => {
+      if (g.color) groupColors[g.id] = g.color;
+    });
+    console.log(`[loadUserGroupColors] 그룹 색상 로드 완료:`, Object.keys(groupColors).length);
     
-    // 그룹 이벤트 조회
-    if (groupIds.length > 0) {
-      const groupChunks = [];
-      for (let i = 0; i < groupIds.length; i += 10) {
-        groupChunks.push(groupIds.slice(i, i + 10));
-      }
+    const eventMap: { [key: string]: CalendarEvent } = {};
+    
+    // 그룹 이벤트 조회 (10개씩 나누어 조회)
+    const groupChunks: string[][] = [];
+    for (let i = 0; i < groupIds.length; i += 10) {
+      groupChunks.push(groupIds.slice(i, i + 10));
+    }
+    
+    for (const groupChunk of groupChunks) {
+      const groupSnapshot = await nativeDb.collection('events')
+        .where('groupId', 'in', groupChunk)
+        .where('startDate', '>=', startDateStr)
+        .where('startDate', '<=', endDateStr)
+        .get();
       
+      groupSnapshot.forEach((doc) => {
+        const data = doc.data();
+        const eventId = doc.id;
+        const color = groupColors[data.groupId] || data.color || '#4CAF50';
+        
+        let startDate = data.startDate || data.date || '';
+        let endDate = data.endDate || startDate;
+        let isMultiDay = data.isMultiDay || startDate !== endDate;
+        
+        if (!startDate) {
+          console.warn(`[getUserEvents] 이벤트 ${eventId}에 날짜가 없음`);
+          startDate = new Date().toISOString().split('T')[0];
+        }
+        
+        if (!endDate) endDate = startDate;
+        if (new Date(endDate) < new Date(startDate)) {
+          console.warn(`[getUserEvents] 이벤트 ${eventId}의 종료일이 시작일보다 이전`);
+          endDate = startDate;
+        }
+        
+        eventMap[eventId] = {
+          id: eventId,
+          title: data.title || '',
+          startDate,
+          endDate,
+          isMultiDay,
+          groupId: data.groupId || 'personal',
+          ...data,
+          color
+        } as CalendarEvent;
+      });
+    }
+    
+    // 다중일 이벤트 체크
+    if (groupIds.length > 0) {
       for (const groupChunk of groupChunks) {
-        const groupEventsQuery = query(
-          collection(db, 'events'),
-          where('groupId', 'in', groupChunk),
-          where('startDate', '>=', startDateStr),
-          where('startDate', '<=', endDateStr)
-        );
+        const multiDaySnapshot = await nativeDb.collection('events')
+          .where('groupId', 'in', groupChunk)
+          .where('isMultiDay', '==', true)
+          .where('endDate', '>=', startDateStr)
+          .get();
         
-        const groupEventsSnapshot = await getDocs(groupEventsQuery);
-        console.log(`[getUserEvents] ${groupChunk.length}개 그룹의 일정 개수: ${groupEventsSnapshot.size}`);
+        console.log(`[getUserEvents] 다중일 이벤트: ${multiDaySnapshot.size}개`);
         
-        groupEventsSnapshot.forEach((doc) => {
+        multiDaySnapshot.forEach((doc) => {
           const data = doc.data();
           const eventId = doc.id;
           
-          const color = groupColors[data.groupId] || data.color || '#4CAF50';
-          
-          let startDate = data.startDate || data.date || '';
-          let endDate = data.endDate || startDate;
-          let isMultiDay = data.isMultiDay || startDate !== endDate;
-          
-          if (!startDate) startDate = endDate;
-          if (!endDate) endDate = startDate;
-          if (new Date(endDate) < new Date(startDate)) endDate = startDate;
-          
-          eventMap[eventId] = {
-            id: eventId,
-            title: data.title || '',
-            startDate,
-            endDate,
-            isMultiDay,
-            groupId: data.groupId || 'personal',
-            ...data,
-            color
-          } as CalendarEvent;
+          if (data.startDate <= endDateStr && !eventMap[eventId]) {
+            const color = groupColors[data.groupId] || data.color || '#4CAF50';
+            
+            eventMap[eventId] = {
+              id: eventId,
+              title: data.title || '',
+              startDate: data.startDate || '',
+              endDate: data.endDate || '',
+              isMultiDay: true,
+              groupId: data.groupId || 'personal',
+              ...data,
+              color
+            } as CalendarEvent;
+          }
         });
       }
       
       // 진행 중인 다일 일정 체크
       for (const groupChunk of groupChunks) {
-        const ongoingEventsQuery = query(
-          collection(db, 'events'),
-          where('groupId', 'in', groupChunk),
-          where('isMultiDay', '==', true),
-          where('startDate', '<', startDateStr),
-          where('endDate', '>=', startDateStr)
-        );
+        const ongoingSnapshot = await nativeDb.collection('events')
+          .where('groupId', 'in', groupChunk)
+          .where('isMultiDay', '==', true)
+          .where('startDate', '<', startDateStr)
+          .where('endDate', '>=', startDateStr)
+          .get();
         
-        const ongoingSnapshot = await getDocs(ongoingEventsQuery);
         console.log(`[getUserEvents] 진행 중인 다일 일정: ${ongoingSnapshot.size}개`);
         
         ongoingSnapshot.forEach((doc) => {
@@ -963,15 +952,12 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
     }
     
     // 개인 일정 조회
-    const personalQuery = query(
-      collection(db, 'events'),
-      where('userId', '==', userId),
-      where('groupId', '==', 'personal'),
-      where('startDate', '>=', startDateStr),
-      where('startDate', '<=', endDateStr)
-    );
-    
-    const personalSnapshot = await getDocs(personalQuery);
+    const personalSnapshot = await nativeDb.collection('events')
+      .where('userId', '==', userId)
+      .where('groupId', '==', 'personal')
+      .where('startDate', '>=', startDateStr)
+      .where('startDate', '<=', endDateStr)
+      .get();
     
     personalSnapshot.forEach((doc) => {
       const data = doc.data();
@@ -1030,109 +1016,209 @@ export const getEventsForMonth = async (
   year: number, 
   month: number
 ): Promise<EventResult> => {
-  const cacheKey = `user_${userId}_${year}_${month}`;
-  const cached = eventCache.get(cacheKey);
+  const monthKey = `user_${userId}_${year}_${month}`;
   
+  if (eventCache.get(`${monthKey}_loading`)) {
+    console.log(`[getEventsForMonth] ${year}년 ${month + 1}월 이미 로드 중`);
+    const cached = eventCache.get(monthKey);
+    if (cached) return cached.data;
+    return { success: true, events: [], isFromCache: true };
+  }
+  
+  const cached = eventCache.get(monthKey);
   if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
     console.log(`[getEventsForMonth] ${year}년 ${month + 1}월 캐시 데이터 반환`);
-    return cached.data;
+    return { ...cached.data, isFromCache: true };
   }
   
-  if (!cacheService.getIsOnline()) {
-    console.log(`[getEventsForMonth] 오프라인 모드 - ${year}년 ${month + 1}월 캐시 데이터 로드`);
-    const cachedEvents = await cacheService.loadMonthEventsFromCache(userId, year, month);
-    return { success: true, events: cachedEvents, isFromCache: true };
-  }
+  eventCache.set(`${monthKey}_loading`, { data: { success: true }, timestamp: Date.now() });
   
   try {
-    const startOfMonth = new Date(year, month, 1);
-    const endOfMonth = new Date(year, month + 1, 0);
+    const startDate = new Date(year, month, 0);
+    const endDate = new Date(year, month + 1, 1);
     
-    const startDateStr = startOfMonth.toISOString().split('T')[0];
-    const endDateStr = endOfMonth.toISOString().split('T')[0];
+    const startDateStr = startDate.toISOString().split('T')[0];
+    const endDateStr = endDate.toISOString().split('T')[0];
     
     console.log(`[getEventsForMonth] ${startDateStr} ~ ${endDateStr} 기간 조회`);
     
-    const allEventsResult = await getUserEvents(userId);
+    const result = await getUserEvents(userId);
     
-    if (!allEventsResult.success || !allEventsResult.events) {
-      return allEventsResult;
+    if (!result.success || !result.events) {
+      eventCache.delete(`${monthKey}_loading`);
+      return result;
     }
     
-    const monthEvents = allEventsResult.events.filter(event => {
+    const monthEvents = result.events.filter(event => {
+      const eventStartDate = event.startDate;
+      const eventEndDate = event.endDate || event.startDate;
+      
       if (event.isMultiDay) {
-        return (event.startDate <= endDateStr && event.endDate >= startDateStr);
+        return eventStartDate <= endDateStr && eventEndDate >= startDateStr;
       } else {
-        return event.startDate >= startDateStr && event.startDate <= endDateStr;
+        return eventStartDate >= startDateStr && eventStartDate <= endDateStr;
       }
     });
     
     console.log(`[getEventsForMonth] ${year}년 ${month + 1}월 일정 개수: ${monthEvents.length}`);
     
-    const result = { success: true, events: monthEvents };
-    eventCache.set(cacheKey, {
-      data: result,
-      timestamp: Date.now()
-    });
+    const monthResult = { success: true, events: monthEvents };
+    eventCache.set(monthKey, { data: monthResult, timestamp: Date.now() });
+    eventCache.delete(`${monthKey}_loading`);
     
-    return result;
+    return monthResult;
   } catch (error: any) {
-    console.error('월별 이벤트 가져오기 오류:', error);
-    
-    const cachedEvents = await cacheService.loadMonthEventsFromCache(userId, year, month);
-    return { success: true, events: cachedEvents, isFromCache: true };
+    console.error(`[getEventsForMonth] ${year}년 ${month + 1}월 오류:`, error);
+    eventCache.delete(`${monthKey}_loading`);
+    return { success: false, error: error.message };
   }
 };
 
 /**
- * 실시간으로 사용자 이벤트 구독 (최적화 버전)
+ * 특정 날짜 범위의 이벤트 가져오기
  */
-export const subscribeToUserEvents = (
+export const getEventsForDateRange = async (
   userId: string, 
-  callback: (events: CalendarEvent[]) => void
-): (() => void) => {
-  console.log(`[subscribeToUserEvents] 사용자 ID: ${userId}에 대한 이벤트 구독 시작`);
-  
-  // 1. 캐시에서 먼저 데이터 로드하여 즉시 표시
-  let hasInitialDataLoaded = false;
-  
-  cacheService.loadEventsFromCache(userId).then(cachedEvents => {
-    if (!hasInitialDataLoaded) {
-      if (cachedEvents.length > 0) {
-        console.log(`[subscribeToUserEvents] 캐시에서 ${cachedEvents.length}개 이벤트 즉시 표시`);
-        callback(cachedEvents);
-        hasInitialDataLoaded = true;
+  startDate: string, 
+  endDate: string
+): Promise<EventResult> => {
+  try {
+    const result = await getUserEvents(userId);
+    
+    if (!result.success || !result.events) {
+      return result;
+    }
+    
+    const rangeEvents = result.events.filter(event => {
+      const eventStartDate = event.startDate;
+      const eventEndDate = event.endDate || event.startDate;
+      
+      if (event.isMultiDay) {
+        return eventStartDate <= endDate && eventEndDate >= startDate;
       } else {
-        console.log('[subscribeToUserEvents] 캐시 없음 - 빈 배열로 시작');
-        callback([]);
-        hasInitialDataLoaded = true;
+        return eventStartDate >= startDate && eventStartDate <= endDate;
       }
+    });
+    
+    console.log(`[getEventsForDateRange] ${startDate} ~ ${endDate} 일정 개수: ${rangeEvents.length}`);
+    
+    return { success: true, events: rangeEvents };
+  } catch (error: any) {
+    console.error('[getEventsForDateRange] 오류:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * 사용자가 속한 그룹 목록 가져오기
+ */
+export const getUserGroups = async (userId: string): Promise<any[]> => {
+  try {
+    console.log(`[getUserGroups] 사용자 ID: ${userId}의 그룹 조회 시작`);
+    
+    const membershipsSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('userId', '==', userId)
+      .get();
+    
+    console.log(`[getUserGroups] 사용자가 속한 그룹 멤버십 개수: ${membershipsSnapshot.size}`);
+    
+    const groupPromises = membershipsSnapshot.docs.map(async (memberDoc: any) => {
+      const memberData = memberDoc.data();
+      console.log('[getUserGroups] 멤버십 데이터:', memberData);
+      
+      const groupDoc = await nativeDb
+        .collection('groups')
+        .doc(memberData.groupId)
+        .get();
+      
+      if ((groupDoc as any).exists) {
+        const groupData = groupDoc.data();
+        console.log(`[getUserGroups] 로드된 그룹:`, {
+          id: groupDoc.id,
+          name: groupData?.name,
+          role: memberData.role,
+          color: memberData.color
+        });
+        
+        return {
+          id: groupDoc.id,
+          ...groupData,
+          role: memberData.role,
+          color: memberData.color || groupData?.color || '#4CAF50'
+        };
+      }
+      return null;
+    });
+    
+    const groups = (await Promise.all(groupPromises)).filter(g => g !== null);
+    
+    // 타입 캐스팅 추가
+    if (groups.length > 0) {
+      await cacheService.saveGroupsToCache(userId, groups as any); // as any 추가
     }
-  }).catch(error => {
-    console.error('[subscribeToUserEvents] 캐시 로드 실패:', error);
-    if (!hasInitialDataLoaded) {
+    
+    console.log(`[getUserGroups] ${groups.length}개 그룹 로드 완료`);
+    return groups;
+  } catch (error) {
+    console.error('[getUserGroups] 그룹 조회 오류:', error);
+    
+    // 타입 캐스팅 추가
+    const cachedGroups = await cacheService.loadGroupsFromCache(userId) as any[]; // as any[] 추가
+    if (cachedGroups.length > 0) {
+      console.log('[getUserGroups] 캐시에서 그룹 반환');
+      return cachedGroups;
+    }
+    
+    return [];
+  }
+};
+
+/**
+ * 그룹 이벤트 구독 (최적화)
+ */
+export const subscribeToGroupEvents = (
+  groupId: string, 
+  callback: (events: CalendarEvent[]) => void
+) => {
+  const listenerKey = `group_${groupId}`;
+  
+  if (eventListeners.has(listenerKey)) {
+    console.log(`[subscribeToGroupEvents] 이미 구독 중: ${groupId}`);
+    return () => {};
+  }
+  
+  console.log(`[subscribeToGroupEvents] 그룹 이벤트 구독 시작: ${groupId}`);
+  
+  const query = nativeDb
+    .collection('events')
+    .where('groupId', '==', groupId);
+  
+  const unsubscribe = query.onSnapshot(
+    (snapshot: any) => {
+      const events: CalendarEvent[] = [];
+      snapshot.docs.forEach((doc: any) => {
+        events.push({
+          ...doc.data(),
+          id: doc.id
+        } as CalendarEvent);
+      });
+      
+      console.log(`[subscribeToGroupEvents] ${groupId} 그룹 이벤트 업데이트: ${events.length}개`);
+      callback(events);
+    },
+    (error: any) => {
+      console.error(`[subscribeToGroupEvents] ${groupId} 구독 오류:`, error);
       callback([]);
-      hasInitialDataLoaded = true;
     }
-  });
+  );
   
-  // 2. 실시간 구독 설정 (타임아웃 제거)
-  const unsubscribe = subscribeToEvents(userId, (events) => {
-    console.log(`[subscribeToUserEvents] 실시간 업데이트: ${events.length}개 이벤트`);
-    callback(events);
-    hasInitialDataLoaded = true;
-  });
-  
-  eventListeners.set(userId, () => {
-    unsubscribe();
-  });
+  eventListeners.set(listenerKey, unsubscribe);
   
   return () => {
-    console.log('이벤트 구독 해제');
-    if (eventListeners.has(userId)) {
-      eventListeners.delete(userId);
-    }
+    console.log(`[subscribeToGroupEvents] 구독 해제: ${groupId}`);
     unsubscribe();
+    eventListeners.delete(listenerKey);
   };
 };
 
@@ -1161,4 +1247,20 @@ export const expandMultiDayEvent = (event: CalendarEvent): Record<string, Calend
   });
   
   return result;
+};
+
+// 단일 export로 통합
+export default {
+  addEvent,
+  updateEvent,
+  deleteEvent,
+  getUserEvents,
+  getEventsForMonth,
+  getEventsForDateRange,
+  getUserGroups,
+  subscribeToUserEvents,
+  subscribeToGroupEvents,
+  clearEventSubscriptions,
+  registerGlobalEventCallback,
+  expandMultiDayEvent
 };

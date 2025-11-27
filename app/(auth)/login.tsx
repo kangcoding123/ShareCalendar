@@ -169,6 +169,7 @@ const handleLogin = async () => {
                 placeholderTextColor={colors.lightGray}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                textContentType="none"  // ✅ iOS 자동완성 비활성화 - 깜빡임 해결
                 value={email}
                 onChangeText={setEmail}
               />
@@ -275,6 +276,7 @@ const handleLogin = async () => {
               placeholderTextColor={colors.lightGray}
               keyboardType="email-address"
               autoCapitalize="none"
+              textContentType="none"  // ✅ 여기도 추가
               value={resetEmail}
               onChangeText={setResetEmail}
             />

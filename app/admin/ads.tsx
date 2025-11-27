@@ -6,8 +6,10 @@ import { getAdConfig, toggleAdEnabled, setTestMode } from '../../services/adConf
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import AdminHeader from '@/components/AdminHeader';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+// Web SDK imports 제거
+// import { doc, updateDoc } from 'firebase/firestore';
+// import { db } from '../../config/firebase';
+import { nativeDb } from '../../config/firebase';  // Native SDK 사용
 
 export default function AdSettingsScreen() {
   const colorScheme = useColorScheme();
@@ -50,21 +52,25 @@ export default function AdSettingsScreen() {
     
     setSaving(true);
     try {
-      // 플랫폼별 광고 ID 업데이트
+      // 플랫폼별 광고 ID 업데이트 - Native SDK 사용
       const updates = [];
       
       if (iosUnitId.trim()) {
-        updates.push(updateDoc(doc(db, 'app_config', 'ad_settings'), {
-          ios_banner_unit_id: iosUnitId,
-          updated_at: new Date().toISOString()
-        }));
+        updates.push(
+          nativeDb.collection('app_config').doc('ad_settings').update({
+            ios_banner_unit_id: iosUnitId,
+            updated_at: new Date().toISOString()
+          })
+        );
       }
       
       if (androidUnitId.trim()) {
-        updates.push(updateDoc(doc(db, 'app_config', 'ad_settings'), {
-          android_banner_unit_id: androidUnitId,
-          updated_at: new Date().toISOString()
-        }));
+        updates.push(
+          nativeDb.collection('app_config').doc('ad_settings').update({
+            android_banner_unit_id: androidUnitId,
+            updated_at: new Date().toISOString()
+          })
+        );
       }
       
       await Promise.all(updates);

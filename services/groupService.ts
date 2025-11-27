@@ -1,20 +1,7 @@
 // services/groupService.ts
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  query, 
-  where, 
-  getDocs,
-  getDoc,
-  DocumentData,
-  writeBatch
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { nativeDb } from '../config/firebase';
 import { createUniqueInviteCode } from './inviteService';
-import { isUserBannedFromGroup } from './bannedUserUtils'; // ✅ 새 파일에서 import
+import { isUserBannedFromGroup } from './bannedUserUtils';
 
 // 타입 정의 수정
 export interface Group {
@@ -72,51 +59,48 @@ export const transferOwnership = async (
 ): Promise<GroupResult> => {
   try {
     // 1. 현재 관리자 확인
-    const currentOwnerQuery = query(
-      collection(db, 'groupMembers'),
-      where('groupId', '==', groupId),
-      where('userId', '==', currentOwnerId),
-      where('role', '==', 'owner')
-    );
-    
-    const currentOwnerSnapshot = await getDocs(currentOwnerQuery);
+    const currentOwnerSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('groupId', '==', groupId)
+      .where('userId', '==', currentOwnerId)
+      .where('role', '==', 'owner')
+      .get();
     
     if (currentOwnerSnapshot.empty) {
       return { success: false, error: '현재 사용자가 관리자가 아닙니다.' };
     }
     
     // 2. 새 관리자가 멤버인지 확인
-    const newOwnerQuery = query(
-      collection(db, 'groupMembers'),
-      where('groupId', '==', groupId),
-      where('userId', '==', newOwnerId)
-    );
-    
-    const newOwnerSnapshot = await getDocs(newOwnerQuery);
+    const newOwnerSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('groupId', '==', groupId)
+      .where('userId', '==', newOwnerId)
+      .get();
     
     if (newOwnerSnapshot.empty) {
       return { success: false, error: '선택한 사용자가 그룹 멤버가 아닙니다.' };
     }
     
     // 3. 트랜잭션으로 권한 변경
-    const batch = writeBatch(db);
+    const batch = nativeDb.batch();
     
     // 현재 관리자를 일반 멤버로 변경
     const currentOwnerDoc = currentOwnerSnapshot.docs[0];
-    batch.update(doc(db, 'groupMembers', currentOwnerDoc.id), {
+    batch.update(currentOwnerDoc.ref, {
       role: 'member',
       updatedAt: new Date().toISOString()
     });
     
     // 새 관리자로 변경
     const newOwnerDoc = newOwnerSnapshot.docs[0];
-    batch.update(doc(db, 'groupMembers', newOwnerDoc.id), {
+    batch.update(newOwnerDoc.ref, {
       role: 'owner',
       updatedAt: new Date().toISOString()
     });
     
     // 그룹 문서에도 소유자 변경 기록
-    batch.update(doc(db, 'groups', groupId), {
+    const groupRef = nativeDb.collection('groups').doc(groupId);
+    batch.update(groupRef, {
       createdBy: newOwnerId,
       ownershipTransferredAt: new Date().toISOString(),
       ownershipTransferredFrom: currentOwnerId,
@@ -144,13 +128,11 @@ export const leaveGroup = async (
 ): Promise<GroupResult> => {
   try {
     // 해당 사용자의 그룹 멤버십 찾기
-    const membersQuery = query(
-      collection(db, 'groupMembers'),
-      where('userId', '==', userId),
-      where('groupId', '==', groupId)
-    );
-    
-    const snapshot = await getDocs(membersQuery);
+    const snapshot = await nativeDb
+      .collection('groupMembers')
+      .where('userId', '==', userId)
+      .where('groupId', '==', groupId)
+      .get();
     
     if (snapshot.empty) {
       return { success: false, error: '그룹 멤버십을 찾을 수 없습니다.' };
@@ -165,18 +147,17 @@ export const leaveGroup = async (
     }
     
     // 멤버십 문서 삭제
-    await deleteDoc(doc(db, 'groupMembers', memberDoc.id));
+    await memberDoc.ref.delete();
     
     // 그룹의 memberCount 업데이트
-    const groupRef = doc(db, 'groups', groupId);
-    const groupDoc = await getDoc(groupRef);
+    const groupDoc = await nativeDb.collection('groups').doc(groupId).get();
     
-    if (groupDoc.exists()) {
+    if ((groupDoc as any).exists) {
       const groupData = groupDoc.data();
-      const currentCount = groupData.memberCount || 0;
+      const currentCount = groupData?.memberCount || 0;
       
       if (currentCount > 0) {
-        await updateDoc(groupRef, {
+        await nativeDb.collection('groups').doc(groupId).update({
           memberCount: currentCount - 1
         });
       }
@@ -203,27 +184,23 @@ export const removeMemberFromGroup = async (
 ): Promise<GroupResult> => {
   try {
     // 관리자 권한 확인
-    const adminQuery = query(
-      collection(db, 'groupMembers'),
-      where('groupId', '==', groupId),
-      where('userId', '==', adminUserId),
-      where('role', '==', 'owner')
-    );
-    
-    const adminSnapshot = await getDocs(adminQuery);
+    const adminSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('groupId', '==', groupId)
+      .where('userId', '==', adminUserId)
+      .where('role', '==', 'owner')
+      .get();
     
     if (adminSnapshot.empty) {
       return { success: false, error: '관리자 권한이 없습니다.' };
     }
     
     // 강퇴할 멤버 찾기
-    const memberQuery = query(
-      collection(db, 'groupMembers'),
-      where('groupId', '==', groupId),
-      where('userId', '==', targetUserId)
-    );
-    
-    const memberSnapshot = await getDocs(memberQuery);
+    const memberSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('groupId', '==', groupId)
+      .where('userId', '==', targetUserId)
+      .get();
     
     if (memberSnapshot.empty) {
       return { success: false, error: '해당 멤버를 찾을 수 없습니다.' };
@@ -238,10 +215,10 @@ export const removeMemberFromGroup = async (
     }
     
     // 멤버 삭제
-    await deleteDoc(doc(db, 'groupMembers', memberDoc.id));
+    await memberDoc.ref.delete();
     
     // 차단 목록에 추가
-    await addDoc(collection(db, 'groupBannedMembers'), {
+    await nativeDb.collection('groupBannedMembers').add({
       groupId,
       userId: targetUserId,
       bannedBy: adminUserId,
@@ -250,15 +227,14 @@ export const removeMemberFromGroup = async (
     });
 
     // 그룹의 memberCount 업데이트
-    const groupRef = doc(db, 'groups', groupId);
-    const groupDoc = await getDoc(groupRef);
+    const groupDoc = await nativeDb.collection('groups').doc(groupId).get();
     
-    if (groupDoc.exists()) {
+    if ((groupDoc as any).exists) {
       const groupData = groupDoc.data();
-      const currentCount = groupData.memberCount || 0;
+      const currentCount = groupData?.memberCount || 0;
       
       if (currentCount > 0) {
-        await updateDoc(groupRef, {
+        await nativeDb.collection('groups').doc(groupId).update({
           memberCount: currentCount - 1
         });
       }
@@ -270,8 +246,6 @@ export const removeMemberFromGroup = async (
     return { success: false, error: error.message };
   }
 };
-
-// ❌ isUserBannedFromGroup 함수 삭제됨 (bannedUserUtils.ts로 이동)
 
 /**
  * 사용자별 그룹 색상 설정
@@ -286,13 +260,11 @@ export const setUserGroupColor = async (
 ): Promise<{ success: boolean; error?: string }> => {
   try {
     // 해당 사용자의 그룹 멤버십 찾기
-    const membersQuery = query(
-      collection(db, 'groupMembers'),
-      where('userId', '==', userId),
-      where('groupId', '==', groupId)
-    );
-    
-    const snapshot = await getDocs(membersQuery);
+    const snapshot = await nativeDb
+      .collection('groupMembers')
+      .where('userId', '==', userId)
+      .where('groupId', '==', groupId)
+      .get();
     
     if (snapshot.empty) {
       return { success: false, error: '그룹 멤버십을 찾을 수 없습니다.' };
@@ -300,7 +272,7 @@ export const setUserGroupColor = async (
     
     // 멤버십 문서 업데이트
     const memberDoc = snapshot.docs[0];
-    await updateDoc(doc(db, 'groupMembers', memberDoc.id), {
+    await memberDoc.ref.update({
       color: color
     });
     
@@ -322,7 +294,7 @@ export const createGroup = async (groupData: Omit<Group, 'id'>): Promise<GroupRe
     const inviteCode = await createUniqueInviteCode();
     const inviteLink = `weincalendar://invite/${inviteCode}`;
     
-    const docRef = await addDoc(collection(db, 'groups'), {
+    const docRef = await nativeDb.collection('groups').add({
       ...groupData,
       createdAt: new Date().toISOString(),
       // 초대 정보 추가
@@ -333,7 +305,7 @@ export const createGroup = async (groupData: Omit<Group, 'id'>): Promise<GroupRe
     });
     
     // 그룹 생성자를 첫 번째 멤버로 추가
-    await addDoc(collection(db, 'groupMembers'), {
+    await nativeDb.collection('groupMembers').add({
       groupId: docRef.id,
       userId: groupData.createdBy,
       role: 'owner',
@@ -358,8 +330,7 @@ export const updateGroup = async (
   groupData: Partial<Group>
 ): Promise<GroupResult> => {
   try {
-    const groupRef = doc(db, 'groups', groupId);
-    await updateDoc(groupRef, {
+    await nativeDb.collection('groups').doc(groupId).update({
       ...groupData,
       updatedAt: new Date().toISOString()
     });
@@ -388,13 +359,11 @@ export const inviteToGroup = async (
       return { success: false, error: '그룹 ID 또는 이메일이 유효하지 않습니다.' };
     }
     
-     // 사용자 찾기
-    const usersQuery = query(
-      collection(db, 'users'),
-      where('email', '==', email)
-    );
-    
-    const usersSnapshot = await getDocs(usersQuery);
+    // 사용자 찾기
+    const usersSnapshot = await nativeDb
+      .collection('users')
+      .where('email', '==', email)
+      .get();
     
     if (usersSnapshot.empty) {
       console.log(`[inviteToGroup] 사용자를 찾을 수 없음: ${email}`);
@@ -411,19 +380,17 @@ export const inviteToGroup = async (
     }
 
     // 이미 그룹 멤버인지 확인
-    const existingMemberQuery = query(
-      collection(db, 'groupMembers'),
-      where('groupId', '==', groupId),
-      where('email', '==', email)
-    );
+    const existingMemberSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('groupId', '==', groupId)
+      .where('email', '==', email)
+      .get();
     
-    const existingMemberSnapshot = await getDocs(existingMemberQuery);
     if (!existingMemberSnapshot.empty) {
       console.log(`[inviteToGroup] 이미 멤버로 존재함: ${email}`);
       return { success: false, error: '이미 그룹에 속해 있는 사용자입니다.' };
     }
     
-
     // 멤버로 추가
     const memberData = {
       groupId,
@@ -434,19 +401,18 @@ export const inviteToGroup = async (
       color: '#4CAF50' // 기본 색상
     };
     
-    const docRef = await addDoc(collection(db, 'groupMembers'), memberData);
+    const docRef = await nativeDb.collection('groupMembers').add(memberData);
     console.log(`[inviteToGroup] 멤버 추가 완료. 문서 ID: ${docRef.id}`);
     
     // 그룹의 memberCount 업데이트
     try {
-      const groupRef = doc(db, 'groups', groupId);
-      const groupDoc = await getDoc(groupRef);
+      const groupDoc = await nativeDb.collection('groups').doc(groupId).get();
       
-      if (groupDoc.exists()) {
+      if ((groupDoc as any).exists) {
         const groupData = groupDoc.data();
-        const currentCount = groupData.memberCount || 0;
+        const currentCount = groupData?.memberCount || 0;
         
-        await updateDoc(groupRef, {
+        await nativeDb.collection('groups').doc(groupId).update({
           memberCount: currentCount + 1
         });
         
@@ -474,12 +440,11 @@ export const getUserGroups = async (userId: string): Promise<GroupResult> => {
     console.log(`[getUserGroups] 사용자 ID: ${userId}의 그룹 조회 시작`);
     
     // 사용자가 속한 그룹 ID 가져오기
-    const membersQuery = query(
-      collection(db, 'groupMembers'),
-      where('userId', '==', userId)
-    );
+    const membersSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('userId', '==', userId)
+      .get();
     
-    const membersSnapshot = await getDocs(membersQuery);
     const groups: Group[] = [];
     
     console.log(`[getUserGroups] 사용자가 속한 그룹 멤버십 개수: ${membersSnapshot.size}`);
@@ -493,19 +458,19 @@ export const getUserGroups = async (userId: string): Promise<GroupResult> => {
         color: memberData.color
       });
       
-      const groupDoc = await getDoc(doc(db, 'groups', memberData.groupId));
+      const groupDoc = await nativeDb.collection('groups').doc(memberData.groupId).get();
       
-      if (groupDoc.exists()) {
+      if ((groupDoc as any).exists) {
         const groupData = groupDoc.data();
         
         // 명시적으로 그룹 객체 생성 및 역할 추가
         const group: Group = {
           id: groupDoc.id,
-          name: groupData.name || '',
-          createdBy: groupData.createdBy || '',
-          description: groupData.description || '',
-          memberCount: groupData.memberCount || 0,
-          createdAt: groupData.createdAt || '',
+          name: groupData?.name || '',
+          createdBy: groupData?.createdBy || '',
+          description: groupData?.description || '',
+          memberCount: groupData?.memberCount || 0,
+          createdAt: groupData?.createdAt || '',
           role: memberData.role || 'member',
           color: memberData.color || '#4CAF50', // 사용자가 선택한 색상 또는 기본값
         };
@@ -537,9 +502,9 @@ export const getUserGroups = async (userId: string): Promise<GroupResult> => {
  */
 export const getGroupById = async (groupId: string): Promise<GroupResult> => {
   try {
-    const groupDoc = await getDoc(doc(db, 'groups', groupId));
+    const groupDoc = await nativeDb.collection('groups').doc(groupId).get();
     
-    if (!groupDoc.exists()) {
+    if (!(groupDoc as any).exists) {
       return { success: false, error: '그룹을 찾을 수 없습니다.' };
     }
     
@@ -549,8 +514,8 @@ export const getGroupById = async (groupId: string): Promise<GroupResult> => {
       success: true, 
       group: {
         id: groupDoc.id,
-        name: groupData.name || '',
-        createdBy: groupData.createdBy || '',
+        name: groupData?.name || '',
+        createdBy: groupData?.createdBy || '',
         ...groupData
       } as Group
     };
@@ -566,26 +531,25 @@ export const getGroupById = async (groupId: string): Promise<GroupResult> => {
  */
 export const getGroupMembers = async (groupId: string): Promise<MemberResult> => {
   try {
-    const membersQuery = query(
-      collection(db, 'groupMembers'),
-      where('groupId', '==', groupId)
-    );
+    const membersSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('groupId', '==', groupId)
+      .get();
     
-    const membersSnapshot = await getDocs(membersQuery);
     const members: GroupMember[] = [];
     
     // 각 멤버의 상세 정보 가져오기
     for (const memberDoc of membersSnapshot.docs) {
       const memberData = memberDoc.data();
-      const userDoc = await getDoc(doc(db, 'users', memberData.userId));
+      const userDoc = await nativeDb.collection('users').doc(memberData.userId).get();
       
-      if (userDoc.exists()) {
+      if ((userDoc as any).exists) {
         const userData = userDoc.data();
         members.push({
           id: memberDoc.id,
           userId: userDoc.id,
-          displayName: userData.displayName,
-          email: userData.email,
+          displayName: userData?.displayName,
+          email: userData?.email,
           role: memberData.role,
           joinedAt: memberData.joinedAt,
           groupId,
@@ -608,33 +572,30 @@ export const getGroupMembers = async (groupId: string): Promise<MemberResult> =>
 export const deleteGroup = async (groupId: string): Promise<GroupResult> => {
   try {
     // 그룹 멤버 삭제
-    const membersQuery = query(
-      collection(db, 'groupMembers'),
-      where('groupId', '==', groupId)
-    );
+    const membersSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('groupId', '==', groupId)
+      .get();
     
-    const membersSnapshot = await getDocs(membersQuery);
     const deletePromises: Promise<void>[] = [];
     
     membersSnapshot.forEach((doc) => {
-      deletePromises.push(deleteDoc(doc.ref));
+      deletePromises.push(doc.ref.delete());
     });
     
     // 그룹 이벤트 삭제
-    const eventsQuery = query(
-      collection(db, 'events'),
-      where('groupId', '==', groupId)
-    );
-    
-    const eventsSnapshot = await getDocs(eventsQuery);
+    const eventsSnapshot = await nativeDb
+      .collection('events')
+      .where('groupId', '==', groupId)
+      .get();
     
     eventsSnapshot.forEach((doc) => {
-      deletePromises.push(deleteDoc(doc.ref));
+      deletePromises.push(doc.ref.delete());
     });
     
     // 모든 삭제 작업 완료 후 그룹 삭제
     await Promise.all(deletePromises);
-    await deleteDoc(doc(db, 'groups', groupId));
+    await nativeDb.collection('groups').doc(groupId).delete();
     
     return { success: true };
   } catch (error: any) {
@@ -657,12 +618,11 @@ export const getBannedMembers = async (groupId: string): Promise<{
   error?: string;
 }> => {
   try {
-    const bannedQuery = query(
-      collection(db, 'groupBannedMembers'),
-      where('groupId', '==', groupId)
-    );
+    const snapshot = await nativeDb
+      .collection('groupBannedMembers')
+      .where('groupId', '==', groupId)
+      .get();
     
-    const snapshot = await getDocs(bannedQuery);
     const bannedMembers = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data()
@@ -682,20 +642,18 @@ export const unbanMember = async (
   userId: string
 ): Promise<GroupResult> => {
   try {
-    const bannedQuery = query(
-      collection(db, 'groupBannedMembers'),
-      where('groupId', '==', groupId),
-      where('userId', '==', userId)
-    );
-    
-    const snapshot = await getDocs(bannedQuery);
+    const snapshot = await nativeDb
+      .collection('groupBannedMembers')
+      .where('groupId', '==', groupId)
+      .where('userId', '==', userId)
+      .get();
     
     if (snapshot.empty) {
       return { success: false, error: '차단된 사용자를 찾을 수 없습니다.' };
     }
     
     // 차단 기록 삭제
-    const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+    const deletePromises = snapshot.docs.map(doc => doc.ref.delete());
     await Promise.all(deletePromises);
     
     return { success: true };

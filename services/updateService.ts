@@ -1,11 +1,10 @@
 // services/updateService.ts
 import { Platform } from 'react-native';
-import { collection, doc, getDoc } from 'firebase/firestore';
+import { nativeDb } from '../config/firebase';
 import * as Linking from 'expo-linking';
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import Constants from 'expo-constants';
-import { db } from '../config/firebase';
 
 // 현재 앱 버전 가져오기
 export const getCurrentAppVersion = (): string => {
@@ -15,8 +14,7 @@ export const getCurrentAppVersion = (): string => {
 // 서버에서 최신 버전 정보 가져오기
 export const getLatestVersionInfo = async (): Promise<any> => {
   try {
-    const docRef = doc(db, 'app_config', 'version_info');
-    const docSnap = await getDoc(docRef);
+    const docSnap = await nativeDb.collection('app_config').doc('version_info').get();
     
     if (docSnap.exists()) {
       return {

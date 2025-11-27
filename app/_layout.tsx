@@ -1,39 +1,29 @@
 // app/_layout.tsx
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { useEffect, useRef, useState } from 'react';
-import 'react-native-reanimated';
-import { Platform, StatusBar as RNStatusBar, NativeModules, AppState, AppStateStatus, Alert } from 'react-native';
-import * as Notifications from 'expo-notifications'; 
-import Constants from 'expo-constants';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import analytics from '@react-native-firebase/analytics';  // ✅ 추가
-
+import React, { useEffect, useRef, useState } from 'react';
+import { Stack } from 'expo-router';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { EventProvider } from '../context/EventContext';
-import { useColorScheme } from '@/hooks/useColorScheme';
-import { Colors } from '@/constants/Colors';
-import { testLocalNotification } from '@/services/notificationService';
-import UpdatePopup from '../components/UpdatePopup';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import * as Notifications from 'expo-notifications';
+import * as SplashScreen from 'expo-splash-screen';
+import { router } from 'expo-router';
+import { Platform, Alert, AppState, AppStateStatus } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import {
+  registerForPushNotificationsAsync,
+  updateDailySummaryWithEvents,
+  saveUserPushToken
+} from '../services/notificationService';
 import { checkForUpdates } from '../services/updateService';
-import { initializeAdConfig } from '../services/adConfigService';
+import { checkAdminStatus } from '../services/adminService';
+// import { initializeAnalytics } from '../services/analyticsService';
+import { subscribeToUserEvents } from '../services/calendarService';
+import NetInfo from '@react-native-community/netinfo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { nativeDb } from '../config/firebase';
 
-// Create notification channel
-const createNotificationChannel = () => {
-  if (Platform.OS === 'android') {
-    Notifications.setNotificationChannelAsync('default', {
-      name: 'WE:IN',
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#3c66af',
-    });
-  }
-};
+SplashScreen.preventAutoHideAsync();
 
-// Set notification handler
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -42,171 +32,169 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
-
-// Component for handling routing based on auth state
 function RootLayoutNav() {
-  const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme || 'light'];
-  const { user, isAuthenticated, loading: authLoading } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
-  
-  const notificationListener = useRef<Notifications.Subscription>();
-  const responseListener = useRef<Notifications.Subscription>();
-  const appState = useRef(AppState.currentState);
-  
-  const [updateAvailable, setUpdateAvailable] = useState(false);
-  const [requiredUpdate, setRequiredUpdate] = useState(false);
-  const [versionInfo, setVersionInfo] = useState<any>(null);
-  
-  // ✅ Firebase Analytics 초기화
-  useEffect(() => {
-    // App open event
-    analytics().logAppOpen();
-    console.log('[Analytics] Firebase Analytics initialized');
-    
-    // Set user ID if logged in
-    if (user?.uid) {
-      analytics().setUserId(user.uid);
-      console.log('[Analytics] User ID set:', user.uid);
-    }
-  }, [user]);
-  
-  // ✅ 화면 전환 추적
-  useEffect(() => {
-    if (segments.length > 0) {
-      const screenName = segments.join('/');
-      analytics().logScreenView({
-        screen_name: screenName,
-        screen_class: segments[0] || 'unknown'
-      });
-      console.log('[Analytics] Screen view tracked:', screenName);
-    }
-  }, [segments]);
-  
-  // Parallel initialization on app start
-  useEffect(() => {
-    if (authLoading) return;
-    
-    const initializeApp = async () => {
-      // Version check (run independently)
-      checkForUpdates().then(result => {
-        if (result && result.updateAvailable) {
-          setUpdateAvailable(true);
-          setRequiredUpdate(result.requiredUpdate);
-          setVersionInfo(result.versionInfo);
-          console.log('Update required:', result.versionInfo);
-        } else {
-          console.log('App is up to date');
-        }
-      }).catch(err => {
-        console.log('Version check failed (ignored):', err);
-      });
-      
-      // Ad initialization (run independently)
-      initializeAdConfig().then(success => {
-        if (success) {
-          console.log('Ad config initialized');
-        }
-      }).catch(err => {
-        console.log('Ad initialization failed (ignored):', err);
-      });
-      
-      // ✅ Analytics 세션 시작
-      analytics().logEvent('session_start', {
-        timestamp: new Date().toISOString()
-      });
-    };
-    
-    // Run async (don't block main thread)
-    requestAnimationFrame(() => {
-      initializeApp();
-    });
-  }, [authLoading]);
-  
-  const handleCloseUpdatePopup = () => {
-    setUpdateAvailable(false);
-  };
+  const { isAuthenticated, loading: isLoading, user } = useAuth();
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [appIsReady, setAppIsReady] = useState(false);
+  const [isConnected, setIsConnected] = useState(true);
+  const notificationListener = useRef<any>();
+  const responseListener = useRef<any>();
+  const appStateSubscription = useRef<any>();
+  const lastAppStateRef = useRef(AppState.currentState);
+  const [appStateVisible, setAppStateVisible] = useState(AppState.currentState);
 
+  // 앱 준비
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      const bgColor = colorScheme === 'dark' ? colors.background : '#ffffff';
-      RNStatusBar.setBackgroundColor(bgColor);
-      RNStatusBar.setTranslucent(false);
-      
+    async function prepare() {
       try {
-        if (NativeModules.StatusBarManager && Platform.Version >= 21) {
-          console.log('Android API level 21+, navigation bar follows app theme');
-        }
-      } catch (error) {
-        console.error('Navigation bar error:', error);
-      }
-    }
-    
-    RNStatusBar.setBarStyle(colorScheme === 'dark' ? 'light-content' : 'dark-content');
-    createNotificationChannel();
-  }, [colorScheme]);
+        // 애널리틱스 초기화
+        // await initializeAnalytics();
 
-  useEffect(() => {
-    if (!authLoading) {
-      const inAuthGroup = segments[0] === '(auth)';
-      
-      if (isAuthenticated && inAuthGroup) {
-        router.replace('/(tabs)/calendar');
+        // 네트워크 상태 확인
+        const netState = await NetInfo.fetch();
+        setIsConnected(netState.isConnected ?? false);
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      } catch (e) {
+        console.warn(e);
+      } finally {
+        setAppIsReady(true);
+        await SplashScreen.hideAsync();
       }
     }
-  }, [isAuthenticated, segments, authLoading, router]);
-  
+    prepare();
+  }, []);
+
+  // 네트워크 상태 모니터링
   useEffect(() => {
-    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
-      const data = notification.request.content.data;
-      console.log('Notification received:', data);
-      
-      // ✅ Analytics: 알림 수신 추적
-      analytics().logEvent('notification_receive', {
-        type: data.type || 'unknown'
-      });
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsConnected(state.isConnected ?? false);
     });
-    
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
-      const data = response.notification.request.content.data;
-      console.log('Notification response:', data);
-      
-      // ✅ Analytics: 알림 클릭 추적
-      analytics().logEvent('notification_open', {
-        type: data.type || 'unknown'
-      });
-      
-      if (data.type === 'new_event' || data.type === 'update_event') {
-        if (data.groupId && data.date) {
-          router.push('/(tabs)/calendar');
-        }
-      } else if (data.type === 'delete_event') {
-        if (data.groupId) {
-          router.push(`/(tabs)/groups/${data.groupId}`);
-        }
-      }
-    });
-    
-    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+    return unsubscribe;
+  }, []);
+
+  // 앱 상태 모니터링 (백그라운드/포그라운드)
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
       if (
-        appState.current.match(/inactive|background/) && 
-        nextAppState === 'active' &&
-        isAuthenticated
+        lastAppStateRef.current.match(/inactive|background/) &&
+        nextAppState === 'active'
       ) {
         console.log('App returned to foreground - data refresh needed');
+        setAppStateVisible(nextAppState);
         
-        // ✅ Analytics: 앱 포그라운드 복귀
-        analytics().logEvent('app_foreground', {
-          previous_state: appState.current
-        });
+        // 앱이 다시 활성화되면 업데이트 체크
+        if (user?.uid) {
+          checkForUpdates().catch(console.error);
+        }
       }
       
-      appState.current = nextAppState;
+      lastAppStateRef.current = nextAppState;
+    };
+
+    appStateSubscription.current = AppState.addEventListener(
+      'change',
+      handleAppStateChange
+    );
+
+    return () => {
+      if (appStateSubscription.current) {
+        appStateSubscription.current.remove();
+      }
+    };
+  }, [user]);
+
+  // 사용자 로그인 시 초기 설정
+  useEffect(() => {
+    if (user?.uid && isAuthenticated) {
+      const initializeUserData = async () => {
+        try {
+          // 관리자 상태 확인
+          const isAdmin = await checkAdminStatus(user.uid);
+          setIsAdmin(isAdmin);
+          console.log('관리자 상태 확인:', isAdmin);
+
+          // 버전 체크
+          await checkForUpdates();
+
+          // 알림 초기화
+          const token = await registerForPushNotificationsAsync();
+          if (token) {
+            await saveUserPushToken(user.uid, token);
+            console.log('푸시 토큰 등록 성공:', token);
+          }
+
+          // 일일 요약 알림 설정 (일정 내용 포함)
+          await updateDailySummaryWithEvents(user.uid);
+
+          console.log('알림이 초기화되었습니다');
+        } catch (error) {
+          console.error('사용자 데이터 초기화 오류:', error);
+        }
+      };
+
+      initializeUserData();
+    }
+  }, [user, isAuthenticated, setIsAdmin]);
+
+  // 알림 리스너 설정
+  useEffect(() => {
+    if (!appIsReady || isLoading) return;
+
+    // Android 알림 채널 설정
+    if (Platform.OS === 'android') {
+      Notifications.setNotificationChannelAsync('default', {
+        name: 'WE:IN',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+      });
+    }
+
+    // 알림 수신 리스너
+    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+      console.log('Notification received:', notification.request.content.data);
+
+      // 알림을 받았을 때는 로그만 남기고, 업데이트하지 않음
+      // (무한 루프 방지)
     });
-    
+
+    // 알림 응답 리스너 (사용자가 알림을 탭했을 때)
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('Notification response:', response.notification.request.content.data);
+      const data = response.notification.request.content.data;
+      
+      // 알림 타입에 따라 다른 화면으로 이동
+      if (data.type === 'daily_summary') {
+        // 일일 요약 알림 클릭 시 홈 화면으로
+        if (router.canGoBack()) {
+          router.replace('/(tabs)');
+        } else {
+          router.push('/(tabs)');
+        }
+      } else if (data.type === 'event_reminder') {
+        // 일정 알림 클릭 시 캘린더 화면으로
+        if (router.canGoBack()) {
+          router.replace('/(tabs)/calendar');
+        } else {
+          router.push('/(tabs)/calendar');
+        }
+      } else if (data.type === 'new_event' || data.type === 'update_event') {
+        // 새 일정/수정 알림 클릭 시 캘린더의 해당 날짜로 이동
+        if (data.date) {
+          router.push({
+            pathname: '/(tabs)/calendar',
+            params: { date: data.date }
+          });
+        } else {
+          router.push('/(tabs)/calendar');
+        }
+      } else if (data.type === 'group_invite') {
+        // 그룹 초대 알림 클릭 시 그룹 화면으로
+        router.push('/(tabs)/groups');
+      }
+    });
+
     return () => {
       if (notificationListener.current) {
         Notifications.removeNotificationSubscription(notificationListener.current);
@@ -214,51 +202,92 @@ function RootLayoutNav() {
       if (responseListener.current) {
         Notifications.removeNotificationSubscription(responseListener.current);
       }
-      subscription.remove();
     };
-  }, [isAuthenticated, router]);
+  }, [appIsReady, isLoading, user]);
+
+  // 푸시 토큰 등록 (사용자별)
+  useEffect(() => {
+    if (user?.uid) {
+      const registerPushToken = async () => {
+        try {
+          const token = await registerForPushNotificationsAsync();
+          if (token) {
+            // Firestore에 토큰 저장
+            await nativeDb.collection('users').doc(user.uid).update({
+              pushToken: token,
+              pushTokenUpdatedAt: new Date().toISOString(),
+            });
+            console.log('푸시 토큰 등록 시도 - 사용자 ID:', user.uid);
+            console.log('푸시 토큰 생성 성공:', token);
+            
+            // AsyncStorage에도 백업
+            await AsyncStorage.setItem('pushToken', token);
+            await saveUserPushToken(user.uid, token);
+            console.log('푸시 토큰이 Firestore에 저장됨');
+          }
+        } catch (error) {
+          console.error('푸시 토큰 등록 오류:', error);
+        }
+      };
+      registerPushToken();
+    }
+  }, [user]);
+
+  if (!appIsReady || isLoading) {
+    return null;
+  }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack
-        screenOptions={{
-          contentStyle: {
-            backgroundColor: colors.background
-          }
-        }}
-      >
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      
-      {updateAvailable && versionInfo && (
-        <UpdatePopup
-          visible={updateAvailable}
-          versionInfo={versionInfo}
-          isRequired={requiredUpdate}
-          onClose={handleCloseUpdatePopup}
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        contentStyle: {
+          backgroundColor: '#fff',
+        },
+        animation: Platform.OS === 'android' ? 'slide_from_right' : 'default',
+      }}
+    >
+        <Stack.Screen 
+          name="(tabs)" 
+          options={{ 
+            headerShown: false,
+            animation: 'none'
+          }} 
         />
-      )}
-    </ThemeProvider>
+        <Stack.Screen 
+          name="(auth)" 
+          options={{ 
+            headerShown: false,
+            animation: Platform.OS === 'android' ? 'slide_from_bottom' : 'default',
+            presentation: 'modal'
+          }} 
+        />
+        <Stack.Screen 
+          name="settings" 
+          options={{ 
+            headerShown: false,
+            animation: 'slide_from_right'
+          }} 
+        />
+        <Stack.Screen
+          name="groups"
+          options={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        />
+        <Stack.Screen
+          name="events"
+          options={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        />
+      </Stack>
   );
 }
 
 export default function RootLayout() {
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
-
-  if (!loaded) {
-    return null;
-  }
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>

@@ -1,28 +1,8 @@
 // services/authService.ts
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword,
-  signOut,
-  updateProfile,
-  deleteUser,
-  User as FirebaseUser,
-  sendPasswordResetEmail
-} from 'firebase/auth';
-import { 
-  doc, 
-  setDoc, 
-  updateDoc, 
-  getDoc, 
-  getDocs, 
-  collection, 
-  query, 
-  where,
-  deleteDoc
-} from 'firebase/firestore';
-import { auth, db } from '../config/firebase';
+import auth from '@react-native-firebase/auth';
+import { nativeDb } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-import { Alert } from 'react-native'; // Alert 추가
 
 // 인증 상태 저장을 위한 키
 const AUTH_CREDENTIALS_KEY = 'auth_credentials';
@@ -31,7 +11,7 @@ const AUTH_USER_KEY = 'auth_user';
 // 타입 정의
 interface AuthResult {
   success: boolean;
-  user?: FirebaseUser;
+  user?: any; // Firebase Native SDK User 타입
   error?: string;
   message?: string;
 }
@@ -40,7 +20,6 @@ interface AuthResult {
  * Firebase 인증 오류 메시지를 사용자 친화적인 메시지로 변환
  */
 function getAuthErrorMessage(errorCode: string): string {
-  // Firebase 오류 코드에 따른 사용자 친화적인 메시지
   const errorMessages: Record<string, string> = {
     'auth/invalid-credential': '이메일 또는 비밀번호가 올바르지 않습니다.',
     'auth/user-not-found': '등록되지 않은 이메일입니다.',
@@ -54,7 +33,6 @@ function getAuthErrorMessage(errorCode: string): string {
     'auth/requires-recent-login': '보안을 위해 다시 로그인한 후 탈퇴를 진행해주세요.'
   };
 
-  // 오류 코드에 해당하는 메시지가 있으면 반환, 없으면 기본 메시지 반환
   return errorMessages[errorCode] || '로그인에 실패했습니다. 다시 시도해주세요.';
 }
 
@@ -63,7 +41,7 @@ function getAuthErrorMessage(errorCode: string): string {
  */
 export const sendPasswordReset = async (email: string): Promise<AuthResult> => {
   try {
-    await sendPasswordResetEmail(auth, email);
+    await auth().sendPasswordResetEmail(email);
     return { 
       success: true, 
       message: '비밀번호 재설정 링크가 이메일로 전송되었습니다. 메일함을 확인해주세요.' 
@@ -72,7 +50,6 @@ export const sendPasswordReset = async (email: string): Promise<AuthResult> => {
     const errorCode = error.code || '';
     let errorMessage;
     
-    // 오류 코드에 따른 사용자 친화적 메시지
     switch (errorCode) {
       case 'auth/invalid-email':
         errorMessage = '유효하지 않은 이메일 주소입니다.';
@@ -97,11 +74,10 @@ export const sendPasswordReset = async (email: string): Promise<AuthResult> => {
 
 /**
  * 회원 탈퇴 (계정 삭제)
- * @returns {Promise<AuthResult>} 탈퇴 결과
  */
 export const deleteAccount = async (): Promise<AuthResult> => {
   try {
-    const currentUser = auth.currentUser;
+    const currentUser = auth().currentUser;
     if (!currentUser) {
       return { success: false, error: '로그인된 사용자가 없습니다.' };
     }
@@ -109,39 +85,36 @@ export const deleteAccount = async (): Promise<AuthResult> => {
     const userId = currentUser.uid;
 
     // 1. 사용자가 속한 그룹 멤버십 삭제
-    const membershipQuery = query(
-      collection(db, 'groupMembers'),
-      where('userId', '==', userId)
-    );
+    const membershipSnapshot = await nativeDb
+      .collection('groupMembers')
+      .where('userId', '==', userId)
+      .get();
     
-    const membershipSnapshot = await getDocs(membershipQuery);
     const deletePromises: Promise<void>[] = [];
     
     membershipSnapshot.forEach((doc) => {
-      deletePromises.push(deleteDoc(doc.ref));
+      deletePromises.push(doc.ref.delete());
     });
     
     // 2. 사용자의 개인 일정 삭제
-    const eventsQuery = query(
-      collection(db, 'events'),
-      where('userId', '==', userId),
-      where('groupId', '==', 'personal')
-    );
-    
-    const eventsSnapshot = await getDocs(eventsQuery);
+    const eventsSnapshot = await nativeDb
+      .collection('events')
+      .where('userId', '==', userId)
+      .where('groupId', '==', 'personal')
+      .get();
     
     eventsSnapshot.forEach((doc) => {
-      deletePromises.push(deleteDoc(doc.ref));
+      deletePromises.push(doc.ref.delete());
     });
     
     // 3. 사용자의 Firestore 데이터 삭제
-    deletePromises.push(deleteDoc(doc(db, 'users', userId)));
+    deletePromises.push(nativeDb.collection('users').doc(userId).delete());
     
     // 4. 모든 데이터 삭제 작업 실행
     await Promise.all(deletePromises);
     
     // 5. Firebase Auth에서 사용자 계정 삭제
-    await deleteUser(currentUser);
+    await currentUser.delete();
     
     // 6. 로컬 저장소에서 인증 정보 제거
     try {
@@ -155,7 +128,6 @@ export const deleteAccount = async (): Promise<AuthResult> => {
   } catch (error: any) {
     console.error('회원 탈퇴 오류:', error);
     
-    // 재인증이 필요한 경우 특별히 처리
     if (error.code === 'auth/requires-recent-login') {
       return { 
         success: false, 
@@ -169,10 +141,6 @@ export const deleteAccount = async (): Promise<AuthResult> => {
 
 /**
  * 새 사용자 등록
- * @param {string} email - 사용자 이메일
- * @param {string} password - 사용자 비밀번호
- * @param {string} displayName - 사용자 표시 이름
- * @returns {Promise<AuthResult>} 등록 결과
  */
 export const registerUser = async (
   email: string, 
@@ -180,20 +148,19 @@ export const registerUser = async (
   displayName: string
 ): Promise<AuthResult> => {
   try {
-    // 사용자 계정 생성
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    // Native SDK로 사용자 계정 생성
+    const userCredential = await auth().createUserWithEmailAndPassword(email, password);
     const user = userCredential.user;
     
     // 사용자 프로필 업데이트
-    await updateProfile(user, { displayName });
+    await user.updateProfile({ displayName });
     
-    // Firestore에 사용자 정보 저장 (새 필드 포함)
-    await setDoc(doc(db, 'users', user.uid), {
+    // Firestore에 사용자 정보 저장
+    await nativeDb.collection('users').doc(user.uid).set({
       uid: user.uid,
       email,
       displayName,
       createdAt: new Date().toISOString(),
-      // 새 필드 추가
       pushToken: null,
       tokenUpdatedAt: null,
       unreadNotifications: 0
@@ -211,16 +178,14 @@ export const registerUser = async (
 
 /**
  * 사용자 로그인
- * @param {string} email - 사용자 이메일
- * @param {string} password - 사용자 비밀번호
- * @returns {Promise<AuthResult>} 로그인 결과
  */
 export const loginUser = async (
   email: string, 
   password: string
 ): Promise<AuthResult> => {
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    // Native SDK로 로그인
+    const userCredential = await auth().signInWithEmailAndPassword(email, password);
     
     try {
       const userData = {
@@ -229,109 +194,75 @@ export const loginUser = async (
         displayName: userCredential.user.displayName
       };
       await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData));
-      
       await AsyncStorage.setItem(AUTH_CREDENTIALS_KEY, JSON.stringify({ email, password }));
       
-      // 디버깅 Alert 추가된 푸시 토큰 등록 부분
+      // 푸시 토큰 등록
       try {
         console.log('푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
-        Alert.alert('디버그 1', '푸시 토큰 프로세스 시작');
         
-        // 현재 권한 상태 확인
-        Alert.alert('디버그 2', '권한 확인 시작...');
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        Alert.alert('디버그 3', `현재 권한: ${existingStatus}`);
-        
         let finalStatus = existingStatus;
         
-        // 권한이 없으면 요청
         if (existingStatus !== 'granted') {
           console.log('알림 권한 없음 - 권한 요청 중...');
-          Alert.alert('디버그 4', '권한 요청 팝업을 띄웁니다...');
-          
-          try {
-            const { status } = await Notifications.requestPermissionsAsync();
-            finalStatus = status;
-            Alert.alert('디버그 5', `권한 요청 결과: ${finalStatus}`);
-          } catch (permError: any) {
-            Alert.alert('권한 요청 에러', `에러: ${permError.message}`);
-            console.error('권한 요청 에러:', permError);
-          }
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
         }
         
-        // 권한이 허용된 경우에만 토큰 생성
         if (finalStatus === 'granted') {
-          Alert.alert('디버그 6', '토큰 생성 시작...');
+          const token = await Notifications.getExpoPushTokenAsync({
+            projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51'
+          });
           
-          try {
-            const token = await Notifications.getExpoPushTokenAsync({
-              projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51'
-            });
-            
-            console.log('푸시 토큰 생성 성공:', token.data);
-            Alert.alert('디버그 7', `토큰: ${token.data.substring(0, 20)}...`);
-            
-            // Firestore에 토큰 저장
-            await updateDoc(doc(db, 'users', userCredential.user.uid), {
-              pushToken: token.data,
-              tokenUpdatedAt: new Date().toISOString()
-            });
-            
-            console.log('푸시 토큰이 Firestore에 저장됨');
-            Alert.alert('디버그 8', 'Firestore 저장 완료!');
-          } catch (tokenGenError: any) {
-            Alert.alert('토큰 생성 에러', `에러: ${tokenGenError.message}`);
-            console.error('토큰 생성 에러:', tokenGenError);
-          }
+          console.log('푸시 토큰 생성 성공:', token.data);
+          
+          await nativeDb.collection('users').doc(userCredential.user.uid).update({
+            pushToken: token.data,
+            tokenUpdatedAt: new Date().toISOString()
+          });
+          
+          console.log('푸시 토큰이 Firestore에 저장됨');
         } else {
           console.log('알림 권한 거부됨 - 토큰 생성 건너뜀');
-          Alert.alert('디버그', `권한 거부됨: ${finalStatus}`);
         }
       } catch (tokenError: any) {
         console.error('푸시 토큰 등록 오류:', tokenError);
-        Alert.alert('전체 프로세스 에러', `에러: ${tokenError.message}`);
       }
       
-      // 나머지 Firestore 업데이트 코드
-      const userRef = doc(db, 'users', userCredential.user.uid);
+      // Firestore 사용자 문서 확인 및 업데이트
+      const userDoc = await nativeDb.collection('users').doc(userCredential.user.uid).get();
       
-      try {
-        const userDoc = await getDoc(userRef);
+      if ((userDoc as any).exists) {
+        const userData = userDoc.data();
+        const fieldsToUpdate: Record<string, any> = {};
         
-        if (userDoc.exists()) {
-          const userData = userDoc.data();
-          const fieldsToUpdate: Record<string, any> = {};
-          
-          if (userData.pushToken === undefined) {
-            fieldsToUpdate.pushToken = null;
-          }
-          
-          if (userData.tokenUpdatedAt === undefined) {
-            fieldsToUpdate.tokenUpdatedAt = null;
-          }
-          
-          if (userData.unreadNotifications === undefined) {
-            fieldsToUpdate.unreadNotifications = 0;
-          }
-          
-          if (Object.keys(fieldsToUpdate).length > 0) {
-            await updateDoc(userRef, fieldsToUpdate);
-            console.log(`사용자 ${userCredential.user.uid}의 문서에 새 필드 추가 완료`);
-          }
-        } else {
-          await setDoc(userRef, {
-            uid: userCredential.user.uid,
-            email: userCredential.user.email,
-            displayName: userCredential.user.displayName,
-            createdAt: new Date().toISOString(),
-            pushToken: null,
-            tokenUpdatedAt: null,
-            unreadNotifications: 0
-          });
-          console.log(`사용자 ${userCredential.user.uid}의 문서 새로 생성 완료`);
+        if (userData?.pushToken === undefined) {
+          fieldsToUpdate.pushToken = null;
         }
-      } catch (firestoreError) {
-        console.error('Firestore 사용자 문서 업데이트 실패:', firestoreError);
+        
+        if (userData?.tokenUpdatedAt === undefined) {
+          fieldsToUpdate.tokenUpdatedAt = null;
+        }
+        
+        if (userData?.unreadNotifications === undefined) {
+          fieldsToUpdate.unreadNotifications = 0;
+        }
+        
+        if (Object.keys(fieldsToUpdate).length > 0) {
+          await nativeDb.collection('users').doc(userCredential.user.uid).update(fieldsToUpdate);
+          console.log(`사용자 ${userCredential.user.uid}의 문서에 새 필드 추가 완료`);
+        }
+      } else {
+        await nativeDb.collection('users').doc(userCredential.user.uid).set({
+          uid: userCredential.user.uid,
+          email: userCredential.user.email,
+          displayName: userCredential.user.displayName,
+          createdAt: new Date().toISOString(),
+          pushToken: null,
+          tokenUpdatedAt: null,
+          unreadNotifications: 0
+        });
+        console.log(`사용자 ${userCredential.user.uid}의 문서 새로 생성 완료`);
       }
       
     } catch (storageError) {
@@ -350,13 +281,11 @@ export const loginUser = async (
 
 /**
  * 사용자 로그아웃
- * @returns {Promise<AuthResult>} 로그아웃 결과
  */
 export const logoutUser = async (): Promise<AuthResult> => {
   try {
-    await signOut(auth);
+    await auth().signOut();
     
-    // 저장된 인증 정보 제거
     try {
       await AsyncStorage.removeItem(AUTH_CREDENTIALS_KEY);
       await AsyncStorage.removeItem(AUTH_USER_KEY);
@@ -372,11 +301,9 @@ export const logoutUser = async (): Promise<AuthResult> => {
 
 /**
  * 저장된 사용자 정보로 자동 로그인 시도
- * @returns {Promise<AuthResult>} 로그인 결과
  */
 export const autoLoginWithSavedCredentials = async (): Promise<AuthResult> => {
   try {
-    // 저장된 로그인 정보 확인
     const savedCredentialsJson = await AsyncStorage.getItem(AUTH_CREDENTIALS_KEY);
     
     if (!savedCredentialsJson) {
@@ -389,12 +316,10 @@ export const autoLoginWithSavedCredentials = async (): Promise<AuthResult> => {
       return { success: false, error: '유효하지 않은 저장 정보' };
     }
     
-    // 저장된 정보로 로그인 시도
     return await loginUser(email, password);
   } catch (error: any) {
     console.error('자동 로그인 오류:', error);
     
-    // 오류 발생 시 저장된 정보 제거
     try {
       await AsyncStorage.removeItem(AUTH_CREDENTIALS_KEY);
       await AsyncStorage.removeItem(AUTH_USER_KEY);
@@ -408,7 +333,6 @@ export const autoLoginWithSavedCredentials = async (): Promise<AuthResult> => {
 
 /**
  * 현재 저장된 사용자 정보 가져오기
- * @returns {Promise<any>} 저장된 사용자 정보
  */
 export const getSavedUserInfo = async (): Promise<any> => {
   try {

@@ -10,14 +10,16 @@ import {
   Platform,
   TouchableOpacity
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';  // ✅ useSafeAreaInsets 추가
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
 import { useAuth } from '../../../context/AuthContext';
-import { useEvents } from '../../../context/EventContext';  // ✅ EventContext 유지
+import { useEvents } from '../../../context/EventContext';
 import { CalendarEvent } from '../../../services/calendarService';
 import { CalendarDay } from '../../../utils/dateUtils';
-import { onSnapshot, collection } from 'firebase/firestore';
-import { db } from '../../../config/firebase';
+// Web SDK imports 제거
+// import { onSnapshot, collection } from 'firebase/firestore';
+// import { db } from '../../../config/firebase';
+import { nativeDb } from '../../../config/firebase';  // Native SDK 사용
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -32,9 +34,8 @@ import MemoizedAdBanner from '@/components/MemoizedAdBanner';
 function CalendarScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const insets = useSafeAreaInsets();  // ✅ insets 추가
+  const insets = useSafeAreaInsets();
   
-  // ✅ EventContext에서 데이터 가져오기 (유지!)
   const { groupedEvents, groups, isFromCache, refreshAll } = useEvents();
   
   // 색상 테마 설정
@@ -71,12 +72,11 @@ function CalendarScreen() {
     return () => unsubscribe();
   }, []);
 
-  // 공휴일 변경 감지 리스너
+  // 공휴일 변경 감지 리스너 - Native SDK 사용
   useEffect(() => {
     let isFirstSnapshot = true;
     
-    const unsubscribe = onSnapshot(
-      collection(db, 'temporary_holidays'),
+    const unsubscribe = nativeDb.collection('temporary_holidays').onSnapshot(
       (snapshot) => {
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
@@ -214,7 +214,6 @@ function CalendarScreen() {
         <MemoizedAdBanner size="banner" />
       </View>
       
-      {/* ✅ calendarWrapper에 플랫폼별 패딩 적용 */}
       <View style={styles.calendarWrapper}>
         <ScrollView
           ref={scrollRef}

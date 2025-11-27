@@ -1,17 +1,5 @@
 // services/holidayService.ts
-import { 
-  collection, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  doc, 
-  query, 
-  where, 
-  getDocs,
-  getDoc,
-  Timestamp 
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { nativeDb } from '../config/firebase';
 import { Holiday } from '../data/holidays';
 
 // 임시 공휴일 인터페이스
@@ -22,8 +10,8 @@ export interface TemporaryHoliday {
   isHoliday: boolean;
   description?: string;
   createdBy?: string;
-  createdAt?: Timestamp | string;
-  updatedAt?: Timestamp | string;
+  createdAt?: any | string;  // Timestamp 타입 제거
+  updatedAt?: any | string;  // Timestamp 타입 제거
   year?: number; // 년도 필드 추가 (검색용)
 }
 
@@ -77,17 +65,17 @@ export const addTemporaryHoliday = async (holiday: Omit<TemporaryHoliday, 'id'>)
     };
 
     // description이 있을 때만 추가
-if (holiday.description && holiday.description.trim()) {
-  holidayData.description = holiday.description;
-}
+    if (holiday.description && holiday.description.trim()) {
+      holidayData.description = holiday.description;
+    }
 
-// createdBy가 있을 때만 추가
-if (holiday.createdBy) {
-  holidayData.createdBy = holiday.createdBy;
-}
+    // createdBy가 있을 때만 추가
+    if (holiday.createdBy) {
+      holidayData.createdBy = holiday.createdBy;
+    }
 
-    // 저장
-      const docRef = await addDoc(collection(db, 'temporary_holidays'), holidayData);
+    // Native SDK로 저장
+    const docRef = await nativeDb.collection('temporary_holidays').add(holidayData);
     
     // 새로운 접근 방식: TemporaryHoliday 인터페이스와 완벽히 일치하는 객체 생성
     // 필수 속성만 먼저 포함
@@ -132,8 +120,6 @@ export const updateTemporaryHoliday = async (
   holiday: Partial<TemporaryHoliday>
 ): Promise<HolidayResult> => {
   try {
-    const holidayRef = doc(db, 'temporary_holidays', id);
-    
     // undefined 값 제거 (Firestore 오류 방지)
     const cleanUpdateData: Record<string, any> = {};
     
@@ -158,7 +144,8 @@ export const updateTemporaryHoliday = async (
     // 업데이트 시간 추가
     cleanUpdateData.updatedAt = new Date().toISOString();
     
-    await updateDoc(holidayRef, cleanUpdateData);
+    // Native SDK로 업데이트
+    await nativeDb.collection('temporary_holidays').doc(id).update(cleanUpdateData);
     
     return { success: true };
   } catch (error: any) {
@@ -174,7 +161,7 @@ export const updateTemporaryHoliday = async (
  */
 export const deleteTemporaryHoliday = async (id: string): Promise<HolidayResult> => {
   try {
-    await deleteDoc(doc(db, 'temporary_holidays', id));
+    await nativeDb.collection('temporary_holidays').doc(id).delete();
     return { success: true };
   } catch (error: any) {
     console.error('임시 공휴일 삭제 오류:', error);
@@ -189,12 +176,11 @@ export const deleteTemporaryHoliday = async (id: string): Promise<HolidayResult>
  */
 export const getTemporaryHolidaysByYear = async (year: number): Promise<HolidayResult> => {
   try {
-    const holidaysQuery = query(
-      collection(db, 'temporary_holidays'),
-      where('year', '==', year)
-    );
+    const snapshot = await nativeDb
+      .collection('temporary_holidays')
+      .where('year', '==', year)
+      .get();
     
-    const snapshot = await getDocs(holidaysQuery);
     const holidays: TemporaryHoliday[] = snapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data() as TemporaryHoliday
