@@ -2,7 +2,7 @@
   "expo": {
     "name": "WE:IN",
     "slug": "ShareCalendar",
-    "version": "1.2.17",
+    "version": "1.2.38",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weincalendar",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kangcoding.sharecalendar",
-      "buildNumber": "38",
+      "buildNumber": "65",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "UIBackgroundModes": [
@@ -26,13 +26,13 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.kangcoding.sharecalendar",
-      "versionCode": 38,
-      "softwareKeyboardLayoutMode": "pan",
+      "versionCode": 67,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "NOTIFICATIONS",
         "INTERNET"
-      ]
+      ],
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "bundler": "metro",
@@ -48,8 +48,8 @@
             "useFrameworks": "static"
           },
           "android": {
-            "kotlinVersion": "1.9.0",
-            "kspVersion": "1.9.0-1.0.13",
+            "useAndroidX": true,
+            "enableJetifier": true,
             "ndkVersion": "27.1.12297006",
             "packagingOptions": {
               "pickFirst": ["**/libc++_shared.so"]
@@ -62,6 +62,7 @@
         }
       ],
       "./plugins/withAndroidKotlinVersion",
+      "./plugins/withAndroidJetifier",
       "./plugins/withAdMobCompleteFix",
       "expo-router",
       [
@@ -85,6 +86,7 @@
         {
           "androidAppId": "ca-app-pub-7310506169021656~5261449392",
           "iosAppId": "ca-app-pub-7310506169021656~3738590521",
+          "delayAppMeasurementInit": true,
           "testDeviceIdentifiers": [
             "EMULATOR"
           ],
@@ -148,7 +150,8 @@
       },
       "eas": {
         "projectId": "acfa6bea-3fb9-4677-8980-6e08d2324c51"
-      }
+      },
+      "releaseDate": "2026.01.02"
     }
   }
 }

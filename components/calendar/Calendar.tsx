@@ -1,16 +1,17 @@
 // components/calendar/Calendar.tsx
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  StyleSheet, 
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
   FlatList,
   useWindowDimensions,
   LayoutAnimation,
   Platform,
   UIManager,
-  ColorSchemeName
+  ColorSchemeName,
+  Animated
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addMonths, subMonths, isSameMonth } from 'date-fns';
@@ -52,20 +53,26 @@ interface CalendarProps {
   onMonthChange?: (direction: 'prev' | 'next') => void;
   containerHeight?: number;  // ✅ 추가: CalendarPager에서 전달받은 높이
   holidays?: Record<string, Holiday>;
+  highlightDate?: string | null;  // 하이라이트할 날짜
+  highlightEndDate?: string | null;  // 다일 일정 종료일
+  bottomInset?: number;  // SafeArea 하단 여백
 }
 
 // 헤더와 요일 행 높이 고정
 const HEADER_HEIGHT = 45;
 const DAY_NAMES_HEIGHT = 30;
 
-const Calendar = ({ 
-  events = {}, 
-  onDayPress, 
+const Calendar = ({
+  events = {},
+  onDayPress,
   colorScheme,
   initialMonth,
   onMonthChange,
   containerHeight,  // ✅ props로 받은 높이
-  holidays = {}
+  holidays = {},
+  highlightDate,
+  highlightEndDate,
+  bottomInset = 0
 }: CalendarProps) => {
   // 다크 모드 여부 확인
   const isDark = colorScheme === 'dark';
@@ -85,6 +92,36 @@ const Calendar = ({
   // 상태 관리
   const [currentDate, setCurrentDate] = useState<Date>(initialMonth || new Date());
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
+
+  // 하이라이트 깜빡임 애니메이션
+  const blinkAnim = useRef(new Animated.Value(0)).current;
+  const [isBlinking, setIsBlinking] = useState(false);
+
+  // 하이라이트 날짜가 변경되면 깜빡임 시작
+  useEffect(() => {
+    if (highlightDate) {
+      setIsBlinking(true);
+      // 3번 깜빡이는 애니메이션
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(blinkAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: false,
+          }),
+          Animated.timing(blinkAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: false,
+          }),
+        ]),
+        { iterations: 3 }
+      ).start(() => {
+        setIsBlinking(false);
+        blinkAnim.setValue(0);
+      });
+    }
+  }, [highlightDate, highlightEndDate]);
   
   // initialMonth prop이 변경될 때 currentDate 업데이트
   useEffect(() => {
@@ -133,7 +170,7 @@ const cellHeight = useMemo(() => {
   let EXTRA_PADDING = 0;
   if (Platform.OS === 'android') {
     if (screenRatio > 2.3) {
-      EXTRA_PADDING = 50;  // Z플립
+      EXTRA_PADDING = 77;  // Z플립 등 긴 화면
     } else if (screenRatio > 2.1) {
       EXTRA_PADDING = 30;
     } else {
@@ -217,13 +254,24 @@ const cellHeight = useMemo(() => {
   // 날짜 셀 렌더링 함수
   const renderDay = ({ item }: { item: CalendarDay }) => {
     const { date, isCurrentMonth, dayOfMonth, formattedDate, isToday } = item;
-    
+
     const holiday = holidays[formattedDate];
-    
+
     // 주말 확인
     const dayOfWeek = date.getDay();
     const isSunday = dayOfWeek === 0;
     const isSaturday = dayOfWeek === 6;
+
+    // 하이라이트 여부 확인
+    const isHighlighted = (() => {
+      if (!highlightDate) return false;
+      if (formattedDate === highlightDate) return true;
+      // 다일 일정 범위 내에 있는지 확인
+      if (highlightEndDate && formattedDate >= highlightDate && formattedDate <= highlightEndDate) {
+        return true;
+      }
+      return false;
+    })();
     
     // 해당 날짜의 이벤트 가져오기
     const dayEvents = events[formattedDate] || [];
@@ -246,21 +294,27 @@ const cellHeight = useMemo(() => {
     // 표시할 이벤트 수 조정
     const maxEventsToShow = cellHeight < 60 ? 2 : (cellHeight < 80 ? 3 : 5);
     
-    return (
+    // 애니메이션 테두리 색상
+    const animatedBorderColor = blinkAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['transparent', isDark ? '#63a4ff' : '#007aff']
+    });
+
+    const cellContent = (
       <TouchableOpacity
         style={[
           styles.dayCell,
-          { 
-            width: dayWidth, 
+          {
+            width: dayWidth,
             height: cellHeight,
-            backgroundColor: isDark ? '#2c2c2c' : '#ffffff', 
+            backgroundColor: isDark ? '#2c2c2c' : '#ffffff',
             borderColor: isDark ? '#333333' : '#eeeeee'
           },
-          !isCurrentMonth && { 
-            backgroundColor: isDark ? '#242424' : '#f9f9f9' 
+          !isCurrentMonth && {
+            backgroundColor: isDark ? '#242424' : '#f9f9f9'
           },
-          isToday && { 
-            backgroundColor: isDark ? '#3a3a3a' : '#e6f0ff' 
+          isToday && {
+            backgroundColor: isDark ? '#3a3a3a' : '#e6f0ff'
           }
         ]}
         onPress={() => onDayPress(item, dayEvents)}
@@ -277,7 +331,7 @@ const cellHeight = useMemo(() => {
           ]}>
             {dayOfMonth}
           </Text>
-          
+
           {/* 공휴일 이름 표시 (선택사항) */}
           {holiday && holiday.isHoliday && (
             <Text style={[
@@ -287,11 +341,11 @@ const cellHeight = useMemo(() => {
               {holiday.name}
             </Text>
           )}
-          
+
           {/* 이벤트 표시 */}
           <View style={styles.eventContainer}>
             {eventsWithPositions.slice(0, maxEventsToShow).map((calendarEvent, index) => (
-              <View 
+              <View
                 key={index}
                 style={[
                   styles.eventIndicator,
@@ -306,7 +360,7 @@ const cellHeight = useMemo(() => {
                 </Text>
               </View>
             ))}
-            
+
             {dayEvents.length > maxEventsToShow && (
               <Text style={[styles.moreEventsText, { color: isDark ? '#bbbbbb' : '#666666' }]}>
                 +{dayEvents.length - maxEventsToShow}
@@ -316,6 +370,23 @@ const cellHeight = useMemo(() => {
         </View>
       </TouchableOpacity>
     );
+
+    // 하이라이트 셀은 Animated.View로 감싸서 테두리 깜빡임 적용
+    if (isHighlighted && isBlinking) {
+      return (
+        <Animated.View
+          style={{
+            borderWidth: 2,
+            borderColor: animatedBorderColor,
+            borderRadius: 4,
+          }}
+        >
+          {cellContent}
+        </Animated.View>
+      );
+    }
+
+    return cellContent;
   };
   
   return (

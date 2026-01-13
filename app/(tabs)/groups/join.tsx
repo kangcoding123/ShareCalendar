@@ -28,7 +28,7 @@ export default function JoinGroupScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { refreshGroups } = useEvents();
+  const { refreshGroups, resubscribeToEvents } = useEvents();
   
   // 색상 테마 설정
   const colorScheme = useColorScheme();
@@ -181,9 +181,11 @@ export default function JoinGroupScreen() {
       );
       
       if (result.success) {
-        // ✅ refreshGroups 호출 추가!
+        // 그룹 목록 새로고침
         await refreshGroups();
-        
+        // 그룹 가입 후 이벤트 리스너 재설정 (새 그룹 일정 실시간 동기화용)
+        await resubscribeToEvents();
+
         Alert.alert(
           '성공',
           `${groupInfo.name} 그룹에 가입했습니다!`,
@@ -203,9 +205,10 @@ export default function JoinGroupScreen() {
         
         // 이미 멤버인 경우
         if (result.error?.includes('이미')) {
-          // ✅ 이미 멤버인 경우에도 refreshGroups 호출
+          // 이미 멤버인 경우에도 리스너 재설정
           await refreshGroups();
-          
+          await resubscribeToEvents();
+
           setTimeout(() => {
             resetForm();
             router.push(`/groups/${groupInfo.id}`);

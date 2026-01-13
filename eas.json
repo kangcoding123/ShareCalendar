@@ -13,9 +13,11 @@
       "android": {
         "buildType": "apk",
         "env": {
-          "ANDROID_KOTLIN_VERSION": "1.9.24",
-          "EXPO_ANDROID_KOTLIN_VERSION": "1.9.24",
-          "ORG_GRADLE_PROJECT_kspVersion": "1.9.24-1.0.20"
+          "ANDROID_KOTLIN_VERSION": "1.9.0",
+          "EXPO_ANDROID_KOTLIN_VERSION": "1.9.0",
+          "ORG_GRADLE_PROJECT_kotlinVersion": "1.9.0",
+          "ORG_GRADLE_PROJECT_kspVersion": "1.9.0-1.0.13",
+          "ORG_GRADLE_PROJECT_hermesEnabled": "true"
         }
       }
     },
@@ -29,26 +31,32 @@
         "buildType": "apk",
         "autoIncrement": true,
         "env": {
-          "ANDROID_KOTLIN_VERSION": "1.9.24",
-          "EXPO_ANDROID_KOTLIN_VERSION": "1.9.24",
-          "ORG_GRADLE_PROJECT_kspVersion": "1.9.24-1.0.20"
+          "ANDROID_KOTLIN_VERSION": "1.9.0",
+          "EXPO_ANDROID_KOTLIN_VERSION": "1.9.0",
+          "ORG_GRADLE_PROJECT_kotlinVersion": "1.9.0",
+          "ORG_GRADLE_PROJECT_kspVersion": "1.9.0-1.0.13",
+          "ORG_GRADLE_PROJECT_hermesEnabled": "true"
         }
       }
     },
     "production": {
       "autoIncrement": true,
-      "distribution": "store", 
+      "distribution": "store",
+      "node": "22.0.0",
+      "env": {
+        "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      },
       "ios": {
-        "resourceClass": "medium" 
+        "resourceClass": "medium"
       },
       "android": {
         "buildType": "app-bundle",
         "env": {
-          "ANDROID_KOTLIN_VERSION": "1.9.24",
-          "EXPO_ANDROID_KOTLIN_VERSION": "1.9.24",
-          "ORG_GRADLE_PROJECT_kotlinVersion": "1.9.24",
-          "ORG_GRADLE_PROJECT_kspVersion": "1.9.24-1.0.20",
-          "KOTLIN_VERSION": "1.9.24"
+          "ANDROID_KOTLIN_VERSION": "1.9.0",
+          "EXPO_ANDROID_KOTLIN_VERSION": "1.9.0",
+          "ORG_GRADLE_PROJECT_kotlinVersion": "1.9.0",
+          "ORG_GRADLE_PROJECT_kspVersion": "1.9.0-1.0.13",
+          "ORG_GRADLE_PROJECT_hermesEnabled": "true"
         }
       }
     }

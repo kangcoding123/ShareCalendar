@@ -1,5 +1,6 @@
 // services/authService.ts
 import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 import { nativeDb } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
@@ -74,68 +75,99 @@ export const sendPasswordReset = async (email: string): Promise<AuthResult> => {
 
 /**
  * 회원 탈퇴 (계정 삭제)
+ * @param password 재인증을 위한 비밀번호
  */
-export const deleteAccount = async (): Promise<AuthResult> => {
+export const deleteAccount = async (password: string): Promise<AuthResult> => {
   try {
     const currentUser = auth().currentUser;
-    if (!currentUser) {
+    if (!currentUser || !currentUser.email) {
       return { success: false, error: '로그인된 사용자가 없습니다.' };
     }
 
     const userId = currentUser.uid;
 
-    // 1. 사용자가 속한 그룹 멤버십 삭제
+    // 1. 먼저 재인증 수행 (Firebase 보안 정책)
+    try {
+      const credential = auth.EmailAuthProvider.credential(
+        currentUser.email,
+        password
+      );
+      await currentUser.reauthenticateWithCredential(credential);
+      console.log('[deleteAccount] 재인증 성공');
+    } catch (reauthError: any) {
+      console.error('[deleteAccount] 재인증 실패:', reauthError.code);
+      if (reauthError.code === 'auth/wrong-password' || reauthError.code === 'auth/invalid-credential') {
+        return { success: false, error: '비밀번호가 올바르지 않습니다.' };
+      }
+      return { success: false, error: '인증에 실패했습니다. 다시 시도해주세요.' };
+    }
+
+    // 2. Firestore 데이터 삭제 (배치 사용)
+    const batch = nativeDb.batch();
+
+    // 2-1. 사용자가 속한 그룹 멤버십 삭제 + 그룹 memberCount 감소
     const membershipSnapshot = await nativeDb
       .collection('groupMembers')
       .where('userId', '==', userId)
       .get();
-    
-    const deletePromises: Promise<void>[] = [];
-    
+
     membershipSnapshot.forEach((doc) => {
-      deletePromises.push(doc.ref.delete());
+      const memberData = doc.data();
+      const groupId = memberData.groupId;
+
+      // 그룹 memberCount 감소
+      if (groupId && groupId !== 'personal') {
+        const groupRef = nativeDb.collection('groups').doc(groupId);
+        batch.update(groupRef, {
+          memberCount: firestore.FieldValue.increment(-1)
+        });
+      }
+
+      // groupMembers 문서 삭제
+      batch.delete(doc.ref);
     });
-    
-    // 2. 사용자의 개인 일정 삭제
+
+    // 2-2. 사용자가 생성한 모든 일정 삭제 (개인 + 그룹)
     const eventsSnapshot = await nativeDb
       .collection('events')
       .where('userId', '==', userId)
-      .where('groupId', '==', 'personal')
       .get();
-    
+
     eventsSnapshot.forEach((doc) => {
-      deletePromises.push(doc.ref.delete());
+      batch.delete(doc.ref);
     });
-    
-    // 3. 사용자의 Firestore 데이터 삭제
-    deletePromises.push(nativeDb.collection('users').doc(userId).delete());
-    
-    // 4. 모든 데이터 삭제 작업 실행
-    await Promise.all(deletePromises);
-    
-    // 5. Firebase Auth에서 사용자 계정 삭제
+
+    // 2-3. 사용자의 Firestore 데이터 삭제
+    batch.delete(nativeDb.collection('users').doc(userId));
+
+    // 2-4. 배치 커밋
+    await batch.commit();
+    console.log('[deleteAccount] Firestore 데이터 삭제 완료');
+
+    // 3. Firebase Auth에서 사용자 계정 삭제
     await currentUser.delete();
-    
-    // 6. 로컬 저장소에서 인증 정보 제거
+    console.log('[deleteAccount] Firebase Auth 계정 삭제 완료');
+
+    // 4. 로컬 저장소에서 인증 정보 제거
     try {
       await AsyncStorage.removeItem(AUTH_CREDENTIALS_KEY);
       await AsyncStorage.removeItem(AUTH_USER_KEY);
     } catch (storageError) {
       console.error('인증 정보 제거 실패:', storageError);
     }
-    
+
     return { success: true };
   } catch (error: any) {
     console.error('회원 탈퇴 오류:', error);
-    
+
     if (error.code === 'auth/requires-recent-login') {
-      return { 
-        success: false, 
-        error: '보안을 위해 다시 로그인한 후 탈퇴를 진행해주세요. 로그아웃 후 다시 로그인해주세요.' 
+      return {
+        success: false,
+        error: '보안을 위해 다시 로그인한 후 탈퇴를 진행해주세요.'
       };
     }
-    
-    return { success: false, error: error.message };
+
+    return { success: false, error: error.message || '회원 탈퇴 중 오류가 발생했습니다.' };
   }
 };
 

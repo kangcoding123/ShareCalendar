@@ -61,17 +61,17 @@ export const formatDate = (date: Date | string, formatStr = 'yyyy년 MM월 dd일
  */
 export const groupEventsByDate = <T extends { startDate: string; endDate?: string; isMultiDay?: boolean }>(events: T[]): Record<string, T[]> => {
   const result: Record<string, T[]> = {};
-  
+
   events.forEach(event => {
-    // 기본값 설정
-    const startDate = event.startDate;
-    const endDate = event.endDate || event.startDate;
+    // 기본값 설정 - ISO 형식에서 날짜 부분만 추출
+    const startDate = event.startDate.split('T')[0];
+    const endDate = (event.endDate || event.startDate).split('T')[0];
     const isMultiDay = event.isMultiDay || (startDate !== endDate);
-    
+
     if (isMultiDay) {
       // 다일 일정인 경우 모든 날짜에 추가
       const allDates = getDatesBetween(startDate, endDate);
-      
+
       allDates.forEach(date => {
         if (!result[date]) {
           result[date] = [];
@@ -80,14 +80,13 @@ export const groupEventsByDate = <T extends { startDate: string; endDate?: strin
       });
     } else {
       // 단일 일정인 경우 시작일에만 추가
-      const date = startDate.split('T')[0]; // ISO 형식 지원
-      if (!result[date]) {
-        result[date] = [];
+      if (!result[startDate]) {
+        result[startDate] = [];
       }
-      result[date].push(event);
+      result[startDate].push(event);
     }
   });
-  
+
   return result;
 };
 

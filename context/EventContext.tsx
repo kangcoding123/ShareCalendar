@@ -1,14 +1,17 @@
 // contexts/EventContext.tsx
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { 
-  CalendarEvent, 
-  subscribeToUserEvents, 
+import {
+  CalendarEvent,
+  subscribeToUserEvents,
   clearEventSubscriptions,
   registerGlobalEventCallback,
-  getUserGroups 
+  getUserGroups,
+  generateRecurringInstances
 } from '../services/calendarService';
 import { useAuth } from './AuthContext';
 import { cacheService } from '../services/cacheService';
+import { groupEventsByDate } from '../utils/dateUtils';
+import { logger } from '../utils/logger';
 
 interface EventContextType {
   events: CalendarEvent[];
@@ -21,11 +24,13 @@ interface EventContextType {
   refreshEvents: () => Promise<void>;
   refreshGroups: () => Promise<void>;
   refreshAll: () => Promise<void>;
+  resubscribeToEvents: () => Promise<void>;
   groupedEvents: { [key: string]: CalendarEvent[] };
   setEvents: (events: CalendarEvent[]) => void;
   setGroupedEvents: (groupedEvents: { [key: string]: CalendarEvent[] }) => void;
   setIsFromCache: (isFromCache: boolean) => void;
   isFromCache: boolean;
+  updateGroupColor: (groupId: string, color: string) => void;
 }
 
 const EventContext = createContext<EventContextType | null>(null);
@@ -50,7 +55,9 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [isFromCache, setIsFromCache] = useState(false);
 
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const callbackUnregisterRef = useRef<(() => void) | null>(null);
   const isInitializedRef = useRef(false);
+  const lastUserIdRef = useRef<string | null>(null);  // 마지막 처리된 userId 추적
 
   // 오늘 날짜와 예정된 이벤트 필터링 (안전성 강화)
   const filterEvents = (allEvents: CalendarEvent[]) => {
@@ -70,7 +77,7 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         eventDate.setHours(0, 0, 0, 0);
         return eventDate.toISOString().split('T')[0] === todayStr;
       } catch (error) {
-        console.warn('[EventContext] Invalid date in event:', event.id, event.startDate);
+        logger.warn('[EventContext] Invalid date in event:', event.id, event.startDate);
         return false;
       }
     });
@@ -87,7 +94,7 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         eventDate.setHours(0, 0, 0, 0);
         return eventDate > today;
       } catch (error) {
-        console.warn('[EventContext] Invalid date in event:', event.id, event.startDate);
+        logger.warn('[EventContext] Invalid date in event:', event.id, event.startDate);
         return false;
       }
     }).sort((a, b) => {
@@ -104,22 +111,32 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // cleanup 함수
   const cleanup = () => {
-    // 타입 체크 추가
+    // 콜백 해제
+    if (callbackUnregisterRef.current) {
+      try {
+        callbackUnregisterRef.current();
+      } catch (error) {
+        logger.error('[EventContext] 콜백 해제 오류:', error);
+      }
+      callbackUnregisterRef.current = null;
+    }
+
+    // 구독 해제
     if (unsubscribeRef.current) {
       if (typeof unsubscribeRef.current === 'function') {
         try {
           unsubscribeRef.current();
         } catch (error) {
-          console.error('[EventContext] cleanup 오류:', error);
+          logger.error('[EventContext] cleanup 오류:', error);
         }
       } else {
-        console.warn('[EventContext] unsubscribeRef is not a function:', unsubscribeRef.current);
+        logger.warn('[EventContext] unsubscribeRef is not a function:', unsubscribeRef.current);
       }
       unsubscribeRef.current = null;
     }
-    
+
     isInitializedRef.current = false;
-    
+
     // 상태 초기화
     setEvents([]);
     setTodayEvents([]);
@@ -128,36 +145,59 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setGroups([]);
   };
 
-  // 이벤트 데이터 검증 함수
+  // 이벤트 데이터 정규화 및 검증 함수
   const validateEvents = (events: CalendarEvent[]): CalendarEvent[] => {
-    return events.filter(event => {
-      // 필수 필드 체크
-      if (!event || !event.startDate) {
-        console.warn('[EventContext] 잘못된 이벤트 데이터:', event);
-        return false;
-      }
-      
-      // 날짜 유효성 체크
-      try {
-        const date = new Date(event.startDate);
-        if (isNaN(date.getTime())) {
-          console.warn('[EventContext] 잘못된 날짜:', event.id, event.startDate);
+    // 반복 일정 확장을 위한 범위 설정 (오늘 ~ 50개월 후)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const rangeEnd = new Date(today);
+    rangeEnd.setMonth(rangeEnd.getMonth() + 50);
+
+    return events
+      .map(event => {
+        // 오래된 형식(date 필드) -> 새 형식(startDate 필드)으로 변환
+        if (!event.startDate && (event as any).date) {
+          return {
+            ...event,
+            startDate: (event as any).date,
+            endDate: (event as any).date,
+          };
+        }
+        return event;
+      })
+      .filter(event => {
+        // 필수 필드 체크
+        if (!event || !event.startDate) {
           return false;
         }
-        
-        // 날짜 범위 체크 (1900년 ~ 2100년)
-        const year = date.getFullYear();
-        if (year < 1900 || year > 2100) {
-          console.warn('[EventContext] 날짜 범위 초과:', event.id, event.startDate);
+
+        // 날짜 유효성 체크
+        try {
+          const date = new Date(event.startDate);
+          if (isNaN(date.getTime())) {
+            return false;
+          }
+
+          // 날짜 범위 체크 (1900년 ~ 2100년)
+          const year = date.getFullYear();
+          if (year < 1900 || year > 2100) {
+            return false;
+          }
+
+          return true;
+        } catch (error) {
           return false;
         }
-        
-        return true;
-      } catch (error) {
-        console.warn('[EventContext] 날짜 파싱 오류:', event.id, error);
-        return false;
-      }
-    });
+      })
+      // 반복 일정 확장
+      .flatMap(event => {
+        // 반복 설정이 있고 아직 가상 인스턴스가 아닌 경우에만 확장
+        if (event.recurrence && event.recurrence.type !== 'none' && !event.isRecurringInstance) {
+          logger.log('[EventContext] 반복 일정 발견:', event.title, 'recurrence:', JSON.stringify(event.recurrence));
+          return generateRecurringInstances(event, today, rangeEnd);
+        }
+        return [event];
+      });
   };
 
   // updateEvents 함수 - 검증 추가
@@ -169,20 +209,23 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   useEffect(() => {
-    console.log('[EventContext] 데이터 초기화 시작');
-
     if (!user?.uid || !isAuthenticated) {
       cleanup();
+      lastUserIdRef.current = null;
       return;
     }
 
-    const initializeData = async () => {
-      if (isInitializedRef.current) {
-        console.log('[EventContext] 이미 초기화됨');
-        return;
-      }
+    // 같은 userId로 이미 초기화된 경우 스킵 (중복 호출 방지)
+    if (isInitializedRef.current && lastUserIdRef.current === user.uid) {
+      logger.log('[EventContext] 동일 사용자로 이미 초기화됨 - 스킵');
+      return;
+    }
 
+    logger.log('[EventContext] 데이터 초기화 시작 - userId:', user.uid);
+
+    const initializeData = async () => {
       isInitializedRef.current = true;
+      lastUserIdRef.current = user.uid;
 
       // 1. 캐시에서 먼저 로드
       try {
@@ -203,48 +246,44 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           console.log(`[EventContext] 캐시에서 ${cachedGroups.length}개 그룹 로드`);
         }
       } catch (error) {
-        console.error('[EventContext] 캐시 로드 오류:', error);
+        logger.error('[EventContext] 캐시 로드 오류:', error);
       }
 
       // 2. 그룹 데이터 서버에서 가져오기
       await refreshGroups();
 
       // 3. 이벤트 실시간 구독 (글로벌 콜백 등록)
-      console.log('[EventContext] 이벤트 구독 설정');
-      
+      logger.log('[EventContext] 이벤트 구독 설정');
+
       try {
-        // 글로벌 이벤트 콜백 등록
+        // 기존 콜백이 있으면 먼저 해제
+        if (callbackUnregisterRef.current) {
+          callbackUnregisterRef.current();
+          callbackUnregisterRef.current = null;
+        }
+
+        // 글로벌 이벤트 콜백 등록 (한 번만)
         const unregister = registerGlobalEventCallback((updatedEvents: CalendarEvent[]) => {
-          console.log(`[EventContext] 실시간 업데이트: ${updatedEvents.length}개 이벤트`);
-          
-          // 이벤트 검증 추가
+          // 이벤트 검증
           const validEvents = validateEvents(updatedEvents);
-          console.log(`[EventContext] 유효한 이벤트: ${validEvents.length}개`);
-          
+
           setEvents(validEvents);
           filterEvents(validEvents);
           setGroupedEvents(groupEventsByDate(validEvents));
           setIsFromCache(false);
         });
-        
+
+        // 콜백 해제 함수 저장
+        callbackUnregisterRef.current = unregister;
+
         // 실제 구독 시작
         const unsubscribe = await subscribeToUserEvents(user.uid, true);
-        
+
         if (typeof unsubscribe === 'function') {
-          // 두 개의 cleanup 함수를 합쳐서 저장
-          unsubscribeRef.current = () => {
-            try {
-              unregister();
-              unsubscribe();
-            } catch (error) {
-              console.error('[EventContext] unsubscribe 오류:', error);
-            }
-          };
-        } else {
-          unsubscribeRef.current = unregister;
+          unsubscribeRef.current = unsubscribe;
         }
       } catch (error) {
-        console.error('[EventContext] 구독 설정 오류:', error);
+        logger.error('[EventContext] 구독 설정 오류:', error);
         unsubscribeRef.current = null;
       }
     };
@@ -257,7 +296,7 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // 로그아웃 시 데이터 초기화
   useEffect(() => {
     if (!user) {
-      console.log('[EventContext] 로그아웃 시 데이터 초기화');
+      logger.log('[EventContext] 로그아웃 시 데이터 초기화');
       cleanup();
     }
   }, [user]);
@@ -267,53 +306,37 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!user?.uid) return;
 
     try {
-      console.log('[EventContext] 그룹 새로고침 시작');
+      logger.log('[EventContext] 그룹 새로고침 시작');
       const userGroups = await getUserGroups(user.uid);
       setGroups(userGroups);
       console.log(`[EventContext] ${userGroups.length}개 그룹 로드 완료`);
     } catch (error) {
-      console.error('[EventContext] 그룹 로드 오류:', error);
+      logger.error('[EventContext] 그룹 로드 오류:', error);
     }
   };
 
   // 이벤트 새로고침
   const refreshEvents = async () => {
     if (!user?.uid) return;
-    
+
     try {
       setIsLoading(true);
-      
+
       // 기존 구독 해제
       if (unsubscribeRef.current && typeof unsubscribeRef.current === 'function') {
         unsubscribeRef.current();
+        unsubscribeRef.current = null;
       }
-      
-      // 새로운 구독 시작
-      const unregister = registerGlobalEventCallback((updatedEvents: CalendarEvent[]) => {
-        const validEvents = validateEvents(updatedEvents);
-        console.log(`[EventContext] 이벤트 새로고침: ${validEvents.length}개 유효한 이벤트`);
-        setEvents(validEvents);
-        filterEvents(validEvents);
-        setGroupedEvents(groupEventsByDate(validEvents));
-        setIsFromCache(false);
-      });
-      
+
+      // 콜백은 이미 등록되어 있으므로 새로 등록하지 않음
+      // 구독만 새로 시작
       const unsubscribe = await subscribeToUserEvents(user.uid, true);
-      
+
       if (typeof unsubscribe === 'function') {
-        unsubscribeRef.current = () => {
-          try {
-            unregister();
-            unsubscribe();
-          } catch (error) {
-            console.error('[EventContext] refresh unsubscribe 오류:', error);
-          }
-        };
-      } else {
-        unsubscribeRef.current = unregister;
+        unsubscribeRef.current = unsubscribe;
       }
     } catch (error: any) {
-      console.error('[EventContext] 이벤트 새로고침 오류:', error);
+      logger.error('[EventContext] 이벤트 새로고침 오류:', error);
       setError(error.message);
     } finally {
       setIsLoading(false);
@@ -328,21 +351,40 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     ]);
   };
 
-  // 날짜별 이벤트 그룹화 (안전성 강화)
-  const groupEventsByDate = (eventsToGroup: CalendarEvent[]): { [key: string]: CalendarEvent[] } => {
-    const grouped: { [key: string]: CalendarEvent[] } = {};
+  // 그룹 가입/생성 후 리스너 재설정 (새 그룹 이벤트 실시간 동기화용)
+  const resubscribeToEvents = async () => {
+    if (!user?.uid) return;
 
-    eventsToGroup.forEach(event => {
-      if (!event.startDate) return;
+    logger.log('[EventContext] 이벤트 리스너 재설정 시작 (그룹 변경됨)');
 
-      const date = event.startDate;
-      if (!grouped[date]) {
-        grouped[date] = [];
+    try {
+      // 기존 구독 해제
+      if (unsubscribeRef.current && typeof unsubscribeRef.current === 'function') {
+        unsubscribeRef.current();
+        unsubscribeRef.current = null;
       }
-      grouped[date].push(event);
-    });
 
-    return grouped;
+      // 새로 구독 시작 (새 그룹 포함)
+      const unsubscribe = await subscribeToUserEvents(user.uid, true);
+
+      if (typeof unsubscribe === 'function') {
+        unsubscribeRef.current = unsubscribe;
+      }
+
+      logger.log('[EventContext] 이벤트 리스너 재설정 완료');
+    } catch (error) {
+      logger.error('[EventContext] 리스너 재설정 오류:', error);
+    }
+  };
+
+  // 그룹 색상 즉시 업데이트 (캘린더 그룹 선택 UI에 바로 반영)
+  const updateGroupColor = (groupId: string, color: string) => {
+    setGroups(prevGroups =>
+      prevGroups.map(group =>
+        group.id === groupId ? { ...group, color } : group
+      )
+    );
+    logger.log(`[EventContext] 그룹 ${groupId}의 색상이 ${color}로 업데이트되었습니다`);
   };
 
   const value: EventContextType = {
@@ -356,11 +398,13 @@ export const EventProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     refreshEvents,
     refreshGroups,
     refreshAll,
+    resubscribeToEvents,
     groupedEvents,
     setEvents,
     setGroupedEvents,
     setIsFromCache,
-    isFromCache
+    isFromCache,
+    updateGroupColor
   };
 
   return (

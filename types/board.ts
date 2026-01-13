@@ -1,0 +1,50 @@
+// types/board.ts
+// 게시판 관련 타입 정의
+
+export interface Post {
+  id: string;
+  groupId: string;
+  authorId: string;
+  authorName: string;
+  authorEmail: string;
+  title: string;
+  content: string;
+  isPinned: boolean;
+  pinnedAt?: string;
+  pinnedBy?: string;
+  commentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Comment {
+  id: string;
+  postId: string;
+  groupId: string;
+  authorId: string;
+  authorName: string;
+  authorEmail: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PostResult {
+  success: boolean;
+  post?: Post;
+  posts?: Post[];
+  error?: string;
+  postId?: string;
+}
+
+export interface CommentResult {
+  success: boolean;
+  comment?: Comment;
+  comments?: Comment[];
+  error?: string;
+  commentId?: string;
+}
+
+export type CreatePostData = Omit<Post, 'id' | 'createdAt' | 'updatedAt' | 'commentCount' | 'isPinned' | 'pinnedAt' | 'pinnedBy'>;
+
+export type CreateCommentData = Omit<Comment, 'id' | 'createdAt' | 'updatedAt'>;

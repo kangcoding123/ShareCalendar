@@ -488,6 +488,23 @@ export const getUserGroups = async (userId: string): Promise<GroupResult> => {
       }
     }
     
+    // 그룹명 정렬: 한글 먼저 (가→ㅎ), 그 다음 영문/숫자 (A→Z)
+    groups.sort((a, b) => {
+      const nameA = a.name || '';
+      const nameB = b.name || '';
+
+      // 한글 여부 확인 (첫 글자 기준)
+      const isKoreanA = /^[가-힣]/.test(nameA);
+      const isKoreanB = /^[가-힣]/.test(nameB);
+
+      // 한글이 영문/숫자보다 먼저 오도록
+      if (isKoreanA && !isKoreanB) return -1;
+      if (!isKoreanA && isKoreanB) return 1;
+
+      // 같은 종류끼리는 오름차순 정렬
+      return nameA.localeCompare(nameB, 'ko');
+    });
+
     return { success: true, groups };
   } catch (error: any) {
     console.error('[getUserGroups] 오류:', error);

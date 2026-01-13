@@ -207,7 +207,7 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
 export default function GroupListScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const { groups, refreshGroups } = useEvents();
+  const { groups, refreshGroups, resubscribeToEvents } = useEvents();
   
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
@@ -325,6 +325,8 @@ export default function GroupListScreen() {
       if (result.success) {
         setCreateModalVisible(false);
         await refreshGroups();
+        // 그룹 생성 후 이벤트 리스너 재설정 (새 그룹 일정 실시간 동기화용)
+        await resubscribeToEvents();
       } else {
         Alert.alert('오류', '그룹 생성 중 오류가 발생했습니다.');
       }
@@ -401,9 +403,9 @@ export default function GroupListScreen() {
           <FlatList
             data={groups}
             renderItem={({ item }) => (
-              <GroupItem 
-                group={item} 
-                onPress={handleGroupPress} 
+              <GroupItem
+                group={item}
+                onPress={handleGroupPress}
                 onInvite={handleInvitePress}
                 colors={colors}
               />
@@ -411,48 +413,43 @@ export default function GroupListScreen() {
             keyExtractor={(item) => item.id || ''}
             contentContainerStyle={styles.listContent}
             refreshControl={
-              <RefreshControl 
-                refreshing={refreshing} 
+              <RefreshControl
+                refreshing={refreshing}
                 onRefresh={handleRefresh}
                 tintColor={colors.tint}
                 colors={[colors.tint]}
               />
             }
-            ListFooterComponent={
-              <View style={{ height: screenRatio > 2.3 ? 120 : 180 }} />
-            }
           />
-          
-          <TouchableOpacity
-            style={[
-              styles.joinButton, 
-              {
-                backgroundColor: colors.secondary, 
-                borderColor: colors.tint,
-                bottom: screenRatio > 2.3 ? 90 : 150
-              }
-            ]}
-            onPress={() => router.push('/groups/join')}
-          >
-            <Text style={[styles.joinButtonText, {color: colors.tint}]}>초대 코드로 가입</Text>
-          </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.createButton, 
-              {
-                backgroundColor: colors.buttonBackground, 
-                zIndex: 100,
-                bottom: screenRatio > 2.3 ? 20 : 80
-              }
-            ]}
-            onPress={() => {
-              console.log("그룹 생성 버튼 클릭됨");
-              setCreateModalVisible(true);
-            }}
-          >
-            <Text style={[styles.createButtonText, {color: colors.buttonText}]}>+ 새 그룹 생성</Text>
-          </TouchableOpacity>
+          {/* 하단 버튼 영역 - 스크롤 영역 바깥에 고정 */}
+          <View style={[styles.bottomButtonContainer, { backgroundColor: colors.secondary }]}>
+            <TouchableOpacity
+              style={[
+                styles.joinButtonFixed,
+                {
+                  backgroundColor: colors.secondary,
+                  borderColor: colors.tint
+                }
+              ]}
+              onPress={() => router.push('/groups/join')}
+            >
+              <Text style={[styles.joinButtonText, {color: colors.tint}]}>초대 코드로 가입</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.createButtonFixed,
+                { backgroundColor: colors.buttonBackground }
+              ]}
+              onPress={() => {
+                console.log("그룹 생성 버튼 클릭됨");
+                setCreateModalVisible(true);
+              }}
+            >
+              <Text style={[styles.createButtonText, {color: colors.buttonText}]}>+ 새 그룹 생성</Text>
+            </TouchableOpacity>
+          </View>
           
           {/* ✅ 초대 모달도 수정 */}
           <Modal
@@ -674,6 +671,28 @@ const styles = StyleSheet.create({
   joinButtonText: {
     fontSize: 16,
     fontWeight: 'bold'
+  },
+  bottomButtonContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === 'ios' ? 100 : 20,
+    gap: 10
+  },
+  joinButtonFixed: {
+    borderRadius: 10,
+    padding: 15,
+    alignItems: 'center' as const,
+    borderWidth: 2
+  },
+  createButtonFixed: {
+    borderRadius: 10,
+    padding: 15,
+    alignItems: 'center' as const,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 5
   },
   modalOverlay: {
     flex: 1,

@@ -162,9 +162,35 @@ const EventDetailModal = ({
       router.push('/(auth)/login');
       return;
     }
-    
-    setEditingEvent(event);
-    setIsEditing(true);
+
+    // 반복 일정 인스턴스인 경우 마스터 이벤트를 찾아서 수정
+    if (event.isRecurringInstance && event.masterEventId) {
+      Alert.alert(
+        '반복 일정 수정',
+        '이 반복 일정의 모든 인스턴스가 수정됩니다.',
+        [
+          { text: '취소', style: 'cancel' },
+          {
+            text: '수정',
+            onPress: () => {
+              // 마스터 이벤트 정보로 편집 모드 진입
+              // masterEventId를 id로 사용하고 반복 설정 유지
+              const masterEvent: CalendarEvent = {
+                ...event,
+                id: event.masterEventId,
+                isRecurringInstance: false,
+                masterEventId: undefined
+              };
+              setEditingEvent(masterEvent);
+              setIsEditing(true);
+            }
+          }
+        ]
+      );
+    } else {
+      setEditingEvent(event);
+      setIsEditing(true);
+    }
   };
   
   const handleDeleteEvent = async (event: CalendarEvent) => {
@@ -173,10 +199,17 @@ const EventDetailModal = ({
       router.push('/(auth)/login');
       return;
     }
-    
+
+    // 반복 일정 인스턴스인 경우 마스터 이벤트 삭제
+    const isRecurringInstance = event.isRecurringInstance && event.masterEventId;
+    const eventIdToDelete = isRecurringInstance ? event.masterEventId : event.id;
+    const deleteMessage = isRecurringInstance
+      ? '이 반복 일정의 모든 인스턴스가 삭제됩니다.'
+      : '이 일정을 삭제하시겠습니까?';
+
     Alert.alert(
       '일정 삭제',
-      '이 일정을 삭제하시겠습니까?',
+      deleteMessage,
       [
         { text: '취소', style: 'cancel' },
         {
@@ -184,12 +217,12 @@ const EventDetailModal = ({
           style: 'destructive',
           onPress: async () => {
             try {
-              if (event.id) {
-                console.log('Deleting event:', event.id);
-                
+              if (eventIdToDelete) {
+                console.log('Deleting event:', eventIdToDelete, isRecurringInstance ? '(recurring master)' : '');
+
                 // 🔥 삭제는 서비스에서 낙관적 업데이트 처리
-                await deleteEvent(event.id);
-                onEventUpdated('delete', event.id);
+                await deleteEvent(eventIdToDelete);
+                onEventUpdated('delete', eventIdToDelete);
                 onClose();
               }
             } catch (error) {
@@ -248,15 +281,15 @@ const EventDetailModal = ({
           const groupEventData = {
             ...baseEvent,
             groupId,
-            groupName: groupId === 'personal' 
-              ? '개인 일정' 
+            groupName: groupId === 'personal'
+              ? '개인 일정'
               : groups.find(g => g.id === groupId)?.name || '그룹 일정',
-            color: groupId === 'personal' 
-              ? colors.tint 
+            color: groupId === 'personal'
+              ? (baseEventData.color || colors.tint)  // EventForm에서 전달된 색상 우선 사용
               : groups.find(g => g.id === groupId)?.color || '#4CAF50',
             isSharedEvent: targetGroupIds.length > 1
           };
-          
+
           return addEvent(groupEventData);
         });
         

@@ -8,6 +8,20 @@ import {
 } from 'react-native';
 import { formatDate } from '../../../utils/dateUtils';
 
+// 로컬 타임존으로 날짜 문자열을 파싱 (UTC 문제 방지)
+const parseDateString = (dateStr: string): Date => {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
+// 날짜를 YYYY-MM-DD 형식 문자열로 변환
+const formatDateToString = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 interface DatePickerProps {
   startDate: string;
   endDate: string;
@@ -17,11 +31,11 @@ interface DatePickerProps {
   colors: any;
 }
 
-// 간단한 날짜 증가/감소 함수
+// 간단한 날짜 증가/감소 함수 (로컬 타임존 사용)
 const incrementDate = (date: string, days: number): string => {
-  const newDate = new Date(date);
+  const newDate = parseDateString(date);
   newDate.setDate(newDate.getDate() + days);
-  return formatDate(newDate, 'yyyy-MM-dd');
+  return formatDateToString(newDate);
 };
 
 const DatePicker = ({ 
@@ -48,7 +62,7 @@ const DatePicker = ({
             style={[styles.dateButton, { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder }]}
           >
             <Text style={[styles.dateButtonText, { color: colors.text }]}>
-              {formatDate(new Date(startDate), 'yyyy년 MM월 dd일')}
+              {formatDate(parseDateString(startDate), 'yyyy년 MM월 dd일')}
             </Text>
           </View>
           
@@ -69,19 +83,19 @@ const DatePicker = ({
               style={[styles.dateControlButton, { backgroundColor: colors.secondary }]}
               onPress={() => {
                 const newDate = incrementDate(endDate, -1);
-                if (new Date(newDate) >= new Date(startDate)) {
+                if (parseDateString(newDate) >= parseDateString(startDate)) {
                   onEndDateChange(newDate);
                 }
               }}
             >
               <Text style={{ color: colors.text }}>-</Text>
             </TouchableOpacity>
-            
+
             <View
               style={[styles.dateButton, { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder }]}
             >
               <Text style={[styles.dateButtonText, { color: colors.text }]}>
-                {formatDate(new Date(endDate), 'yyyy년 MM월 dd일')}
+                {formatDate(parseDateString(endDate), 'yyyy년 MM월 dd일')}
               </Text>
             </View>
             

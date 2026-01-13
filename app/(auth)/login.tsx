@@ -161,7 +161,7 @@ const handleLogin = async () => {
               <Text style={[styles.label, { color: colors.text }]}>이메일</Text>
               <TextInput
                 style={[
-                  styles.input, 
+                  styles.input,
                   { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder, color: colors.text },
                   errors.email && styles.inputError
                 ]}
@@ -169,7 +169,11 @@ const handleLogin = async () => {
                 placeholderTextColor={colors.lightGray}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                textContentType="none"  // ✅ iOS 자동완성 비활성화 - 깜빡임 해결
+                textContentType="oneTimeCode"
+                autoComplete="off"
+                autoCorrect={false}
+                spellCheck={false}
+                inputMode="email"
                 value={email}
                 onChangeText={setEmail}
               />
@@ -180,13 +184,16 @@ const handleLogin = async () => {
               <Text style={[styles.label, { color: colors.text }]}>비밀번호</Text>
               <TextInput
                 style={[
-                  styles.input, 
+                  styles.input,
                   { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder, color: colors.text },
                   errors.password && styles.inputError
                 ]}
                 placeholder="비밀번호"
                 placeholderTextColor={colors.lightGray}
                 secureTextEntry
+                textContentType="none"
+                autoComplete="off"
+                autoCorrect={false}
                 value={password}
                 onChangeText={setPassword}
               />
@@ -269,14 +276,17 @@ const handleLogin = async () => {
             
             <TextInput
               style={[
-                styles.input, 
+                styles.input,
                 { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder, color: colors.text }
               ]}
               placeholder="이메일 주소"
               placeholderTextColor={colors.lightGray}
               keyboardType="email-address"
               autoCapitalize="none"
-              textContentType="none"  // ✅ 여기도 추가
+              textContentType="none"
+              autoComplete="off"
+              autoCorrect={false}
+              spellCheck={false}
               value={resetEmail}
               onChangeText={setResetEmail}
             />

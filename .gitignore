@@ -11,6 +11,7 @@ expo-env.d.ts
 
 # Native
 *.orig.*
+ios/Podfile.lock
 *.jks
 *.p8
 *.p12
@@ -43,7 +44,6 @@ app-example
 credentials/
 credentials.json
 sharecalendar-c8a9b-d0fd2059ed50.json
-android/gradle.properties
 
 # Native folders (로컬 빌드 시 주석 처리 필요)
 # android/

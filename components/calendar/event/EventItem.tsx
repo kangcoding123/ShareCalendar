@@ -23,16 +23,26 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors, readOnly = false }
   const isGroupEvent = event.groupId !== 'personal';
   // 현재 사용자가 작성자인지 확인
   const isCreator = event.userId === userId;
-  
+
   // 다일 일정인지 확인
   const isMultiDay = event.isMultiDay && event.startDate !== event.endDate;
+
+  // 반복 일정인지 확인
+  const isRecurring = event.recurrence && event.recurrence.type !== 'none';
+  const isRecurringInstance = event.isRecurringInstance;
   
   return (
     <View style={[styles.eventItem, { backgroundColor: colors.eventCardBackground }]}>
       <View style={[styles.eventColor, { backgroundColor: event.color || colors.tint }]} />
       
       <View style={styles.eventDetails}>
-        <Text style={[styles.eventTitle, { color: colors.text }]}>{event.title}</Text>
+        <View style={styles.eventTitleRow}>
+          <Text style={[styles.eventTitle, { color: colors.text }]}>{event.title}</Text>
+          {/* 반복 일정 아이콘 */}
+          {(isRecurring || isRecurringInstance) && (
+            <Text style={styles.recurringIcon}>🔄</Text>
+          )}
+        </View>
         
         {/* 다일 일정인 경우 기간 표시 */}
         {isMultiDay && (
@@ -49,7 +59,7 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors, readOnly = false }
         )}
         
         {event.description ? (
-          <Text style={[styles.eventDescription, { color: colors.lightGray }]} numberOfLines={2}>
+          <Text style={[styles.eventDescription, { color: colors.lightGray }]}>
             {event.description}
           </Text>
         ) : null}
@@ -66,6 +76,21 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors, readOnly = false }
             <View style={[styles.eventBadge, { backgroundColor: colors.tint + '20' }]}>
               <Text style={[styles.eventBadgeText, { color: colors.tint }]}>
                 다일 일정
+              </Text>
+            </View>
+          )}
+
+          {/* 반복 일정 배지 추가 */}
+          {(isRecurring || isRecurringInstance) && (
+            <View style={[styles.eventBadge, { backgroundColor: '#9C27B0' + '20' }]}>
+              <Text style={[styles.eventBadgeText, { color: '#9C27B0' }]}>
+                {event.recurrence?.type === 'weekly' ? '매주' :
+                 event.recurrence?.type === 'monthly' ? '매월' :
+                 event.recurrence?.type === 'yearly' ? '매년' : '반복'}
+                {/* 반복 종료일 표시 */}
+                {event.recurrence?.endType === 'until' && event.recurrence?.endDate && (
+                  ` (~${event.recurrence.endDate.substring(0, 4)}년 ${parseInt(event.recurrence.endDate.substring(5, 7), 10)}월)`
+                )}
               </Text>
             </View>
           )}
@@ -136,10 +161,19 @@ const styles = StyleSheet.create({
   eventDetails: {
     flex: 1
   },
+  eventTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5
+  },
   eventTitle: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 5
+    flex: 1
+  },
+  recurringIcon: {
+    fontSize: 14,
+    marginLeft: 6
   },
   eventTime: {
     fontSize: 14,

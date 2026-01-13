@@ -23,7 +23,7 @@ import { nativeDb } from '../../../config/firebase';  // Native SDK 사용
 import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { format } from 'date-fns';
 
 // 컴포넌트
@@ -35,7 +35,11 @@ function CalendarScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  
+  const { highlightDate, highlightEndDate, highlightKey } = useLocalSearchParams<{ highlightDate?: string; highlightEndDate?: string; highlightKey?: string }>();
+
+  // 디버깅: insets 값 확인
+  console.log(`[CalendarScreen] insets: top=${insets.top}, bottom=${insets.bottom}`);
+
   const { groupedEvents, groups, isFromCache, refreshAll } = useEvents();
   
   // 색상 테마 설정
@@ -59,9 +63,33 @@ function CalendarScreen() {
   
   // 현재 보고 있는 달
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
-  
+
+  // 하이라이트 날짜 상태 (알림 터치 시 깜빡임 효과용)
+  const [highlightDateState, setHighlightDateState] = useState<string | null>(null);
+  const [highlightEndDateState, setHighlightEndDateState] = useState<string | null>(null);
+
   // 모달 상태 추적
   const isModalOpenRef = useRef(false);
+
+  // highlightDate 파라미터가 있으면 해당 월로 이동하고 하이라이트 설정
+  // highlightKey를 의존성에 추가하여 같은 날짜를 다시 클릭해도 애니메이션 재실행
+  useEffect(() => {
+    if (highlightDate) {
+      const targetDate = new Date(highlightDate);
+      if (!isNaN(targetDate.getTime())) {
+        setCurrentMonth(targetDate);
+        setHighlightDateState(highlightDate);
+        // 다일 일정의 경우 종료일도 설정
+        setHighlightEndDateState(highlightEndDate || null);
+
+        // 깜빡임 효과 후 하이라이트 상태 초기화
+        setTimeout(() => {
+          setHighlightDateState(null);
+          setHighlightEndDateState(null);
+        }, 3000);
+      }
+    }
+  }, [highlightDate, highlightEndDate, highlightKey]);
 
   // 네트워크 상태 감지
   useEffect(() => {
@@ -191,7 +219,7 @@ function CalendarScreen() {
   return (
     <SafeAreaView 
       style={[styles.container, {backgroundColor: colors.secondary}]} 
-      edges={['top', 'right', 'left',]}
+      edges={['top', 'right', 'left', 'bottom']}
     >
       {/* 오프라인 인디케이터 */}
       {!isOnline && (
@@ -236,6 +264,10 @@ function CalendarScreen() {
             initialMonth={currentMonth}
             onMonthChange={handleMonthChange}
             refreshHolidaysKey={holidaysRefreshKey}
+            highlightDate={highlightDateState}
+            highlightEndDate={highlightEndDateState}
+            highlightKey={highlightKey}
+            bottomInset={insets.bottom}
           />
           
           {/* 캐시 데이터 사용 중 표시 */}
@@ -246,6 +278,7 @@ function CalendarScreen() {
               </Text>
             </View>
           )}
+
         </ScrollView>
       </View>
       
@@ -311,6 +344,7 @@ const styles = StyleSheet.create({
   },
   loginPromptBanner: {
     padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 100 : 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',

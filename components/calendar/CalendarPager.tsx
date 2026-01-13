@@ -46,6 +46,10 @@ interface CalendarPagerProps {
   initialMonth?: Date;
   onMonthChange?: (month: Date) => void;
   refreshHolidaysKey?: number; // 🔥 추가: 새로고침 트리거
+  highlightDate?: string | null; // 알림 터치 시 하이라이트할 날짜
+  highlightEndDate?: string | null; // 다일 일정의 종료일 (하이라이트 범위용)
+  highlightKey?: string; // 홈에서 클릭 시 고유 키 (같은 날짜 재클릭 감지용)
+  bottomInset?: number; // SafeArea 하단 여백
 }
 
 // 화면 너비와 월 범위 설정
@@ -59,6 +63,10 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   initialMonth,
   onMonthChange,
   refreshHolidaysKey, // 🔥 추가
+  highlightDate, // 알림 터치 시 하이라이트할 날짜
+  highlightEndDate, // 다일 일정의 종료일 (하이라이트 범위용)
+  highlightKey, // 홈에서 클릭 시 고유 키
+  bottomInset = 0, // SafeArea 하단 여백
 }) => {
   // 🔥 Auth context 추가
   const { user } = useAuth();
@@ -83,7 +91,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   
   // 마지막으로 변경을 알린 월
   const lastNotifiedMonthRef = useRef<Date>(currentMonth);
-  
+
   // 스크롤 중인지 여부
   const isScrollingRef = useRef(false);
   
@@ -324,38 +332,43 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     }
   };
   
-  // initialMonth prop이 변경될 때 처리
+  // highlightDate가 변경될 때 해당 월로 이동
+  // highlightKey를 의존성에 추가하여 같은 날짜도 재클릭 시 이동
   useEffect(() => {
-    if (!initialMonth) return;
-    
-    // 현재 월과 다른 경우만 처리
-    if (!isSameMonth(initialMonth, currentMonth)) {
-      log(`External month change: ${format(initialMonth, 'yyyy-MM')}`);
-      
-      updateSourceRef.current = 'button';
-      
-      // 새 월로 설정
-      const newMonth = new Date(initialMonth.getFullYear(), initialMonth.getMonth(), 1);
-      setCurrentMonth(newMonth);
-      
-      // 🔥 주변 월 프리로드
-      preloadMonth(addMonths(newMonth, -1));
-      preloadMonth(addMonths(newMonth, 1));
-      
-      // 월 배열 업데이트
-      setMonths(generateMonths(newMonth));
-      
-      // 스크롤 위치 중앙으로 설정
+    if (!highlightDate) return;
+
+    const targetDate = new Date(highlightDate);
+    if (isNaN(targetDate.getTime())) return;
+
+    const targetMonthKey = format(targetDate, 'yyyy-MM');
+    log(`Highlight date change - moving to: ${targetMonthKey}, key: ${highlightKey}`);
+
+    updateSourceRef.current = 'button';
+
+    // 새 월로 설정
+    const newMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+    setCurrentMonth(newMonth);
+
+    // 주변 월 프리로드
+    preloadMonth(addMonths(newMonth, -1));
+    preloadMonth(addMonths(newMonth, 1));
+
+    // 월 배열 업데이트
+    setMonths(generateMonths(newMonth));
+
+    // 스크롤 위치 중앙으로 설정 - 렌더링 완료 후 실행되도록 충분한 딜레이
+    requestAnimationFrame(() => {
       setTimeout(() => {
         if (flatListRef.current) {
+          log(`Scrolling to index: ${initialIndex}`);
           flatListRef.current.scrollToIndex({
             index: initialIndex,
             animated: false
           });
         }
-      }, 50);
-    }
-  }, [initialMonth, currentMonth, preloadMonth]);
+      }, 100);
+    });
+  }, [highlightDate, highlightKey]);
   
   // 🔥 수정: 현재 보이는 아이템이 변경될 때 - 공휴일 로드 추가
   const handleViewableItemsChanged = (info: { viewableItems: ViewToken[] }) => {
@@ -445,7 +458,9 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
             initialMonth={item.date}
             onMonthChange={handleArrowNavigate}
             holidays={holidays}
-            // ✅ 삭제: containerHeight={pagerHeight} prop 제거
+            highlightDate={highlightDate}
+            highlightEndDate={highlightEndDate}
+            bottomInset={bottomInset}
           />
         </View>
       </View>

@@ -13,11 +13,13 @@ import {
   ScrollView,
   RefreshControl,
   Share,
-  useWindowDimensions  // 🔴 추가
+  useWindowDimensions,
+  Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../../context/AuthContext';
+import { useEvents } from '../../../context/EventContext';
 import { 
   Group, 
   GroupMember, 
@@ -41,13 +43,16 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 // 🔥 추가: 메모리 색상 업데이트 함수 import
 import { updateGroupColorInMemory } from '../../../services/calendarService';
+import { nativeDb } from '../../../config/firebase';
 
-// 색상 선택 옵션
+// 색상 선택 옵션 (빨주노초파남보 + 검정)
 const COLOR_OPTIONS = [
-  { name: '초록색', value: '#4CAF50' },
   { name: '빨간색', value: '#FF0000' },
   { name: '주황색', value: '#FF8C00' },
+  { name: '노란색', value: '#FFD700' },
+  { name: '초록색', value: '#4CAF50' },
   { name: '파란색', value: '#0066FF' },
+  { name: '남색', value: '#000080' },
   { name: '보라색', value: '#8A2BE2' },
   { name: '검정색', value: '#333333' }
 ];
@@ -324,6 +329,7 @@ const EditGroupModal = ({ visible, onClose, onSubmit, loading, group, colors }: 
 
 export default function GroupDetailScreen() {
   const { user } = useAuth();
+  const { updateGroupColor } = useEvents();
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const groupId = Array.isArray(id) ? id[0] : id;
@@ -381,10 +387,13 @@ export default function GroupDetailScreen() {
       
       // 🔥 캘린더의 메모리 색상 즉시 업데이트
       updateGroupColorInMemory(groupId, color);
-      
+
+      // 🔥 EventContext의 그룹 색상도 즉시 업데이트 (캘린더 그룹 선택 UI 반영)
+      updateGroupColor(groupId, color);
+
       // 🔥 서버에 저장
       const result = await setUserGroupColor(user.uid, groupId, color);
-      
+
       if (result.success) {
         console.log(`그룹 색상 변경 성공: ${color}`);
       } else {
@@ -395,6 +404,7 @@ export default function GroupDetailScreen() {
           setGroup({ ...group, color: group.color || '#4CAF50' });
           // 🔥 메모리 색상도 롤백
           updateGroupColorInMemory(groupId, group.color || '#4CAF50');
+          updateGroupColor(groupId, group.color || '#4CAF50');
         }
       }
     } catch (error) {
@@ -405,6 +415,7 @@ export default function GroupDetailScreen() {
       if (group) {
         setGroup({ ...group, color: group.color || '#4CAF50' });
         updateGroupColorInMemory(groupId, group.color || '#4CAF50');
+        updateGroupColor(groupId, group.color || '#4CAF50');
       }
     } finally {
       setSavingColor(false);
@@ -710,9 +721,33 @@ export default function GroupDetailScreen() {
   }, [isOwner, groupId]);
 
   useEffect(() => {
-    if (user && groupId) {
-      loadGroupData();
-    }
+    if (!user || !groupId) return;
+
+    // 초기 데이터 로드
+    loadGroupData();
+
+    // 그룹 멤버 변경 실시간 감지
+    const unsubscribe = nativeDb
+      .collection('groupMembers')
+      .where('groupId', '==', groupId)
+      .onSnapshot(
+        (snapshot) => {
+          // 로컬 변경이 아닌 서버 변경 시에만 새로고침
+          if (!snapshot.metadata.hasPendingWrites && !snapshot.metadata.fromCache) {
+            console.log('[Group Detail] 멤버 데이터 변경 감지, 새로고침');
+            loadGroupData();
+          }
+        },
+        (error: any) => {
+          // 로그아웃/탈퇴 시 발생하는 권한 오류는 무시
+          if (error?.code !== 'firestore/permission-denied') {
+            console.error('[Group Detail] 멤버 리스너 오류:', error);
+          }
+        }
+      );
+
+    // 클린업
+    return () => unsubscribe();
   }, [user, groupId]);
 
   // 초대 처리
@@ -873,8 +908,16 @@ export default function GroupDetailScreen() {
         <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
           {group?.name}
         </Text>
-        
-        {isOwner && (
+
+        {!isOwner ? (
+          <TouchableOpacity
+            style={styles.leaveHeaderButton}
+            onPress={handleLeaveGroup}
+            disabled={leavingGroup}
+          >
+            <Text style={styles.leaveHeaderButtonText}>탈퇴</Text>
+          </TouchableOpacity>
+        ) : (
           <TouchableOpacity
             style={styles.editButton}
             onPress={() => setEditModalVisible(true)}
@@ -888,7 +931,7 @@ export default function GroupDetailScreen() {
         style={styles.content}
         contentInsetAdjustmentBehavior="never"  // 🔴 추가
         contentContainerStyle={{
-          paddingBottom: screenRatio > 2.3 ? 0 : 40  // 🔴 추가
+          paddingBottom: Platform.OS === 'ios' ? 100 : 10
         }}
         refreshControl={
           <RefreshControl
@@ -1121,34 +1164,6 @@ export default function GroupDetailScreen() {
           </View>
         )}
 
-        {!isOwner && (
-          <View style={[
-            styles.leaveGroupContainer,
-            { marginBottom: screenRatio > 2.3 ? 10 : 30 }  // 🔴 인라인 스타일로 추가
-          ]}>
-            <Text style={styles.dangerZoneTitle}>그룹 탈퇴</Text>
-            <Text style={styles.leaveGroupDescription}>
-              이 그룹에서 탈퇴하면 더 이상 그룹 일정에 접근할 수 없습니다.
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.leaveButton, 
-                leavingGroup && styles.disabledButton
-              ]}
-              onPress={handleLeaveGroup}
-              disabled={leavingGroup}
-            >
-              {leavingGroup ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.leaveButtonText}>그룹 탈퇴하기</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        )}
-        
-        {/* 🔴 하단 여백 추가 */}
-        <View style={{ height: screenRatio > 2.3 ? 20 : 50 }} />
       </ScrollView>
       
       <InviteModal
@@ -1202,6 +1217,14 @@ const styles = StyleSheet.create({
   },
   editButtonText: {
     fontSize: 16
+  },
+  leaveHeaderButton: {
+    padding: 5
+  },
+  leaveHeaderButtonText: {
+    fontSize: 14,
+    color: '#ff4d4f',
+    fontWeight: '500'
   },
   loadingContainer: {
     flex: 1,
@@ -1380,31 +1403,6 @@ const styles = StyleSheet.create({
   },
   disabledButton: {
     backgroundColor: '#ffa39e'
-  },
-  leaveGroupContainer: {
-    marginTop: 20,
-    // marginBottom은 인라인 스타일로 처리
-    padding: 15,
-    borderRadius: 10,
-    backgroundColor: '#fff1f0',
-    borderWidth: 1,
-    borderColor: '#ffccc7'
-  },
-  leaveGroupDescription: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 15
-  },
-  leaveButton: {
-    backgroundColor: '#ff4d4f',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center'
-  },
-  leaveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600'
   },
   modalOverlay: {
     flex: 1,

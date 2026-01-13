@@ -149,9 +149,9 @@ export default function RegisterScreen() {
               <Text style={[styles.label, { color: colors.text }]}>이름</Text>
               <TextInput
                 style={[
-                  styles.input, 
-                  { 
-                    backgroundColor: colors.inputBackground, 
+                  styles.input,
+                  {
+                    backgroundColor: colors.inputBackground,
                     borderColor: colors.inputBorder,
                     color: colors.text
                   },
@@ -160,6 +160,9 @@ export default function RegisterScreen() {
                 placeholder="이름"
                 placeholderTextColor={colors.lightGray}
                 autoCapitalize="words"
+                textContentType="none"
+                autoComplete="off"
+                autoCorrect={false}
                 value={name}
                 onChangeText={setName}
               />
@@ -170,9 +173,9 @@ export default function RegisterScreen() {
               <Text style={[styles.label, { color: colors.text }]}>이메일</Text>
               <TextInput
                 style={[
-                  styles.input, 
-                  { 
-                    backgroundColor: colors.inputBackground, 
+                  styles.input,
+                  {
+                    backgroundColor: colors.inputBackground,
                     borderColor: colors.inputBorder,
                     color: colors.text
                   },
@@ -182,6 +185,10 @@ export default function RegisterScreen() {
                 placeholderTextColor={colors.lightGray}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                textContentType="none"
+                autoComplete="off"
+                autoCorrect={false}
+                spellCheck={false}
                 value={email}
                 onChangeText={setEmail}
               />
@@ -192,9 +199,9 @@ export default function RegisterScreen() {
               <Text style={[styles.label, { color: colors.text }]}>비밀번호</Text>
               <TextInput
                 style={[
-                  styles.input, 
-                  { 
-                    backgroundColor: colors.inputBackground, 
+                  styles.input,
+                  {
+                    backgroundColor: colors.inputBackground,
                     borderColor: colors.inputBorder,
                     color: colors.text
                   },
@@ -203,6 +210,9 @@ export default function RegisterScreen() {
                 placeholder="비밀번호 (6자 이상)"
                 placeholderTextColor={colors.lightGray}
                 secureTextEntry
+                textContentType="none"
+                autoComplete="off"
+                autoCorrect={false}
                 value={password}
                 onChangeText={setPassword}
               />
@@ -213,9 +223,9 @@ export default function RegisterScreen() {
               <Text style={[styles.label, { color: colors.text }]}>비밀번호 확인</Text>
               <TextInput
                 style={[
-                  styles.input, 
-                  { 
-                    backgroundColor: colors.inputBackground, 
+                  styles.input,
+                  {
+                    backgroundColor: colors.inputBackground,
                     borderColor: colors.inputBorder,
                     color: colors.text
                   },
@@ -224,6 +234,9 @@ export default function RegisterScreen() {
                 placeholder="비밀번호 확인"
                 placeholderTextColor={colors.lightGray}
                 secureTextEntry
+                textContentType="none"
+                autoComplete="off"
+                autoCorrect={false}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
               />

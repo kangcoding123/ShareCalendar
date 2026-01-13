@@ -11,8 +11,8 @@ import { Platform, Alert, AppState, AppStateStatus } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import {
   registerForPushNotificationsAsync,
-  updateDailySummaryWithEvents,
-  saveUserPushToken
+  saveUserPushToken,
+  syncGroupEventNotifications
 } from '../services/notificationService';
 import { checkForUpdates } from '../services/updateService';
 import { checkAdminStatus } from '../services/adminService';
@@ -21,6 +21,7 @@ import { subscribeToUserEvents } from '../services/calendarService';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { nativeDb } from '../config/firebase';
+import { logger } from '../utils/logger';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -40,6 +41,7 @@ function RootLayoutNav() {
   const notificationListener = useRef<any>();
   const responseListener = useRef<any>();
   const appStateSubscription = useRef<any>();
+  const pendingNotificationRef = useRef<any>(null);  // Cold start 알림 처리용
   const lastAppStateRef = useRef(AppState.currentState);
   const [appStateVisible, setAppStateVisible] = useState(AppState.currentState);
 
@@ -53,10 +55,19 @@ function RootLayoutNav() {
         // 네트워크 상태 확인
         const netState = await NetInfo.fetch();
         setIsConnected(netState.isConnected ?? false);
-        
+
+        // 🔥 Cold start 알림 응답 확인
+        // 앱이 완전히 종료된 상태에서 알림 터치로 시작된 경우
+        const lastResponse = await Notifications.getLastNotificationResponseAsync();
+        if (lastResponse) {
+          const data = lastResponse.notification.request.content.data;
+          logger.log('[Cold Start] 알림 응답 감지:', data);
+          pendingNotificationRef.current = data;
+        }
+
         await new Promise(resolve => setTimeout(resolve, 1000));
       } catch (e) {
-        console.warn(e);
+        logger.warn(String(e));
       } finally {
         setAppIsReady(true);
         await SplashScreen.hideAsync();
@@ -64,6 +75,51 @@ function RootLayoutNav() {
     }
     prepare();
   }, []);
+
+  // 알림 타입별 네비게이션 처리 함수
+  const handleNotificationNavigation = (data: any) => {
+    if (data.type === 'daily_summary') {
+      router.replace('/(tabs)');
+    } else if (data.type === 'event_reminder') {
+      const eventStartDate = data.eventStartDate as string;
+      if (eventStartDate) {
+        router.push({
+          pathname: '/(tabs)/calendar',
+          params: { highlightDate: eventStartDate }
+        });
+      } else if (data.eventId) {
+        // Firestore 조회 fallback
+        nativeDb.collection('events').doc(data.eventId as string).get()
+          .then((doc) => {
+            if (doc.exists()) {
+              const eventData = doc.data();
+              const startDate = eventData?.startDate?.split('T')[0] || '';
+              router.push({
+                pathname: '/(tabs)/calendar',
+                params: { highlightDate: startDate }
+              });
+            } else {
+              router.push('/(tabs)/calendar');
+            }
+          })
+          .catch(() => router.push('/(tabs)/calendar'));
+      } else {
+        router.push('/(tabs)/calendar');
+      }
+    } else if (data.type === 'new_event' || data.type === 'update_event') {
+      if (data.date) {
+        const dateStr = String(data.date).split('T')[0];
+        router.push({
+          pathname: '/(tabs)/calendar',
+          params: { highlightDate: dateStr }
+        });
+      } else {
+        router.push('/(tabs)/calendar');
+      }
+    } else if (data.type === 'group_invite') {
+      router.push('/(tabs)/groups');
+    }
+  };
 
   // 네트워크 상태 모니터링
   useEffect(() => {
@@ -73,6 +129,20 @@ function RootLayoutNav() {
     return unsubscribe;
   }, []);
 
+  // 🔥 Cold start 알림 처리 (앱 준비 완료 후)
+  useEffect(() => {
+    if (appIsReady && !isLoading && pendingNotificationRef.current) {
+      const data = pendingNotificationRef.current;
+      pendingNotificationRef.current = null; // 중복 처리 방지
+
+      logger.log('[Cold Start] pending 알림 처리:', data);
+      // 약간의 딜레이 후 네비게이션 (라우터 준비 보장)
+      setTimeout(() => {
+        handleNotificationNavigation(data);
+      }, 100);
+    }
+  }, [appIsReady, isLoading]);
+
   // 앱 상태 모니터링 (백그라운드/포그라운드)
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -80,12 +150,12 @@ function RootLayoutNav() {
         lastAppStateRef.current.match(/inactive|background/) &&
         nextAppState === 'active'
       ) {
-        console.log('App returned to foreground - data refresh needed');
+        logger.log('App returned to foreground - data refresh needed');
         setAppStateVisible(nextAppState);
         
         // 앱이 다시 활성화되면 업데이트 체크
         if (user?.uid) {
-          checkForUpdates().catch(console.error);
+          checkForUpdates().catch(logger.error);
         }
       }
       
@@ -112,7 +182,7 @@ function RootLayoutNav() {
           // 관리자 상태 확인
           const isAdmin = await checkAdminStatus(user.uid);
           setIsAdmin(isAdmin);
-          console.log('관리자 상태 확인:', isAdmin);
+          logger.log('관리자 상태 확인:', isAdmin);
 
           // 버전 체크
           await checkForUpdates();
@@ -121,15 +191,15 @@ function RootLayoutNav() {
           const token = await registerForPushNotificationsAsync();
           if (token) {
             await saveUserPushToken(user.uid, token);
-            console.log('푸시 토큰 등록 성공:', token);
+            logger.log('푸시 토큰 등록 성공:', token);
           }
 
-          // 일일 요약 알림 설정 (일정 내용 포함)
-          await updateDailySummaryWithEvents(user.uid);
+          // 그룹 일정 알림 동기화 (백그라운드 실행 - 앱 로딩에 영향 없음)
+          syncGroupEventNotifications(user.uid).catch(logger.error);
 
-          console.log('알림이 초기화되었습니다');
+          logger.log('알림이 초기화되었습니다');
         } catch (error) {
-          console.error('사용자 데이터 초기화 오류:', error);
+          logger.error('사용자 데이터 초기화 오류:', error);
         }
       };
 
@@ -153,7 +223,7 @@ function RootLayoutNav() {
 
     // 알림 수신 리스너
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
-      console.log('Notification received:', notification.request.content.data);
+      logger.log('Notification received:', notification.request.content.data);
 
       // 알림을 받았을 때는 로그만 남기고, 업데이트하지 않음
       // (무한 루프 방지)
@@ -161,38 +231,9 @@ function RootLayoutNav() {
 
     // 알림 응답 리스너 (사용자가 알림을 탭했을 때)
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('Notification response:', response.notification.request.content.data);
+      logger.log('Notification response:', response.notification.request.content.data);
       const data = response.notification.request.content.data;
-      
-      // 알림 타입에 따라 다른 화면으로 이동
-      if (data.type === 'daily_summary') {
-        // 일일 요약 알림 클릭 시 홈 화면으로
-        if (router.canGoBack()) {
-          router.replace('/(tabs)');
-        } else {
-          router.push('/(tabs)');
-        }
-      } else if (data.type === 'event_reminder') {
-        // 일정 알림 클릭 시 캘린더 화면으로
-        if (router.canGoBack()) {
-          router.replace('/(tabs)/calendar');
-        } else {
-          router.push('/(tabs)/calendar');
-        }
-      } else if (data.type === 'new_event' || data.type === 'update_event') {
-        // 새 일정/수정 알림 클릭 시 캘린더의 해당 날짜로 이동
-        if (data.date) {
-          router.push({
-            pathname: '/(tabs)/calendar',
-            params: { date: data.date }
-          });
-        } else {
-          router.push('/(tabs)/calendar');
-        }
-      } else if (data.type === 'group_invite') {
-        // 그룹 초대 알림 클릭 시 그룹 화면으로
-        router.push('/(tabs)/groups');
-      }
+      handleNotificationNavigation(data);
     });
 
     return () => {
@@ -217,16 +258,16 @@ function RootLayoutNav() {
               pushToken: token,
               pushTokenUpdatedAt: new Date().toISOString(),
             });
-            console.log('푸시 토큰 등록 시도 - 사용자 ID:', user.uid);
-            console.log('푸시 토큰 생성 성공:', token);
+            logger.log('푸시 토큰 등록 시도 - 사용자 ID:', user.uid);
+            logger.log('푸시 토큰 생성 성공:', token);
             
             // AsyncStorage에도 백업
             await AsyncStorage.setItem('pushToken', token);
             await saveUserPushToken(user.uid, token);
-            console.log('푸시 토큰이 Firestore에 저장됨');
+            logger.log('푸시 토큰이 Firestore에 저장됨');
           }
         } catch (error) {
-          console.error('푸시 토큰 등록 오류:', error);
+          logger.error('푸시 토큰 등록 오류:', error);
         }
       };
       registerPushToken();

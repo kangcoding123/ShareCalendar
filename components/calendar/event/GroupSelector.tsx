@@ -123,7 +123,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
     marginTop: 5,
-    marginBottom: 15
+    marginBottom: 0
   },
   multiGroupInfoText: {
     fontSize: 12,

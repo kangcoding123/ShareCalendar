@@ -207,6 +207,22 @@ const gradleFiles = [
 
 gradleFiles.forEach(checkAndFixComposeReferences);
 
+// Fix missing Gravity import in ViewDefinitionBuilder.kt
+const viewDefinitionBuilderPath = path.join(__dirname, '../node_modules/expo-modules-core/android/src/main/java/expo/modules/kotlin/views/ViewDefinitionBuilder.kt');
+if (fs.existsSync(viewDefinitionBuilderPath)) {
+  let content = fs.readFileSync(viewDefinitionBuilderPath, 'utf8');
+
+  // Add Gravity import if missing
+  if (!content.includes('import android.view.Gravity')) {
+    content = content.replace(
+      'import android.view.ViewGroup',
+      'import android.view.Gravity\nimport android.view.ViewGroup'
+    );
+    fs.writeFileSync(viewDefinitionBuilderPath, content);
+    console.log('✅ Fixed: Added Gravity import to ViewDefinitionBuilder.kt');
+  }
+}
+
 console.log('\n✅ Kotlin 1.9.0 and KSP compatibility fixes applied!');
 console.log('📌 Compose has been disabled in expo-modules-core');
 console.log('\n🔄 Next steps:');

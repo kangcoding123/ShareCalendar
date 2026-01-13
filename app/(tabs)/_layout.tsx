@@ -72,6 +72,34 @@ export default function TabLayout() {
           href: null, // 탭바에서 숨김 - 그룹 화면 내부에서만 접근 가능
         }}
       />
+      <Tabs.Screen
+        name="board/index"
+        options={{
+          href: null,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tabs.Screen
+        name="board/[postId]"
+        options={{
+          href: null,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tabs.Screen
+        name="board/create"
+        options={{
+          href: null,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tabs.Screen
+        name="board/edit/[postId]"
+        options={{
+          href: null,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
     </Tabs>
   );
 }

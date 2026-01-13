@@ -7,6 +7,7 @@ import { clearEventSubscriptions } from '../services/calendarService';
 import { cacheService } from '../services/cacheService';
 import * as Notifications from 'expo-notifications';
 import NetInfo from '@react-native-community/netinfo';
+import { logger } from '../utils/logger';
 
 // 사용자 타입 정의
 interface UserData {
@@ -56,7 +57,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       return null;
     } catch (error) {
-      console.error('사용자 정보 가져오기 오류:', error);
+      logger.error('사용자 정보 가져오기 오류:', error);
       return null;
     }
   };
@@ -78,13 +79,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         
         // 푸시 토큰 등록
         try {
-          console.log('푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
+          logger.log('푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
           
           const { status: existingStatus } = await Notifications.getPermissionsAsync();
           let finalStatus = existingStatus;
           
           if (existingStatus !== 'granted') {
-            console.log('알림 권한 없음 - 권한 요청 중...');
+            logger.log('알림 권한 없음 - 권한 요청 중...');
             const { status } = await Notifications.requestPermissionsAsync();
             finalStatus = status;
           }
@@ -94,7 +95,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51'
             });
             
-            console.log('푸시 토큰 생성 성공:', token.data);
+            logger.log('푸시 토큰 생성 성공:', token.data);
             
             const usersWithToken = await nativeDb.collection('users')
               .where('pushToken', '==', token.data)
@@ -115,19 +116,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               tokenUpdatedAt: new Date().toISOString()
             });
             
-            console.log('푸시 토큰이 Firestore에 저장됨');
+            logger.log('푸시 토큰이 Firestore에 저장됨');
           } else {
-            console.log('알림 권한 거부됨 - 토큰 생성 건너뜀');
+            logger.log('알림 권한 거부됨 - 토큰 생성 건너뜀');
           }
         } catch (tokenError) {
-          console.error('푸시 토큰 등록 오류:', tokenError);
+          logger.error('푸시 토큰 등록 오류:', tokenError);
         }
         
       } else {
         setUser(formatUserData(userCredential.user));
       }
     } catch (error: any) {
-      console.error('로그인 오류:', error);
+      logger.error('로그인 오류:', error);
       
       let errorMessage = '로그인 중 오류가 발생했습니다.';
       if (error.code === 'auth/invalid-credential') {
@@ -168,13 +169,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       // 푸시 토큰 등록
       try {
-        console.log('회원가입 - 푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
+        logger.log('회원가입 - 푸시 토큰 등록 시도 - 사용자 ID:', userCredential.user.uid);
         
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
         
         if (existingStatus !== 'granted') {
-          console.log('알림 권한 없음 - 권한 요청 중...');
+          logger.log('알림 권한 없음 - 권한 요청 중...');
           const { status } = await Notifications.requestPermissionsAsync();
           finalStatus = status;
         }
@@ -184,7 +185,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             projectId: 'acfa6bea-3fb9-4677-8980-6e08d2324c51'
           });
           
-          console.log('푸시 토큰 생성 성공:', token.data);
+          logger.log('푸시 토큰 생성 성공:', token.data);
           
           const usersWithToken = await nativeDb.collection('users')
             .where('pushToken', '==', token.data)
@@ -205,12 +206,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             tokenUpdatedAt: new Date().toISOString()
           });
           
-          console.log('회원가입 - 푸시 토큰이 Firestore에 저장됨');
+          logger.log('회원가입 - 푸시 토큰이 Firestore에 저장됨');
         } else {
-          console.log('회원가입 - 알림 권한 거부됨 - 토큰 생성 건너뜀');
+          logger.log('회원가입 - 알림 권한 거부됨 - 토큰 생성 건너뜀');
         }
       } catch (tokenError) {
-        console.error('회원가입 - 푸시 토큰 등록 오류:', tokenError);
+        logger.error('회원가입 - 푸시 토큰 등록 오류:', tokenError);
       }
       
       await nativeDb.collection('groups').doc(`personal_${userCredential.user.uid}`).set({
@@ -221,7 +222,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       });
       
     } catch (error: any) {
-      console.error('회원가입 오류:', error);
+      logger.error('회원가입 오류:', error);
       
       let errorMessage = '회원가입 중 오류가 발생했습니다.';
       if (error.code === 'auth/email-already-in-use') {
@@ -248,13 +249,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           pushToken: null,
           tokenRemovedAt: new Date().toISOString()
         });
-        console.log('로그아웃: 푸시 토큰 제거됨');
+        logger.log('로그아웃: 푸시 토큰 제거됨');
       }
       
       clearEventSubscriptions();
       
       await cacheService.clearAllCache();
-      console.log('[AuthContext] 오프라인 캐시 정리 완료');
+      logger.log('[AuthContext] 오프라인 캐시 정리 완료');
       
       cacheService.cleanup();
       
@@ -263,7 +264,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(null);
       setError(null);
     } catch (error: any) {
-      console.error('로그아웃 오류:', error);
+      logger.error('로그아웃 오류:', error);
       setError('로그아웃 중 오류가 발생했습니다.');
     } finally {
       setLoading(false);
@@ -275,7 +276,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setError(null);
       await auth().sendPasswordResetEmail(email);
     } catch (error: any) {
-      console.error('비밀번호 재설정 오류:', error);
+      logger.error('비밀번호 재설정 오류:', error);
       
       let errorMessage = '비밀번호 재설정 중 오류가 발생했습니다.';
       if (error.code === 'auth/invalid-email') {
@@ -322,77 +323,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         });
       }
     } catch (error: any) {
-      console.error('프로필 업데이트 오류:', error);
+      logger.error('프로필 업데이트 오류:', error);
       setError('프로필 업데이트 중 오류가 발생했습니다.');
       throw error;
     }
   };
 
+  // deleteAccount는 authService.ts의 함수를 직접 사용
+  // AuthContext에서는 상태 정리만 담당
   const deleteAccount = async (password: string) => {
     try {
       setError(null);
       setLoading(true);
-      
-      const currentUser = auth().currentUser;
-      if (!currentUser || !currentUser.email) {
-        throw new Error('로그인이 필요합니다.');
-      }
-      
-      const credential = auth.EmailAuthProvider.credential(
-        currentUser.email,
-        password
-      );
-      
-      await currentUser.reauthenticateWithCredential(credential);
-      
-      const userId = currentUser.uid;
-      
+
+      // 이벤트 구독 해제
       clearEventSubscriptions();
-      
+
+      // 캐시 정리
       await cacheService.clearAllCache();
-      
-      const batch = nativeDb.batch();
-      
-      batch.delete(nativeDb.collection('users').doc(userId));
-      
-      const groupsSnapshot = await nativeDb.collection('groups')
-        .where('createdBy', '==', userId)
-        .get();
-      groupsSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-      
-      const membershipsSnapshot = await nativeDb.collection('groupMembers')
-        .where('userId', '==', userId)
-        .get();
-      membershipsSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-      
-      const eventsSnapshot = await nativeDb.collection('events')
-        .where('userId', '==', userId)
-        .get();
-      eventsSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-      
-      await batch.commit();
-      
-      await currentUser.delete();
-      
+
+      // authService의 deleteAccount 호출 (재인증 + Firestore + Auth 삭제)
+      const { deleteAccount: deleteAccountService } = await import('../services/authService');
+      const result = await deleteAccountService(password);
+
+      if (!result.success) {
+        throw new Error(result.error || '계정 삭제에 실패했습니다.');
+      }
+
+      // 상태 초기화
       setUser(null);
     } catch (error: any) {
-      console.error('계정 삭제 오류:', error);
-      
-      let errorMessage = '계정 삭제 중 오류가 발생했습니다.';
-      if (error.code === 'auth/wrong-password') {
-        errorMessage = '잘못된 비밀번호입니다.';
-      } else if (error.code === 'auth/requires-recent-login') {
-        errorMessage = '보안을 위해 다시 로그인해주세요.';
-      }
-      
-      setError(errorMessage);
-      throw new Error(errorMessage);
+      logger.error('계정 삭제 오류:', error);
+      setError(error.message || '계정 삭제 중 오류가 발생했습니다.');
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -409,18 +372,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const checkNetworkAndAuth = async () => {
       try {
         const netState = await NetInfo.fetch();
-        console.log('[Auth] 네트워크 상태:', netState.isConnected ? '온라인' : '오프라인');
+        logger.log('[Auth] 네트워크 상태:', netState.isConnected ? '온라인' : '오프라인');
         
         if (!netState.isConnected || !netState.isInternetReachable) {
-          console.log('[Auth] 오프라인 감지 - 캐시된 사용자 정보 사용');
+          logger.log('[Auth] 오프라인 감지 - 캐시된 사용자 정보 사용');
           
           const currentUser = auth().currentUser;
           if (currentUser) {
             const cachedUser = formatUserData(currentUser);
             setUser(cachedUser);
-            console.log('[Auth] 캐시된 사용자 발견:', cachedUser.email);
+            logger.log('[Auth] 캐시된 사용자 발견:', cachedUser.email);
           } else {
-            console.log('[Auth] 캐시된 사용자 없음');
+            logger.log('[Auth] 캐시된 사용자 없음');
             setUser(null);
           }
           
@@ -428,7 +391,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           isHandled = true;
         }
       } catch (error) {
-        console.error('[Auth] 네트워크 상태 확인 실패:', error);
+        logger.error('[Auth] 네트워크 상태 확인 실패:', error);
       }
     };
     
@@ -436,13 +399,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     
     authTimeout = setTimeout(() => {
       if (!isHandled && loading) {
-        console.log('[Auth] 인증 타임아웃 (3초) - 캐시 사용으로 전환');
+        logger.log('[Auth] 인증 타임아웃 (3초) - 캐시 사용으로 전환');
         
         const currentUser = auth().currentUser;
         if (currentUser) {
           const cachedUser = formatUserData(currentUser);
           setUser(cachedUser);
-          console.log('[Auth] 타임아웃 후 캐시 사용자:', cachedUser.email);
+          logger.log('[Auth] 타임아웃 후 캐시 사용자:', cachedUser.email);
         } else {
           setUser(null);
         }
@@ -454,7 +417,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     
     const unsubscribe = auth().onAuthStateChanged(async (firebaseUser) => {
       if (isHandled) {
-        console.log('[Auth] 이미 처리됨 - onAuthStateChanged 응답 무시');
+        logger.log('[Auth] 이미 처리됨 - onAuthStateChanged 응답 무시');
         return;
       }
       
@@ -462,26 +425,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       
       try {
         if (firebaseUser) {
-          console.log('[Auth] Firebase 사용자 확인:', firebaseUser.email);
-          
-          setUser(formatUserData(firebaseUser));
-          
-          fetchUserData(firebaseUser.uid)
-            .then(userData => {
-              if (userData) {
-                setUser(userData);
-                console.log('[Auth] Firestore 사용자 정보 업데이트 완료');
-              }
-            })
-            .catch(error => {
-              console.log('[Auth] Firestore 접근 실패 (오프라인?):', error);
-            });
+          logger.log('[Auth] Firebase 사용자 확인:', firebaseUser.email);
+
+          // Firestore 데이터를 먼저 가져온 후 한 번만 setUser 호출
+          // (중복 호출로 인한 useEffect 2번 실행 방지)
+          const firestoreData = await fetchUserData(firebaseUser.uid);
+
+          if (firestoreData) {
+            setUser(firestoreData);
+            logger.log('[Auth] Firestore 사용자 정보로 로그인 완료');
+          } else {
+            setUser(formatUserData(firebaseUser));
+            logger.log('[Auth] Firebase Auth 기본 정보로 로그인 (Firestore 데이터 없음)');
+          }
         } else {
-          console.log('[Auth] 사용자 없음 - 로그아웃 상태');
+          logger.log('[Auth] 사용자 없음 - 로그아웃 상태');
           setUser(null);
         }
       } catch (error) {
-        console.error('[Auth] 인증 상태 변경 처리 오류:', error);
+        logger.error('[Auth] 인증 상태 변경 처리 오류:', error);
+        // 오류 시 Firebase Auth 기본 정보라도 사용
+        if (firebaseUser) {
+          setUser(formatUserData(firebaseUser));
+        }
       } finally {
         setLoading(false);
         isHandled = true;

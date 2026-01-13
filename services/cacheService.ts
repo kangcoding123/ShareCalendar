@@ -4,6 +4,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { CalendarEvent } from './calendarService';
 import { Group } from './groupService';
 import { format, subMonths, addMonths } from 'date-fns'; // ✅ addMonths 이미 있음
+import { logger } from '../utils/logger';
 
 // 캐시 키 상수
 const CACHE_KEYS = {
@@ -43,7 +44,7 @@ class CacheService {
       const wasOffline = !this.isOnline;
       this.isOnline = state.isConnected ?? false;
       
-      console.log(`[CacheService] 네트워크 상태: ${this.isOnline ? '온라인' : '오프라인'}`);
+      logger.log(`[CacheService] 네트워크 상태: ${this.isOnline ? '온라인' : '오프라인'}`);
       
       // 오프라인에서 온라인으로 전환 시 동기화
       if (wasOffline && this.isOnline) {
@@ -97,9 +98,9 @@ class CacheService {
       // 마지막 동기화 시간 저장
       await AsyncStorage.setItem(CACHE_KEYS.LAST_SYNC, new Date().toISOString());
       
-      console.log(`[CacheService] ${Object.keys(eventsByMonth).length}개월 이벤트 캐시 저장 완료`);
+      logger.log(`[CacheService] ${Object.keys(eventsByMonth).length}개월 이벤트 캐시 저장 완료`);
     } catch (error) {
-      console.error('[CacheService] 이벤트 캐시 저장 실패:', error);
+      logger.error('[CacheService] 이벤트 캐시 저장 실패:', error);
     }
   }
 
@@ -135,10 +136,10 @@ class CacheService {
         }
       }
       
-      console.log(`[CacheService] 캐시에서 ${events.length}개 이벤트 로드`);
+      logger.log(`[CacheService] 캐시에서 ${events.length}개 이벤트 로드`);
       return events;
     } catch (error) {
-      console.error('[CacheService] 이벤트 캐시 로드 실패:', error);
+      logger.error('[CacheService] 이벤트 캐시 로드 실패:', error);
       return [];
     }
   }
@@ -160,7 +161,7 @@ class CacheService {
       
       return [];
     } catch (error) {
-      console.error('[CacheService] 월별 이벤트 캐시 로드 실패:', error);
+      logger.error('[CacheService] 월별 이벤트 캐시 로드 실패:', error);
       return [];
     }
   }
@@ -170,9 +171,9 @@ class CacheService {
     try {
       const cacheKey = `${CACHE_KEYS.GROUPS}_${userId}`;
       await AsyncStorage.setItem(cacheKey, JSON.stringify(groups));
-      console.log(`[CacheService] ${groups.length}개 그룹 캐시 저장 완료`);
+      logger.log(`[CacheService] ${groups.length}개 그룹 캐시 저장 완료`);
     } catch (error) {
-      console.error('[CacheService] 그룹 캐시 저장 실패:', error);
+      logger.error('[CacheService] 그룹 캐시 저장 실패:', error);
     }
   }
 
@@ -188,7 +189,7 @@ class CacheService {
       
       return [];
     } catch (error) {
-      console.error('[CacheService] 그룹 캐시 로드 실패:', error);
+      logger.error('[CacheService] 그룹 캐시 로드 실패:', error);
       return [];
     }
   }
@@ -206,9 +207,9 @@ class CacheService {
       queue.push(newAction);
       await AsyncStorage.setItem(CACHE_KEYS.OFFLINE_QUEUE, JSON.stringify(queue));
       
-      console.log(`[CacheService] 오프라인 작업 추가: ${action.type} ${action.collection}`);
+      logger.log(`[CacheService] 오프라인 작업 추가: ${action.type} ${action.collection}`);
     } catch (error) {
-      console.error('[CacheService] 오프라인 큐 추가 실패:', error);
+      logger.error('[CacheService] 오프라인 큐 추가 실패:', error);
     }
   }
 
@@ -218,7 +219,7 @@ class CacheService {
       const queueData = await AsyncStorage.getItem(CACHE_KEYS.OFFLINE_QUEUE);
       return queueData ? JSON.parse(queueData) : [];
     } catch (error) {
-      console.error('[CacheService] 오프라인 큐 로드 실패:', error);
+      logger.error('[CacheService] 오프라인 큐 로드 실패:', error);
       return [];
     }
   }
@@ -238,7 +239,7 @@ class CacheService {
         return;
       }
       
-      console.log(`[CacheService] ${queue.length}개 오프라인 작업 동기화 시작`);
+      logger.log(`[CacheService] ${queue.length}개 오프라인 작업 동기화 시작`);
       
       // TODO: 실제 Firebase 동기화 로직 구현
       // 여기서는 calendarService와 groupService의 함수들을 호출하여
@@ -249,7 +250,7 @@ class CacheService {
       
       console.log('[CacheService] 오프라인 작업 동기화 완료');
     } catch (error) {
-      console.error('[CacheService] 오프라인 동기화 실패:', error);
+      logger.error('[CacheService] 오프라인 동기화 실패:', error);
     }
   }
 
@@ -274,10 +275,10 @@ class CacheService {
       
       if (keysToDelete.length > 0) {
         await AsyncStorage.multiRemove(keysToDelete);
-        console.log(`[CacheService] ${keysToDelete.length}개 오래된 캐시 삭제`);
+        logger.log(`[CacheService] ${keysToDelete.length}개 오래된 캐시 삭제`);
       }
     } catch (error) {
-      console.error('[CacheService] 캐시 정리 실패:', error);
+      logger.error('[CacheService] 캐시 정리 실패:', error);
     }
   }
 
@@ -287,7 +288,7 @@ class CacheService {
       const lastSync = await AsyncStorage.getItem(CACHE_KEYS.LAST_SYNC);
       return lastSync ? new Date(lastSync) : null;
     } catch (error) {
-      console.error('[CacheService] 마지막 동기화 시간 로드 실패:', error);
+      logger.error('[CacheService] 마지막 동기화 시간 로드 실패:', error);
       return null;
     }
   }
@@ -310,10 +311,10 @@ class CacheService {
       
       if (cacheKeys.length > 0) {
         await AsyncStorage.multiRemove(cacheKeys);
-        console.log(`[CacheService] 모든 캐시 삭제 완료 (${cacheKeys.length}개)`);
+        logger.log(`[CacheService] 모든 캐시 삭제 완료 (${cacheKeys.length}개)`);
       }
     } catch (error) {
-      console.error('[CacheService] 캐시 삭제 실패:', error);
+      logger.error('[CacheService] 캐시 삭제 실패:', error);
     }
   }
 }

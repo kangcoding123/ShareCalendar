@@ -32,6 +32,7 @@ export function IconSymbol({
       case 'paperplane.fill': return 'paper-plane';
       case 'chevron.left.forwardslash.chevron.right': return 'code-outline';
       case 'chevron.right': return 'chevron-forward';
+      case 'shield.lefthalf.filled': return 'settings-outline';
       default: return 'help-circle-outline';
     }
   };

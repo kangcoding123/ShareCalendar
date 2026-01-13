@@ -2,14 +2,27 @@
 import { nativeDb, auth } from '../config/firebase';
 import { sendGroupNotification } from './notificationService';
 // 🌟 알림 관련 함수들 import 추가
-import { 
-  scheduleEventNotification, 
+import {
+  scheduleEventNotification,
   cancelEventNotification,
-  rescheduleEventNotification 
+  rescheduleEventNotification
 } from './notificationService';
 import { getDatesBetween } from '../utils/dateUtils';
 import { cacheService } from './cacheService';
 import { Platform } from 'react-native';
+import { incrementEventCreatedCount } from './reviewService';
+import { logger } from '../utils/logger';
+
+// 반복 유형 정의
+export type RecurrenceType = 'none' | 'weekly' | 'monthly' | 'yearly';
+export type RecurrenceEndType = 'never' | 'until';
+
+// 반복 설정 인터페이스
+export interface RecurrenceSettings {
+  type: RecurrenceType;
+  endType: RecurrenceEndType;
+  endDate?: string;  // endType이 'until'일 때만 사용 (YYYY-MM-DD)
+}
 
 // 타입 정의 - 다일 일정 지원
 export interface CalendarEvent {
@@ -34,6 +47,10 @@ export interface CalendarEvent {
   isSharedEvent?: boolean;
   isOfflineCreated?: boolean;
   offlineId?: string;
+  // 반복 일정 관련 필드
+  recurrence?: RecurrenceSettings;
+  isRecurringInstance?: boolean;  // 가상 인스턴스 여부 (UI 표시용)
+  masterEventId?: string;         // 마스터 이벤트 ID (가상 인스턴스인 경우)
 }
 
 interface EventResult {
@@ -51,6 +68,28 @@ const globalEventState = {
   subscription: null as (() => void) | null,
   lastUserId: null as string | null,
   groupColors: new Map<string, string>(),
+  callbackDebounceTimer: null as ReturnType<typeof setTimeout> | null,
+  isClearing: false, // 로그아웃/구독 해제 중인지 플래그
+};
+
+// 콜백 호출을 debounce 처리하는 함수
+const notifyCallbacksDebounced = () => {
+  // 이전 타이머가 있으면 취소
+  if (globalEventState.callbackDebounceTimer) {
+    clearTimeout(globalEventState.callbackDebounceTimer);
+  }
+
+  // 500ms 후에 콜백 호출 (짧은 시간 내의 여러 호출을 하나로 합침)
+  globalEventState.callbackDebounceTimer = setTimeout(() => {
+    globalEventState.callbacks.forEach(cb => {
+      try {
+        cb(globalEventState.events);
+      } catch (error) {
+        logger.error('[GlobalEvents] 콜백 오류:', error);
+      }
+    });
+    globalEventState.callbackDebounceTimer = null;
+  }, 500);
 };
 
 // 메모리 캐시 추가
@@ -65,7 +104,7 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5분
 const clearMonthCache = (userId: string, year: number, month: number) => {
   const monthKey = `user_${userId}_${year}_${month}`;
   eventCache.delete(monthKey);
-  console.log(`[Cache] ${year}년 ${month + 1}월 캐시 삭제됨`);
+  logger.log(`[Cache] ${year}년 ${month + 1}월 캐시 삭제됨`);
 };
 
 const clearUserCache = (userId: string) => {
@@ -81,7 +120,7 @@ const clearUserCache = (userId: string) => {
 const clearAllCache = () => {
   eventCache.clear();
   globalEventState.groupColors.clear();
-  console.log('[Cache] 모든 캐시가 삭제되었습니다');
+  logger.log('[Cache] 모든 캐시가 삭제되었습니다');
 };
 
 // 최근 제출 이벤트 캐시
@@ -89,48 +128,56 @@ const recentSubmissions = new Map<string, number>();
 
 // 모든 이벤트 구독 해제 함수
 export const clearEventSubscriptions = () => {
-  console.log('[GlobalEvents] 모든 이벤트 구독 및 상태 초기화 시작');
-  
+  logger.log('[GlobalEvents] 모든 이벤트 구독 및 상태 초기화 시작');
+
+  // 구독 해제 중 플래그 설정 (에러 로깅 방지)
+  globalEventState.isClearing = true;
+
   // 구독 해제를 먼저 수행
   if (globalEventState.subscription) {
     try {
       globalEventState.subscription();
     } catch (error) {
-      console.error('[GlobalEvents] 구독 해제 오류:', error);
+      // 로그아웃 중 발생하는 오류는 무시
     }
     globalEventState.subscription = null;
   }
-  
+
   // 모든 콜백 제거
   globalEventState.callbacks.clear();
-  
+
   // 상태 초기화
   globalEventState.events = [];
   globalEventState.lastUserId = null;
   globalEventState.groupColors.clear();
-  
+
   // 이벤트 리스너 모두 해제
   eventListeners.forEach(unsubscribe => {
     if (typeof unsubscribe === 'function') {
       try {
         unsubscribe();
       } catch (error) {
-        console.error('[GlobalEvents] 리스너 해제 오류:', error);
+        // 로그아웃 중 발생하는 오류는 무시
       }
     }
   });
   eventListeners.clear();
-  
+
   // 캐시 삭제
   clearAllCache();
-  
-  console.log('[GlobalEvents] 구독 및 캐시 초기화 완료');
+
+  logger.log('[GlobalEvents] 구독 및 캐시 초기화 완료');
+
+  // 플래그 해제는 약간의 지연 후 (비동기 리스너 정리 완료 대기)
+  setTimeout(() => {
+    globalEventState.isClearing = false;
+  }, 1000);
 };
 
 // 그룹 색상 메모리 업데이트
 export const updateGroupColorInMemory = (groupId: string, color: string) => {
   globalEventState.groupColors.set(groupId, color);
-  console.log(`[GroupColor] 그룹 ${groupId}의 색상이 ${color}로 메모리에 업데이트되었습니다`);
+  logger.log(`[GroupColor] 그룹 ${groupId}의 색상이 ${color}로 메모리에 업데이트되었습니다`);
 
   // 해당 그룹의 모든 이벤트 색상 업데이트
   globalEventState.events = globalEventState.events.map(event =>
@@ -142,11 +189,11 @@ export const updateGroupColorInMemory = (groupId: string, color: string) => {
     try {
       cb(globalEventState.events);
     } catch (error) {
-      console.error('[GroupColor] 콜백 호출 오류:', error);
+      logger.error('[GroupColor] 콜백 호출 오류:', error);
     }
   });
 
-  console.log(`[GroupColor] ${groupId} 그룹의 이벤트 색상이 실시간으로 업데이트되었습니다`);
+  logger.log(`[GroupColor] ${groupId} 그룹의 이벤트 색상이 실시간으로 업데이트되었습니다`);
 };
 
 // 중복 이벤트 제거 함수
@@ -206,23 +253,23 @@ const loadUserGroupColors = async (userId: string, groupIds: string[]) => {
       }
     });
     
-    console.log('[loadUserGroupColors] 그룹 색상 로드 완료:', globalEventState.groupColors.size);
+    logger.log('[loadUserGroupColors] 그룹 색상 로드 완료:', globalEventState.groupColors.size);
   } catch (error) {
-    console.error('[loadUserGroupColors] 그룹 색상 로드 실패:', error);
+    logger.error('[loadUserGroupColors] 그룹 색상 로드 실패:', error);
   }
 };
 
 // 사용자가 속한 그룹의 모든 이벤트를 실시간으로 구독
 export const subscribeToUserEvents = async (userId: string, forceRefresh: boolean = false) => {
-  console.log(`[subscribeToUserEvents] 사용자 ID: ${userId}에 대한 이벤트 구독 시작`);
+  logger.log(`[subscribeToUserEvents] 사용자 ID: ${userId}에 대한 이벤트 구독 시작`);
   
   if (!forceRefresh && globalEventState.lastUserId === userId && globalEventState.subscription) {
-    console.log('[subscribeToUserEvents] 이미 동일한 사용자에 대해 구독 중');
+    logger.log('[subscribeToUserEvents] 이미 동일한 사용자에 대해 구독 중');
     return () => {};
   }
   
   if (globalEventState.subscription) {
-    console.log('[subscribeToUserEvents] 기존 구독 해제');
+    logger.log('[subscribeToUserEvents] 기존 구독 해제');
     globalEventState.subscription();
     globalEventState.subscription = null;
   }
@@ -232,7 +279,7 @@ export const subscribeToUserEvents = async (userId: string, forceRefresh: boolea
   
   if (!cacheService.getIsOnline()) {
     const cachedEvents = await cacheService.loadEventsFromCache(userId);
-    console.log(`[subscribeToUserEvents] 캐시에서 ${cachedEvents.length}개 이벤트 즉시 표시`);
+    logger.log(`[subscribeToUserEvents] 캐시에서 ${cachedEvents.length}개 이벤트 즉시 표시`);
     
     globalEventState.events = cachedEvents;
     globalEventState.callbacks.forEach(cb => cb(cachedEvents));
@@ -257,85 +304,97 @@ export const subscribeToUserEvents = async (userId: string, forceRefresh: boolea
       }
     }
     
-    console.log('[subscribeToUserEvents] 사용자가 속한 그룹:', userGroupIds);
+    logger.log('[subscribeToUserEvents] 사용자가 속한 그룹:', userGroupIds);
   } catch (error) {
-    console.error('[subscribeToUserEvents] 그룹 멤버십 조회 오류:', error);
+    logger.error('[subscribeToUserEvents] 그룹 멤버십 조회 오류:', error);
   }
   
   if (userGroupIds.length === 0) {
-    console.log('[subscribeToUserEvents] 사용자가 속한 그룹이 없음');
+    logger.log('[subscribeToUserEvents] 사용자가 속한 그룹이 없음');
     return () => {};
   }
   
   const [query1, query2] = createEventQueries(userGroupIds, userId);
-  
-  let listenerCount = 0;
-  const updateEvents = () => {
-    listenerCount++;
-    if (listenerCount >= 2) {
+
+  // 캐시 저장을 debounce 처리
+  let cacheDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const saveCacheDebounced = () => {
+    if (cacheDebounceTimer) {
+      clearTimeout(cacheDebounceTimer);
+    }
+    cacheDebounceTimer = setTimeout(() => {
       if (userId) {
         cacheService.saveEventsToCache(userId, globalEventState.events).catch(err =>
-          console.error('[subscribeToUserEvents] 이벤트 캐시 저장 실패:', err)
+          logger.error('[subscribeToUserEvents] 이벤트 캐시 저장 실패:', err)
         );
       }
-    }
+      cacheDebounceTimer = null;
+    }, 1000); // 1초 후 캐시 저장
   };
   
   const unsubscribe1 = query1.onSnapshot(
     (snapshot: any) => {
-      console.log('[GlobalEvents] Firestore 이벤트 변경 감지');
-      
-      const events: CalendarEvent[] = [];
+      const groupEvents: CalendarEvent[] = [];
       snapshot.docs.forEach((doc: any) => {
         const data = doc.data();
         const groupColor = globalEventState.groupColors.get(data.groupId);
-        events.push({
+        // 반복 일정 디버깅 로그
+        if (data.recurrence) {
+          logger.log('[subscribeToUserEvents] 그룹 반복 일정:', data.title, 'recurrence:', JSON.stringify(data.recurrence));
+        }
+        groupEvents.push({
           ...data,
           id: doc.id,
-          color: groupColor || data.color || '#4CAF50'
+          color: groupColor || data.color || '#4A90E2'
         } as CalendarEvent);
       });
-      
-      const personalEvents = globalEventState.events.filter(e => e.userId === userId && e.groupId === 'personal');
-      const sharedEvents = globalEventState.events.filter(e => e.isSharedEvent);
-      globalEventState.events = removeDuplicateEvents([...events, ...personalEvents, ...sharedEvents]);
-      
-      console.log(`[EventContext] 실시간 업데이트: ${globalEventState.events.length}개 이벤트`);
-      globalEventState.callbacks.forEach(cb => cb(globalEventState.events));
-      updateEvents();
+
+      // 개인 이벤트만 유지 (그룹 이벤트는 새로 가져온 것으로 대체)
+      const personalEvents = globalEventState.events.filter(e => e.groupId === 'personal');
+      globalEventState.events = removeDuplicateEvents([...groupEvents, ...personalEvents]);
+
+      // debounce된 콜백 호출 (중복 호출 방지)
+      notifyCallbacksDebounced();
+      saveCacheDebounced();
     },
     (error: any) => {
-      console.error('[GlobalEvents] Firestore 구독 오류:', error);
+      // 로그아웃/탈퇴 시 발생하는 권한 오류는 무시
+      if (error?.code !== 'firestore/permission-denied') {
+        logger.error('[GlobalEvents] Firestore 구독 오류:', error);
+      }
     }
   );
-  
+
   const unsubscribe2 = query2.onSnapshot(
     (snapshot: any) => {
-      console.log('[GlobalEvents] 개인 이벤트 변경 감지');
-      
       const personalEvents: CalendarEvent[] = [];
       snapshot.docs.forEach((doc: any) => {
+        const data = doc.data();
         personalEvents.push({
-          ...doc.data(),
+          ...data,
           id: doc.id,
-          color: '#4CAF50'
+          color: data.color || '#4A90E2'  // Firestore에 저장된 색상 사용, 없으면 기본값
         } as CalendarEvent);
       });
-      
-      const groupEvents = globalEventState.events.filter(e => e.groupId !== 'personal' || e.isSharedEvent);
+
+      // 그룹 이벤트만 유지 (개인 이벤트는 새로 가져온 것으로 대체)
+      const groupEvents = globalEventState.events.filter(e => e.groupId !== 'personal');
       globalEventState.events = removeDuplicateEvents([...groupEvents, ...personalEvents]);
-      
-      console.log(`[EventContext] 실시간 업데이트: ${globalEventState.events.length}개 이벤트`);
-      globalEventState.callbacks.forEach(cb => cb(globalEventState.events));
-      updateEvents();
+
+      // debounce된 콜백 호출 (중복 호출 방지)
+      notifyCallbacksDebounced();
+      saveCacheDebounced();
     },
     (error: any) => {
-      console.error('[GlobalEvents] 개인 이벤트 구독 오류:', error);
+      // 로그아웃/탈퇴 시 발생하는 권한 오류는 무시
+      if (error?.code !== 'firestore/permission-denied') {
+        logger.error('[GlobalEvents] 개인 이벤트 구독 오류:', error);
+      }
     }
   );
-  
+
   globalEventState.subscription = () => {
-    console.log('[GlobalEvents] 이벤트 구독 해제');
+    logger.log('[GlobalEvents] 이벤트 구독 해제');
     unsubscribe1();
     unsubscribe2();
   };
@@ -364,7 +423,7 @@ const isDuplicateSubmission = (eventData: Partial<CalendarEvent>): boolean => {
   const lastSubmit = recentSubmissions.get(key);
   
   if (lastSubmit && (now - lastSubmit) < 2000) {
-    console.log('Duplicate submission detected');
+    logger.log('Duplicate submission detected');
     return true;
   }
   
@@ -400,7 +459,7 @@ const sendEventNotificationsAsync = async (eventId: string, eventData: any) => {
       currentUser.uid
     );
   } catch (error) {
-    console.error('[sendEventNotifications] 알림 전송 오류:', error);
+    logger.error('[sendEventNotifications] 알림 전송 오류:', error);
   }
 };
 
@@ -437,7 +496,7 @@ const sendEventUpdateNotificationAsync = async (eventId: string, eventData: any,
       currentUser.uid
     );
   } catch (error) {
-    console.error('[sendEventUpdateNotification] 알림 전송 오류:', error);
+    logger.error('[sendEventUpdateNotification] 알림 전송 오류:', error);
   }
 };
 
@@ -465,7 +524,7 @@ const sendEventDeleteNotificationAsync = async (eventId: string, eventData: any)
       currentUser.uid
     );
   } catch (error) {
-    console.error('[sendEventDeleteNotification] 알림 전송 오류:', error);
+    logger.error('[sendEventDeleteNotification] 알림 전송 오류:', error);
   }
 };
 
@@ -503,7 +562,7 @@ export const addEvent = async (eventData: Partial<CalendarEvent>): Promise<Event
     const optimisticEvent = {
       ...safeData,
       id: tempId,
-      color: globalEventState.groupColors.get(safeData.groupId) || safeData.color || '#4CAF50'
+      color: globalEventState.groupColors.get(safeData.groupId) || safeData.color || '#4A90E2'
     };
     
     globalEventState.events.push(optimisticEvent as CalendarEvent);
@@ -512,7 +571,7 @@ export const addEvent = async (eventData: Partial<CalendarEvent>): Promise<Event
       try {
         cb(globalEventState.events);
       } catch (error) {
-        console.error('[addEvent] 낙관적 업데이트 콜백 오류:', error);
+        logger.error('[addEvent] 낙관적 업데이트 콜백 오류:', error);
       }
     });
     
@@ -557,7 +616,7 @@ export const addEvent = async (eventData: Partial<CalendarEvent>): Promise<Event
     }
     
     const docRef = await nativeDb.collection('events').add(cleanData);
-    console.log('Event added with ID:', docRef.id);
+    logger.log('Event added with ID:', docRef.id);
     
     // 🌟 알림 예약 추가
     const eventWithId = {
@@ -578,10 +637,13 @@ export const addEvent = async (eventData: Partial<CalendarEvent>): Promise<Event
     if (safeData.groupId && safeData.groupId !== 'personal') {
       sendEventNotificationsAsync(docRef.id, safeData);
     }
-    
+
+    // 리뷰 요청을 위한 일정 등록 카운트 증가 (백그라운드에서 처리)
+    incrementEventCreatedCount().catch(() => {});
+
     return { success: true, eventId: docRef.id };
   } catch (error: any) {
-    console.error('Error adding event:', error);
+    logger.error('Error adding event:', error);
     
     globalEventState.events = globalEventState.events.filter(event => 
       !event.id?.startsWith('temp_')
@@ -591,7 +653,7 @@ export const addEvent = async (eventData: Partial<CalendarEvent>): Promise<Event
       try {
         cb(globalEventState.events);
       } catch (error) {
-        console.error('[addEvent] 롤백 콜백 오류:', error);
+        logger.error('[addEvent] 롤백 콜백 오류:', error);
       }
     });
     
@@ -620,7 +682,7 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
         try {
           cb(globalEventState.events);
         } catch (error) {
-          console.error('[updateEvent] 낙관적 업데이트 콜백 오류:', error);
+          logger.error('[updateEvent] 낙관적 업데이트 콜백 오류:', error);
         }
       });
     }
@@ -695,7 +757,7 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
     
     return { success: true };
   } catch (error: any) {
-    console.error('Event update error:', error);
+    logger.error('Event update error:', error);
     
     if (originalEvent) {
       globalEventState.events = globalEventState.events.map(event => 
@@ -706,7 +768,7 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
         try {
           cb(globalEventState.events);
         } catch (error) {
-          console.error('[updateEvent] 롤백 콜백 오류:', error);
+          logger.error('[updateEvent] 롤백 콜백 오류:', error);
         }
       });
     }
@@ -730,7 +792,7 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
         try {
           cb(globalEventState.events);
         } catch (error) {
-          console.error('[deleteEvent] 낙관적 업데이트 콜백 오류:', error);
+          logger.error('[deleteEvent] 낙관적 업데이트 콜백 오류:', error);
         }
       });
     }
@@ -765,7 +827,7 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
     
     return { success: true };
   } catch (error: any) {
-    console.error('Event deletion error:', error);
+    logger.error('Event deletion error:', error);
     
     if (deletedEvent) {
       globalEventState.events.push(deletedEvent);
@@ -774,7 +836,7 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
         try {
           cb(globalEventState.events);
         } catch (error) {
-          console.error('[deleteEvent] 롤백 콜백 오류:', error);
+          logger.error('[deleteEvent] 롤백 콜백 오류:', error);
         }
       });
     }
@@ -790,7 +852,7 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
   const cacheKey = `user_${userId}_all`;
   
   if (!forceRefresh && eventCache.get(`${cacheKey}_loading`)) {
-    console.log('[getUserEvents] 이미 로드 중 - 대기');
+    logger.log('[getUserEvents] 이미 로드 중 - 대기');
     const cached = eventCache.get(cacheKey);
     if (cached) return cached.data;
     return { success: true, events: [] };
@@ -799,7 +861,7 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
   if (!forceRefresh) {
     const cached = eventCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
-      console.log('[getUserEvents] 캐시에서 데이터 반환');
+      logger.log('[getUserEvents] 캐시에서 데이터 반환');
       return cached.data;
     }
   }
@@ -808,7 +870,7 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
   
   try {
     if (!cacheService.getIsOnline()) {
-      console.log('[getUserEvents] 오프라인 모드 - 캐시 데이터 사용');
+      logger.log('[getUserEvents] 오프라인 모드 - 캐시 데이터 사용');
       const cachedEvents = await cacheService.loadEventsFromCache(userId);
       return { success: true, events: cachedEvents, isFromCache: true };
     }
@@ -820,23 +882,23 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
     
-    console.log(`[getUserEvents] 자동 기간 설정: ${startDateStr} ~ ${endDateStr} (전후 12개월)`);
+    logger.log(`[getUserEvents] 자동 기간 설정: ${startDateStr} ~ ${endDateStr} (전후 12개월)`);
     
     const groups = await getUserGroups(userId);
     
     if (!groups || groups.length === 0) {
-      console.log('[getUserEvents] 사용자가 속한 그룹이 없음');
+      logger.log('[getUserEvents] 사용자가 속한 그룹이 없음');
       return { success: true, events: [] };
     }
     
     const groupIds = groups.map((g: any) => g.id);
-    console.log(`[getUserEvents] 사용자(${userId})가 속한 그룹 IDs:`, groupIds);
+    logger.log(`[getUserEvents] 사용자(${userId})가 속한 그룹 IDs:`, groupIds);
     
     const groupColors: { [key: string]: string } = {};
     groups.forEach((g: any) => {
       if (g.color) groupColors[g.id] = g.color;
     });
-    console.log(`[loadUserGroupColors] 그룹 색상 로드 완료:`, Object.keys(groupColors).length);
+    logger.log(`[loadUserGroupColors] 그룹 색상 로드 완료:`, Object.keys(groupColors).length);
     
     const eventMap: { [key: string]: CalendarEvent } = {};
     
@@ -856,20 +918,20 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
       groupSnapshot.forEach((doc) => {
         const data = doc.data();
         const eventId = doc.id;
-        const color = groupColors[data.groupId] || data.color || '#4CAF50';
+        const color = groupColors[data.groupId] || data.color || '#4A90E2';
         
         let startDate = data.startDate || data.date || '';
         let endDate = data.endDate || startDate;
         let isMultiDay = data.isMultiDay || startDate !== endDate;
         
         if (!startDate) {
-          console.warn(`[getUserEvents] 이벤트 ${eventId}에 날짜가 없음`);
+          logger.warn(`[getUserEvents] 이벤트 ${eventId}에 날짜가 없음`);
           startDate = new Date().toISOString().split('T')[0];
         }
         
         if (!endDate) endDate = startDate;
         if (new Date(endDate) < new Date(startDate)) {
-          console.warn(`[getUserEvents] 이벤트 ${eventId}의 종료일이 시작일보다 이전`);
+          logger.warn(`[getUserEvents] 이벤트 ${eventId}의 종료일이 시작일보다 이전`);
           endDate = startDate;
         }
         
@@ -895,14 +957,14 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
           .where('endDate', '>=', startDateStr)
           .get();
         
-        console.log(`[getUserEvents] 다중일 이벤트: ${multiDaySnapshot.size}개`);
+        logger.log(`[getUserEvents] 다중일 이벤트: ${multiDaySnapshot.size}개`);
         
         multiDaySnapshot.forEach((doc) => {
           const data = doc.data();
           const eventId = doc.id;
           
           if (data.startDate <= endDateStr && !eventMap[eventId]) {
-            const color = groupColors[data.groupId] || data.color || '#4CAF50';
+            const color = groupColors[data.groupId] || data.color || '#4A90E2';
             
             eventMap[eventId] = {
               id: eventId,
@@ -927,14 +989,14 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
           .where('endDate', '>=', startDateStr)
           .get();
         
-        console.log(`[getUserEvents] 진행 중인 다일 일정: ${ongoingSnapshot.size}개`);
+        logger.log(`[getUserEvents] 진행 중인 다일 일정: ${ongoingSnapshot.size}개`);
         
         ongoingSnapshot.forEach((doc) => {
           const data = doc.data();
           const eventId = doc.id;
           
           if (!eventMap[eventId]) {
-            const color = groupColors[data.groupId] || data.color || '#4CAF50';
+            const color = groupColors[data.groupId] || data.color || '#4A90E2';
             
             eventMap[eventId] = {
               id: eventId,
@@ -986,7 +1048,7 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
     
     const allEvents = Object.values(eventMap);
     
-    console.log(`[getUserEvents] 총 불러온 일정 개수: ${allEvents.length} (자동 기간 적용)`);
+    logger.log(`[getUserEvents] 총 불러온 일정 개수: ${allEvents.length} (자동 기간 적용)`);
     
     const result = { success: true, events: allEvents };
     eventCache.set(cacheKey, {
@@ -998,9 +1060,9 @@ export const getUserEvents = async (userId: string, forceRefresh: boolean = fals
     
     return result;
   } catch (error: any) {
-    console.error('이벤트 가져오기 오류:', error);
+    logger.error('이벤트 가져오기 오류:', error);
     
-    console.log('[getUserEvents] 오류 발생 - 캐시 데이터 사용');
+    logger.log('[getUserEvents] 오류 발생 - 캐시 데이터 사용');
     const cachedEvents = await cacheService.loadEventsFromCache(userId);
     return { success: true, events: cachedEvents, isFromCache: true };
   } finally {
@@ -1019,7 +1081,7 @@ export const getEventsForMonth = async (
   const monthKey = `user_${userId}_${year}_${month}`;
   
   if (eventCache.get(`${monthKey}_loading`)) {
-    console.log(`[getEventsForMonth] ${year}년 ${month + 1}월 이미 로드 중`);
+    logger.log(`[getEventsForMonth] ${year}년 ${month + 1}월 이미 로드 중`);
     const cached = eventCache.get(monthKey);
     if (cached) return cached.data;
     return { success: true, events: [], isFromCache: true };
@@ -1027,7 +1089,7 @@ export const getEventsForMonth = async (
   
   const cached = eventCache.get(monthKey);
   if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
-    console.log(`[getEventsForMonth] ${year}년 ${month + 1}월 캐시 데이터 반환`);
+    logger.log(`[getEventsForMonth] ${year}년 ${month + 1}월 캐시 데이터 반환`);
     return { ...cached.data, isFromCache: true };
   }
   
@@ -1040,7 +1102,7 @@ export const getEventsForMonth = async (
     const startDateStr = startDate.toISOString().split('T')[0];
     const endDateStr = endDate.toISOString().split('T')[0];
     
-    console.log(`[getEventsForMonth] ${startDateStr} ~ ${endDateStr} 기간 조회`);
+    logger.log(`[getEventsForMonth] ${startDateStr} ~ ${endDateStr} 기간 조회`);
     
     const result = await getUserEvents(userId);
     
@@ -1060,7 +1122,7 @@ export const getEventsForMonth = async (
       }
     });
     
-    console.log(`[getEventsForMonth] ${year}년 ${month + 1}월 일정 개수: ${monthEvents.length}`);
+    logger.log(`[getEventsForMonth] ${year}년 ${month + 1}월 일정 개수: ${monthEvents.length}`);
     
     const monthResult = { success: true, events: monthEvents };
     eventCache.set(monthKey, { data: monthResult, timestamp: Date.now() });
@@ -1068,7 +1130,7 @@ export const getEventsForMonth = async (
     
     return monthResult;
   } catch (error: any) {
-    console.error(`[getEventsForMonth] ${year}년 ${month + 1}월 오류:`, error);
+    logger.error(`[getEventsForMonth] ${year}년 ${month + 1}월 오류:`, error);
     eventCache.delete(`${monthKey}_loading`);
     return { success: false, error: error.message };
   }
@@ -1100,11 +1162,11 @@ export const getEventsForDateRange = async (
       }
     });
     
-    console.log(`[getEventsForDateRange] ${startDate} ~ ${endDate} 일정 개수: ${rangeEvents.length}`);
+    logger.log(`[getEventsForDateRange] ${startDate} ~ ${endDate} 일정 개수: ${rangeEvents.length}`);
     
     return { success: true, events: rangeEvents };
   } catch (error: any) {
-    console.error('[getEventsForDateRange] 오류:', error);
+    logger.error('[getEventsForDateRange] 오류:', error);
     return { success: false, error: error.message };
   }
 };
@@ -1114,18 +1176,18 @@ export const getEventsForDateRange = async (
  */
 export const getUserGroups = async (userId: string): Promise<any[]> => {
   try {
-    console.log(`[getUserGroups] 사용자 ID: ${userId}의 그룹 조회 시작`);
+    logger.log(`[getUserGroups] 사용자 ID: ${userId}의 그룹 조회 시작`);
     
     const membershipsSnapshot = await nativeDb
       .collection('groupMembers')
       .where('userId', '==', userId)
       .get();
     
-    console.log(`[getUserGroups] 사용자가 속한 그룹 멤버십 개수: ${membershipsSnapshot.size}`);
+    logger.log(`[getUserGroups] 사용자가 속한 그룹 멤버십 개수: ${membershipsSnapshot.size}`);
     
     const groupPromises = membershipsSnapshot.docs.map(async (memberDoc: any) => {
       const memberData = memberDoc.data();
-      console.log('[getUserGroups] 멤버십 데이터:', memberData);
+      logger.log('[getUserGroups] 멤버십 데이터:', memberData);
       
       const groupDoc = await nativeDb
         .collection('groups')
@@ -1134,7 +1196,7 @@ export const getUserGroups = async (userId: string): Promise<any[]> => {
       
       if ((groupDoc as any).exists) {
         const groupData = groupDoc.data();
-        console.log(`[getUserGroups] 로드된 그룹:`, {
+        logger.log(`[getUserGroups] 로드된 그룹:`, {
           id: groupDoc.id,
           name: groupData?.name,
           role: memberData.role,
@@ -1145,28 +1207,45 @@ export const getUserGroups = async (userId: string): Promise<any[]> => {
           id: groupDoc.id,
           ...groupData,
           role: memberData.role,
-          color: memberData.color || groupData?.color || '#4CAF50'
+          color: memberData.color || groupData?.color || '#4A90E2'
         };
       }
       return null;
     });
     
     const groups = (await Promise.all(groupPromises)).filter(g => g !== null);
-    
+
+    // 그룹명 정렬: 한글 먼저 (가→ㅎ), 그 다음 영문/숫자 (A→Z)
+    groups.sort((a: any, b: any) => {
+      const nameA = a?.name || '';
+      const nameB = b?.name || '';
+
+      // 한글 여부 확인 (첫 글자 기준)
+      const isKoreanA = /^[가-힣]/.test(nameA);
+      const isKoreanB = /^[가-힣]/.test(nameB);
+
+      // 한글이 영문/숫자보다 먼저 오도록
+      if (isKoreanA && !isKoreanB) return -1;
+      if (!isKoreanA && isKoreanB) return 1;
+
+      // 같은 종류끼리는 오름차순 정렬
+      return nameA.localeCompare(nameB, 'ko');
+    });
+
     // 타입 캐스팅 추가
     if (groups.length > 0) {
       await cacheService.saveGroupsToCache(userId, groups as any); // as any 추가
     }
-    
-    console.log(`[getUserGroups] ${groups.length}개 그룹 로드 완료`);
+
+    logger.log(`[getUserGroups] ${groups.length}개 그룹 로드 완료`);
     return groups;
   } catch (error) {
-    console.error('[getUserGroups] 그룹 조회 오류:', error);
+    logger.error('[getUserGroups] 그룹 조회 오류:', error);
     
     // 타입 캐스팅 추가
     const cachedGroups = await cacheService.loadGroupsFromCache(userId) as any[]; // as any[] 추가
     if (cachedGroups.length > 0) {
-      console.log('[getUserGroups] 캐시에서 그룹 반환');
+      logger.log('[getUserGroups] 캐시에서 그룹 반환');
       return cachedGroups;
     }
     
@@ -1184,11 +1263,11 @@ export const subscribeToGroupEvents = (
   const listenerKey = `group_${groupId}`;
   
   if (eventListeners.has(listenerKey)) {
-    console.log(`[subscribeToGroupEvents] 이미 구독 중: ${groupId}`);
+    logger.log(`[subscribeToGroupEvents] 이미 구독 중: ${groupId}`);
     return () => {};
   }
   
-  console.log(`[subscribeToGroupEvents] 그룹 이벤트 구독 시작: ${groupId}`);
+  logger.log(`[subscribeToGroupEvents] 그룹 이벤트 구독 시작: ${groupId}`);
   
   const query = nativeDb
     .collection('events')
@@ -1204,11 +1283,11 @@ export const subscribeToGroupEvents = (
         } as CalendarEvent);
       });
       
-      console.log(`[subscribeToGroupEvents] ${groupId} 그룹 이벤트 업데이트: ${events.length}개`);
+      logger.log(`[subscribeToGroupEvents] ${groupId} 그룹 이벤트 업데이트: ${events.length}개`);
       callback(events);
     },
     (error: any) => {
-      console.error(`[subscribeToGroupEvents] ${groupId} 구독 오류:`, error);
+      logger.error(`[subscribeToGroupEvents] ${groupId} 구독 오류:`, error);
       callback([]);
     }
   );
@@ -1216,7 +1295,7 @@ export const subscribeToGroupEvents = (
   eventListeners.set(listenerKey, unsubscribe);
   
   return () => {
-    console.log(`[subscribeToGroupEvents] 구독 해제: ${groupId}`);
+    logger.log(`[subscribeToGroupEvents] 구독 해제: ${groupId}`);
     unsubscribe();
     eventListeners.delete(listenerKey);
   };
@@ -1249,6 +1328,117 @@ export const expandMultiDayEvent = (event: CalendarEvent): Record<string, Calend
   return result;
 };
 
+/**
+ * 다음 반복 날짜 계산
+ */
+function getNextRecurrenceDate(date: Date, type: RecurrenceType): Date {
+  const next = new Date(date);
+  switch (type) {
+    case 'weekly':
+      next.setDate(next.getDate() + 7);
+      break;
+    case 'monthly':
+      next.setMonth(next.getMonth() + 1);
+      break;
+    case 'yearly':
+      next.setFullYear(next.getFullYear() + 1);
+      break;
+  }
+  return next;
+}
+
+/**
+ * 날짜 문자열을 로컬 시간대 Date 객체로 변환 (timezone 문제 방지)
+ */
+function parseDateString(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  return new Date(year, month - 1, day); // 로컬 시간대로 생성
+}
+
+/**
+ * Date 객체를 YYYY-MM-DD 형식 문자열로 변환 (로컬 시간대 기준)
+ */
+function formatDateToString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * 반복 일정의 인스턴스들을 생성
+ * @param event 마스터 이벤트
+ * @param rangeStart 조회 시작일
+ * @param rangeEnd 조회 종료일
+ * @returns 해당 범위 내 인스턴스 배열
+ */
+export function generateRecurringInstances(
+  event: CalendarEvent,
+  rangeStart: Date,
+  rangeEnd: Date
+): CalendarEvent[] {
+  // 반복 설정이 없거나 'none'이면 원본 이벤트만 반환
+  if (!event.recurrence || event.recurrence.type === 'none') {
+    return [event];
+  }
+
+  // 이미 가상 인스턴스인 경우 그대로 반환 (중복 생성 방지)
+  if (event.isRecurringInstance) {
+    return [event];
+  }
+
+  const instances: CalendarEvent[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // 로컬 시간대로 날짜 파싱 (timezone 문제 방지)
+  let currentDate = parseDateString(event.startDate);
+
+  // 다일 일정인 경우, 원본 일정의 기간(일 수) 계산
+  const originalStartDate = parseDateString(event.startDate);
+  const originalEndDate = parseDateString(event.endDate);
+  const daysDiff = Math.round((originalEndDate.getTime() - originalStartDate.getTime()) / (1000 * 60 * 60 * 24));
+
+  // 종료일 계산: 반복 종료일이 있으면 그 날짜, 없으면 조회 범위 끝
+  const recurrenceEndDate = event.recurrence.endDate
+    ? parseDateString(event.recurrence.endDate)
+    : rangeEnd;
+
+  // 최대 반복 횟수 제한 (무한 루프 방지)
+  const MAX_INSTANCES = 500;
+  let instanceCount = 0;
+
+  while (currentDate <= recurrenceEndDate && currentDate <= rangeEnd && instanceCount < MAX_INSTANCES) {
+    // 오늘 이후 && 조회 범위 내인 경우만 추가
+    if (currentDate >= today && currentDate >= rangeStart) {
+      const dateStr = formatDateToString(currentDate);
+
+      // 다일 일정인 경우 종료일도 같은 기간만큼 이동
+      let instanceEndDate = dateStr;
+      if (daysDiff > 0) {
+        const endDate = new Date(currentDate);
+        endDate.setDate(endDate.getDate() + daysDiff);
+        instanceEndDate = formatDateToString(endDate);
+      }
+
+      instances.push({
+        ...event,
+        startDate: dateStr,
+        endDate: instanceEndDate,
+        isRecurringInstance: true,
+        masterEventId: event.id,
+        id: `${event.id}_${dateStr}` // 가상 ID
+      });
+      instanceCount++;
+    }
+
+    // 다음 반복 날짜 계산
+    currentDate = getNextRecurrenceDate(currentDate, event.recurrence.type);
+  }
+
+  return instances;
+}
+
 // 단일 export로 통합
 export default {
   addEvent,
@@ -1262,5 +1452,6 @@ export default {
   subscribeToGroupEvents,
   clearEventSubscriptions,
   registerGlobalEventCallback,
-  expandMultiDayEvent
+  expandMultiDayEvent,
+  generateRecurringInstances
 };
