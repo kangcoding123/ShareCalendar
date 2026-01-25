@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -32,6 +33,7 @@ import {
 import { nativeDb } from '@/config/firebase';
 import CommentItem from '@/components/board/CommentItem';
 import CommentForm from '@/components/board/CommentForm';
+import AttachmentList from '@/components/board/AttachmentList';
 
 function formatDateTime(dateString: string): string {
   const date = new Date(dateString);
@@ -95,19 +97,30 @@ export default function PostDetailScreen() {
 
   // 화면 포커스 시 게시글 다시 로드 (수정 후 돌아올 때 반영)
   // 화면을 나갈 때 postLastViewedAt 업데이트 (댓글 읽음 처리)
+  // Android 하드웨어 뒤로가기 버튼 처리
   useFocusEffect(
     useCallback(() => {
       if (!loading && postId) {
         loadPost();
       }
 
+      // Android 하드웨어 뒤로가기 버튼 처리
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+        router.replace({
+          pathname: '/(tabs)/board',
+          params: { groupId, groupName }
+        });
+        return true; // 기본 동작 방지
+      });
+
       // cleanup: 화면을 나갈 때 마지막 조회 시간 업데이트
       return () => {
         if (user?.uid && postId) {
           updatePostLastViewed(user.uid, postId);
         }
+        backHandler.remove();
       };
-    }, [loading, postId, loadPost, user?.uid])
+    }, [loading, postId, loadPost, user?.uid, groupId, groupName, router])
   );
 
   // 댓글 실시간 리스너
@@ -369,6 +382,11 @@ export default function PostDetailScreen() {
             <Text style={[styles.postContent, { color: colors.text }]}>
               {post.content}
             </Text>
+
+            {/* 첨부파일 목록 */}
+            {post.attachments && post.attachments.length > 0 && (
+              <AttachmentList attachments={post.attachments} colors={colors} />
+            )}
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />

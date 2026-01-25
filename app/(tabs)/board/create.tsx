@@ -1,5 +1,5 @@
 // app/(tabs)/board/create.tsx
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
+  BackHandler,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -19,6 +20,9 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
 import { createPost } from '@/services/boardService';
+import { uploadFiles } from '@/services/fileService';
+import { PendingAttachment } from '@/types/board';
+import AttachmentPicker from '@/components/board/AttachmentPicker';
 
 const MAX_TITLE_LENGTH = 100;
 const MAX_CONTENT_LENGTH = 2000;
@@ -33,6 +37,19 @@ export default function CreatePostScreen() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+
+  // 현재 title, content를 참조하기 위한 ref (BackHandler에서 사용)
+  const titleRef = useRef('');
+  const contentRef = useRef('');
+  const attachmentsRef = useRef<PendingAttachment[]>([]);
+
+  // ref 업데이트
+  useEffect(() => {
+    titleRef.current = title;
+    contentRef.current = content;
+    attachmentsRef.current = pendingAttachments;
+  }, [title, content, pendingAttachments]);
 
   // 화면에 진입할 때마다 폼 초기화
   useFocusEffect(
@@ -40,7 +57,44 @@ export default function CreatePostScreen() {
       setTitle('');
       setContent('');
       setSubmitting(false);
+      setPendingAttachments([]);
     }, [])
+  );
+
+  // Android 하드웨어 뒤로가기 버튼 처리
+  useFocusEffect(
+    useCallback(() => {
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+        // 작성 중인 내용이 있으면 확인 다이얼로그 표시
+        if (titleRef.current.trim() || contentRef.current.trim() || attachmentsRef.current.length > 0) {
+          Alert.alert(
+            '작성 취소',
+            '작성 중인 내용이 있습니다. 정말로 취소하시겠습니까?',
+            [
+              { text: '계속 작성', style: 'cancel' },
+              {
+                text: '취소',
+                style: 'destructive',
+                onPress: () => router.replace({
+                  pathname: '/(tabs)/board',
+                  params: { groupId, groupName }
+                })
+              },
+            ]
+          );
+        } else {
+          router.replace({
+            pathname: '/(tabs)/board',
+            params: { groupId, groupName }
+          });
+        }
+        return true; // 기본 동작 방지
+      });
+
+      return () => {
+        backHandler.remove();
+      };
+    }, [groupId, groupName, router])
   );
 
   const canSubmit = title.trim().length > 0 && content.trim().length > 0 && !submitting;
@@ -50,14 +104,43 @@ export default function CreatePostScreen() {
 
     setSubmitting(true);
     try {
-      const result = await createPost({
-        groupId,
-        authorId: user.uid,
-        authorName: user.displayName || '익명',
-        authorEmail: user.email || '',
-        title: title.trim(),
-        content: content.trim(),
-      });
+      // 임시 postId 생성 (파일 업로드 경로에 사용)
+      const tempPostId = `temp_${Date.now()}`;
+
+      // 첨부파일 업로드
+      let uploadedAttachments = undefined;
+      if (pendingAttachments.length > 0) {
+        try {
+          uploadedAttachments = await uploadFiles(
+            pendingAttachments,
+            groupId,
+            tempPostId,
+            (fileId, progress) => {
+              setPendingAttachments((prev) =>
+                prev.map((att) =>
+                  att.id === fileId ? { ...att, uploadProgress: progress } : att
+                )
+              );
+            }
+          );
+        } catch (uploadError: any) {
+          Alert.alert('오류', '파일 업로드에 실패했습니다: ' + uploadError.message);
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      const result = await createPost(
+        {
+          groupId,
+          authorId: user.uid,
+          authorName: user.displayName || '익명',
+          authorEmail: user.email || '',
+          title: title.trim(),
+          content: content.trim(),
+        },
+        uploadedAttachments
+      );
 
       if (result.success) {
         // 게시판 목록으로 명시적으로 이동
@@ -73,6 +156,14 @@ export default function CreatePostScreen() {
     }
   };
 
+  const handleAddAttachment = (attachment: PendingAttachment) => {
+    setPendingAttachments((prev) => [...prev, attachment]);
+  };
+
+  const handleRemovePending = (id: string) => {
+    setPendingAttachments((prev) => prev.filter((att) => att.id !== id));
+  };
+
   const goBackToBoard = () => {
     router.replace({
       pathname: '/(tabs)/board',
@@ -81,7 +172,7 @@ export default function CreatePostScreen() {
   };
 
   const handleCancel = () => {
-    if (title.trim() || content.trim()) {
+    if (title.trim() || content.trim() || pendingAttachments.length > 0) {
       Alert.alert(
         '작성 취소',
         '작성 중인 내용이 있습니다. 정말로 취소하시겠습니까?',
@@ -143,6 +234,15 @@ export default function CreatePostScreen() {
           <Text style={[styles.charCount, { color: colors.lightGray }]}>
             {content.length}/{MAX_CONTENT_LENGTH}
           </Text>
+
+          {/* 파일 첨부 */}
+          <AttachmentPicker
+            pendingAttachments={pendingAttachments}
+            onAddAttachment={handleAddAttachment}
+            onRemovePending={handleRemovePending}
+            colors={colors}
+            disabled={submitting}
+          />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { CalendarEvent } from '../../../services/calendarService';
 import { formatDate } from '../../../utils/dateUtils';
+import AttachmentList from '../../board/AttachmentList';
 
 interface EventItemProps {
   event: CalendarEvent;
@@ -37,7 +38,14 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors, readOnly = false }
       
       <View style={styles.eventDetails}>
         <View style={styles.eventTitleRow}>
-          <Text style={[styles.eventTitle, { color: colors.text }]}>{event.title}</Text>
+          <Text
+            style={[styles.eventTitle, { color: colors.text }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            allowFontScaling={false}
+          >
+            {event.title}
+          </Text>
           {/* 반복 일정 아이콘 */}
           {(isRecurring || isRecurringInstance) && (
             <Text style={styles.recurringIcon}>🔄</Text>
@@ -46,14 +54,22 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors, readOnly = false }
         
         {/* 다일 일정인 경우 기간 표시 */}
         {isMultiDay && (
-          <Text style={[styles.eventDate, { color: colors.lightGray }]}>
+          <Text
+            style={[styles.eventDate, { color: colors.lightGray }]}
+            numberOfLines={1}
+            allowFontScaling={false}
+          >
             {formatDate(new Date(event.startDate), 'yyyy-MM-dd')} ~ {formatDate(new Date(event.endDate), 'yyyy-MM-dd')}
           </Text>
         )}
 
         {/* 시간 표시 */}
         {event.time && (
-          <Text style={[styles.eventTime, { color: colors.lightGray }]}>
+          <Text
+            style={[styles.eventTime, { color: colors.lightGray }]}
+            numberOfLines={1}
+            allowFontScaling={false}
+          >
             {event.time}
           </Text>
         )}
@@ -63,10 +79,21 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors, readOnly = false }
             {event.description}
           </Text>
         ) : null}
-        
+
+        {/* 첨부파일 표시 */}
+        {event.attachments && event.attachments.length > 0 && (
+          <View style={styles.attachmentSection}>
+            <AttachmentList attachments={event.attachments} colors={colors} />
+          </View>
+        )}
+
         <View style={styles.eventMetaContainer}>
           <View style={[styles.eventGroupContainer, { backgroundColor: colors.secondary }]}>
-            <Text style={[styles.eventGroupText, { color: colors.darkGray }]}>
+            <Text
+              style={[styles.eventGroupText, { color: colors.darkGray }]}
+              numberOfLines={1}
+              allowFontScaling={false}
+            >
               {event.groupName || '개인 일정'}
             </Text>
           </View>
@@ -107,7 +134,11 @@ const EventItem = ({ event, onEdit, onDelete, userId, colors, readOnly = false }
           {/* 그룹 일정일 경우 작성자 표시 */}
           {isGroupEvent && (
             <View style={[styles.eventCreatorContainer, { backgroundColor: colors.secondary }]}>
-              <Text style={[styles.eventCreatorText, { color: colors.darkGray }]}>
+              <Text
+                style={[styles.eventCreatorText, { color: colors.darkGray }]}
+                numberOfLines={1}
+                allowFontScaling={false}
+              >
                 작성자: {event.createdByName || (event.userId === userId ? '나' : '그룹 멤버')}
               </Text>
             </View>
@@ -186,6 +217,10 @@ const styles = StyleSheet.create({
   eventDescription: {
     fontSize: 14,
     marginBottom: 5
+  },
+  attachmentSection: {
+    marginTop: 8,
+    marginBottom: 8,
   },
   eventMetaContainer: {
     flexDirection: 'row',

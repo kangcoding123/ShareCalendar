@@ -1,6 +1,29 @@
 // types/board.ts
 // 게시판 관련 타입 정의
 
+// 첨부파일 타입
+export interface Attachment {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  fileType: 'image' | 'video' | 'document' | 'other';
+  url: string;
+  storagePath: string;
+  createdAt: string;
+}
+
+// 업로드 중인 파일 상태
+export interface PendingAttachment {
+  id: string;
+  uri: string;
+  fileName: string;
+  fileSize: number;
+  mimeType: string;
+  fileType: 'image' | 'video' | 'document' | 'other';
+  uploadProgress?: number;
+}
+
 export interface Post {
   id: string;
   groupId: string;
@@ -13,6 +36,7 @@ export interface Post {
   pinnedAt?: string;
   pinnedBy?: string;
   commentCount: number;
+  attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
 }

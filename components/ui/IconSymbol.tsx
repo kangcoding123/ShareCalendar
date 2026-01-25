@@ -33,6 +33,9 @@ export function IconSymbol({
       case 'chevron.left.forwardslash.chevron.right': return 'code-outline';
       case 'chevron.right': return 'chevron-forward';
       case 'shield.lefthalf.filled': return 'settings-outline';
+      case 'doc.text': return 'document-text-outline';
+      case 'clipboard': return 'clipboard-outline';
+      case 'message-square': return 'chatbubbles-outline';
       default: return 'help-circle-outline';
     }
   };

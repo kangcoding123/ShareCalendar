@@ -22,6 +22,9 @@ import { TimeSlotPickerWithManual } from '../TimeSlotPickerWithManual';
 import DatePicker from './DatePicker';
 import GroupSelector from './GroupSelector';
 import { formatDate } from '../../../utils/dateUtils';
+import { Attachment, PendingAttachment } from '../../../types/board';
+import AttachmentPicker from '../../board/AttachmentPicker';
+import { cacheService } from '../../../services/cacheService';
 
 // 반복 유형 옵션
 const RECURRENCE_OPTIONS: { value: RecurrenceType; label: string }[] = [
@@ -45,6 +48,12 @@ const PERSONAL_COLORS = [
   '#000000', // 검정
 ];
 
+// 첨부파일 변경 정보 인터페이스
+export interface AttachmentChanges {
+  pendingAttachments: PendingAttachment[];
+  existingAttachments: Attachment[];
+}
+
 interface EventFormProps {
   selectedDate: {
     date: Date;
@@ -53,26 +62,27 @@ interface EventFormProps {
   };
   event?: CalendarEvent;
   groups: Group[];
-  onSubmit: (eventData: CalendarEvent) => void;
+  onSubmit: (eventData: CalendarEvent, attachmentChanges?: AttachmentChanges) => void;
   onCancel: () => void;
   colors: any;
   onRemoveEventId?: () => void;
-  onEventDeleted?: (eventId: string) => void; // 추가: 이벤트 삭제 콜백
+  onEventDeleted?: (eventId: string) => void;
+  isSubmitting?: boolean; // 외부에서 전달받는 로딩 상태
 }
 
-const EventForm = ({ 
-  selectedDate, 
-  event, 
-  groups, 
-  onSubmit, 
+const EventForm = ({
+  selectedDate,
+  event,
+  groups,
+  onSubmit,
   onCancel,
   colors,
   onRemoveEventId,
-  onEventDeleted
+  onEventDeleted,
+  isSubmitting = false
 }: EventFormProps) => {
   const [title, setTitle] = useState(event?.title || '');
   const [description, setDescription] = useState(event?.description || '');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const insets = useSafeAreaInsets();
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -130,6 +140,12 @@ const EventForm = ({
   });
   const [showYearPicker, setShowYearPicker] = useState(false);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
+
+  // 첨부파일 상태
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState<Attachment[]>(
+    event?.attachments || []
+  );
 
   // 저장된 개인일정 색상 불러오기
   useEffect(() => {
@@ -190,6 +206,22 @@ const EventForm = ({
     setTime(selectedTime);
   };
   
+  // 첨부파일 핸들러
+  const handleAddAttachment = (attachment: PendingAttachment) => {
+    setPendingAttachments(prev => [...prev, attachment]);
+  };
+
+  const handleRemovePending = (id: string) => {
+    setPendingAttachments(prev => prev.filter(att => att.id !== id));
+  };
+
+  const handleRemoveExisting = (id: string) => {
+    setExistingAttachments(prev => prev.filter(att => att.id !== id));
+  };
+
+  // 오프라인 상태 확인
+  const isOnline = cacheService.getIsOnline();
+
   // 그룹 선택 핸들러 - 단순화
   const handleGroupToggle = (groupId: string) => {
     setSelectedGroups(prevGroups => {
@@ -222,14 +254,12 @@ const EventForm = ({
       Alert.alert('알림', '최소 하나의 그룹을 선택해주세요.');
       return;
     }
-    
+
     if (isMultiDay && new Date(endDate) < new Date(startDate)) {
       Alert.alert('알림', '종료일은 시작일보다 빠를 수 없습니다.');
       return;
     }
-    
-    setIsSubmitting(true);
-    
+
     try {
       // 기존 이벤트 수정 시
       if (event?.id) {
@@ -293,16 +323,18 @@ const EventForm = ({
               [{ text: '확인' }]
             );
             
-            // 새 일정으로 제출
-            onSubmit(newEventData);
+            // 새 일정으로 제출 (첨부파일 정보 포함)
+            onSubmit(newEventData, {
+              pendingAttachments,
+              existingAttachments,
+            });
           } catch (error) {
             console.error('이벤트 교체 중 오류:', error);
             Alert.alert(
-              '오류', 
+              '오류',
               '그룹 변경 중 오류가 발생했습니다. 원래 일정이 유지됩니다.',
               [{ text: '확인' }]
             );
-            setIsSubmitting(false);
             return;
           }
         } else {
@@ -333,7 +365,10 @@ const EventForm = ({
             } : undefined
           };
 
-          onSubmit(eventData);
+          onSubmit(eventData, {
+            pendingAttachments,
+            existingAttachments,
+          });
         }
       } else {
         // 새 이벤트 생성
@@ -364,17 +399,15 @@ const EventForm = ({
           } : undefined
         };
 
-        onSubmit(eventData);
+        onSubmit(eventData, {
+          pendingAttachments,
+          existingAttachments,
+        });
       }
     } catch (error) {
       console.error('Form submission error:', error);
       Alert.alert('오류', '일정 저장 중 오류가 발생했습니다.');
-      setIsSubmitting(false);
     }
-    
-    setTimeout(() => {
-      setIsSubmitting(false);
-    }, 500);
   };
   
   // 그룹 ID에 따라 자동으로 색상 설정
@@ -481,10 +514,10 @@ return (
         <Text style={[styles.formLabel, { color: colors.text }]}>일정 내용</Text>
         <TextInput
           style={[
-            styles.formInput, 
+            styles.formInput,
             styles.textArea,
-            { 
-              backgroundColor: colors.inputBackground, 
+            {
+              backgroundColor: colors.inputBackground,
               borderColor: colors.inputBorder,
               color: colors.text
             }
@@ -497,7 +530,24 @@ return (
           numberOfLines={4}
           textAlignVertical="top"
         />
-        
+
+        {/* 첨부파일 섹션 */}
+        <Text style={[styles.formLabel, { color: colors.text }]}>첨부파일</Text>
+        {!isOnline && (
+          <Text style={[styles.offlineWarning, { color: colors.warning || '#FF9800' }]}>
+            오프라인 상태에서는 파일 첨부가 불가능합니다.
+          </Text>
+        )}
+        <AttachmentPicker
+          pendingAttachments={pendingAttachments}
+          existingAttachments={existingAttachments}
+          onAddAttachment={handleAddAttachment}
+          onRemovePending={handleRemovePending}
+          onRemoveExisting={handleRemoveExisting}
+          colors={colors}
+          disabled={isSubmitting || !isOnline}
+        />
+
         {/* 반복 설정 섹션 */}
         <Text style={[styles.formLabel, { color: colors.text }]}>반복</Text>
         <TouchableOpacity
@@ -857,6 +907,10 @@ const styles = StyleSheet.create({
   },
   textArea: {
     minHeight: 100
+  },
+  offlineWarning: {
+    fontSize: 12,
+    marginBottom: 8,
   },
   multiDayToggle: {
     flexDirection: 'row',

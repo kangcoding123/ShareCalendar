@@ -1,14 +1,15 @@
 // app/(tabs)/calendar/index.tsx
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  View, 
-  StyleSheet, 
-  ActivityIndicator, 
-  RefreshControl, 
-  ScrollView, 
+import {
+  View,
+  StyleSheet,
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
   Text,
   Platform,
-  TouchableOpacity
+  TouchableOpacity,
+  Dimensions
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
@@ -70,6 +71,13 @@ function CalendarScreen() {
 
   // 모달 상태 추적
   const isModalOpenRef = useRef(false);
+
+  // ✅ 캘린더 영역 높이 측정 - 화면 높이 기반 초기값 설정 (깜빡임 방지)
+  const { height: screenHeight } = Dimensions.get('window');
+  const [calendarAreaHeight, setCalendarAreaHeight] = useState(() => {
+    // 광고 배너(약 60px) + 탭바(약 80px) + SafeArea 여백 제외한 초기값
+    return screenHeight - 150;
+  });
 
   // highlightDate 파라미터가 있으면 해당 월로 이동하고 하이라이트 설정
   // highlightKey를 의존성에 추가하여 같은 날짜를 다시 클릭해도 애니메이션 재실행
@@ -165,17 +173,25 @@ function CalendarScreen() {
     setRefreshing(false);
   }, [refreshAll]);
   
+  // groupedEvents가 변경되면 selectedDateEvents도 업데이트
+  useEffect(() => {
+    if (selectedDate && modalVisible) {
+      const dateEvents = groupedEvents[selectedDate.formattedDate] || [];
+      setSelectedDateEvents(dateEvents);
+    }
+  }, [groupedEvents, selectedDate, modalVisible]);
+
   // 날짜 선택 핸들러
   const handleDayPress = useCallback((day: CalendarDay, dayEvents: CalendarEvent[]) => {
     console.log('[handleDayPress] 날짜 선택:', day.formattedDate);
     setSelectedDate(day);
-    
+
     // groupedEvents에서 해당 날짜 이벤트 가져오기
     const dateEvents = groupedEvents[day.formattedDate] || [];
     setSelectedDateEvents(dateEvents);
-    
+
     isModalOpenRef.current = true;
-    
+
     requestAnimationFrame(() => {
       setModalVisible(true);
     });
@@ -242,13 +258,27 @@ function CalendarScreen() {
         <MemoizedAdBanner size="banner" />
       </View>
       
-      <View style={styles.calendarWrapper}>
+      <View
+        style={styles.calendarWrapper}
+        onLayout={(event) => {
+          // 모달이 열려있는 동안에는 높이 업데이트 무시 (깜빡임 방지)
+          if (isModalOpenRef.current) {
+            return;
+          }
+
+          const { height } = event.nativeEvent.layout;
+          if (height > 0 && Math.abs(height - calendarAreaHeight) > 1) {
+            console.log(`[CalendarScreen] calendarWrapper height: ${height}`);
+            setCalendarAreaHeight(height);
+          }
+        }}
+      >
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.scrollContainer}
           refreshControl={
-            <RefreshControl 
-              refreshing={refreshing} 
+            <RefreshControl
+              refreshing={refreshing}
               onRefresh={handleRefresh}
               tintColor={colors.tint}
               colors={[colors.tint]}
@@ -268,6 +298,7 @@ function CalendarScreen() {
             highlightEndDate={highlightEndDateState}
             highlightKey={highlightKey}
             bottomInset={insets.bottom}
+            containerHeight={calendarAreaHeight}
           />
           
           {/* 캐시 데이터 사용 중 표시 */}

@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import TabBarBackground from '@/components/ui/TabBarBackground';
+import { Feather } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
@@ -21,6 +22,7 @@ export default function TabLayout() {
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
+        tabBarAllowFontScaling: false,
         tabBarStyle: {
         backgroundColor: colors.background,
         ...Platform.select({
@@ -75,8 +77,8 @@ export default function TabLayout() {
       <Tabs.Screen
         name="board/index"
         options={{
-          href: null,
-          tabBarStyle: { display: 'none' },
+          title: '게시판',
+          tabBarIcon: ({ color }) => <Feather name="message-square" size={26} color={color} />,
         }}
       />
       <Tabs.Screen

@@ -50,6 +50,7 @@ interface CalendarPagerProps {
   highlightEndDate?: string | null; // 다일 일정의 종료일 (하이라이트 범위용)
   highlightKey?: string; // 홈에서 클릭 시 고유 키 (같은 날짜 재클릭 감지용)
   bottomInset?: number; // SafeArea 하단 여백
+  containerHeight?: number; // ✅ 추가: 부모에서 전달받은 컨테이너 높이
 }
 
 // 화면 너비와 월 범위 설정
@@ -67,6 +68,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   highlightEndDate, // 다일 일정의 종료일 (하이라이트 범위용)
   highlightKey, // 홈에서 클릭 시 고유 키
   bottomInset = 0, // SafeArea 하단 여백
+  containerHeight: containerHeightProp = 0, // ✅ 부모에서 전달받은 컨테이너 높이
 }) => {
   // 🔥 Auth context 추가
   const { user } = useAuth();
@@ -445,7 +447,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     }
   };
   
-  // ✅ 수정: 캘린더 항목 렌더링 함수 - containerHeight 제거
+  // ✅ 수정: 캘린더 항목 렌더링 함수 - containerHeightProp 전달
   const renderCalendarItem = ({ item }: { item: { date: Date; id: string } }) => {
     return (
       <View style={[styles.pageContainer, { width: SCREEN_WIDTH }]}>
@@ -461,6 +463,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
             highlightDate={highlightDate}
             highlightEndDate={highlightEndDate}
             bottomInset={bottomInset}
+            containerHeight={containerHeightProp}
           />
         </View>
       </View>
@@ -489,7 +492,6 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     }
   }, [preloadMonth]);
   
-  // ✅ 수정: onLayout 제거
   return (
     <View style={styles.container}>
       <FlatList
@@ -530,7 +532,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    // height를 자동 조정
+    flex: 1, // ✅ 부모 컨테이너의 전체 높이를 차지하도록 설정
     width: '100%',
     backgroundColor: 'transparent',
   },

@@ -1,6 +1,8 @@
 // services/calendarService.ts (최적화 버전)
 import { nativeDb, auth } from '../config/firebase';
 import { sendGroupNotification } from './notificationService';
+import { Attachment } from '../types/board';
+import { deleteFiles } from './fileService';
 // 🌟 알림 관련 함수들 import 추가
 import {
   scheduleEventNotification,
@@ -51,6 +53,8 @@ export interface CalendarEvent {
   recurrence?: RecurrenceSettings;
   isRecurringInstance?: boolean;  // 가상 인스턴스 여부 (UI 표시용)
   masterEventId?: string;         // 마스터 이벤트 ID (가상 인스턴스인 경우)
+  // 첨부파일
+  attachments?: Attachment[];
 }
 
 interface EventResult {
@@ -810,10 +814,22 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
     const eventRef = nativeDb.collection('events').doc(eventId);
     const eventDoc = await eventRef.get();
     const eventData = (eventDoc as any).exists ? eventDoc.data() as CalendarEvent : null;
-    
+
     // 🌟 알림 취소 추가
     await cancelEventNotification(eventId);
-    
+
+    // 첨부파일이 있으면 Storage에서 삭제
+    if (eventData?.attachments && eventData.attachments.length > 0) {
+      try {
+        const storagePaths = eventData.attachments.map((att: Attachment) => att.storagePath);
+        await deleteFiles(storagePaths);
+        logger.log('[deleteEvent] 첨부파일 삭제 완료:', storagePaths.length, '개');
+      } catch (storageError) {
+        logger.error('[deleteEvent] 첨부파일 삭제 오류 (이벤트 삭제는 계속):', storageError);
+        // Storage 삭제 실패해도 이벤트 삭제는 진행
+      }
+    }
+
     await eventRef.delete();
     
     if (eventData && eventData.userId) {

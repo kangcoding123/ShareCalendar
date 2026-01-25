@@ -92,8 +92,8 @@ android {
         applicationId 'com.kangcoding.sharecalendar'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 67
-        versionName "1.2.38"
+        versionCode 79
+        versionName "1.2.49"
     }
     signingConfigs {
         debug {
@@ -103,7 +103,7 @@ android {
             keyPassword 'android'
         }
         release {
-            storeFile file('../../credentials/@kangcoding__ShareCalendar.jks')
+            storeFile file('release.keystore')
             storePassword 'f71cf90def2c66989d437c584cbf445d'
             keyAlias '8815875f5c760ff43c2f615388e3045f'
             keyPassword '3d4ddab4517fea37383413020836a21f'
@@ -114,6 +114,8 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
+            // Caution! In production, you need to generate your own keystore file.
+            // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.release
             shrinkResources (findProperty('android.enableShrinkResourcesInReleaseBuilds')?.toBoolean() ?: false)
             minifyEnabled enableProguardInReleaseBuilds

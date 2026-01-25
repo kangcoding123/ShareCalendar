@@ -145,20 +145,23 @@ function RootLayoutNav() {
 
   // 앱 상태 모니터링 (백그라운드/포그라운드)
   useEffect(() => {
-    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+    const handleAppStateChange = async (nextAppState: AppStateStatus) => {
       if (
         lastAppStateRef.current.match(/inactive|background/) &&
         nextAppState === 'active'
       ) {
         logger.log('App returned to foreground - data refresh needed');
         setAppStateVisible(nextAppState);
-        
+
         // 앱이 다시 활성화되면 업데이트 체크
         if (user?.uid) {
           checkForUpdates().catch(logger.error);
         }
+
+        // 배지 초기화
+        await Notifications.setBadgeCountAsync(0);
       }
-      
+
       lastAppStateRef.current = nextAppState;
     };
 
@@ -230,10 +233,13 @@ function RootLayoutNav() {
     });
 
     // 알림 응답 리스너 (사용자가 알림을 탭했을 때)
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(async response => {
       logger.log('Notification response:', response.notification.request.content.data);
       const data = response.notification.request.content.data;
       handleNotificationNavigation(data);
+
+      // 배지 초기화
+      await Notifications.setBadgeCountAsync(0);
     });
 
     return () => {

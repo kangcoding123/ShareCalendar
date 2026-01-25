@@ -161,35 +161,37 @@ const Calendar = ({
   }, [calendarDays]);
   
 const cellHeight = useMemo(() => {
+  // containerHeight가 전달되면 그것을 기준으로 계산 (CalendarPager에서 측정한 실제 높이)
+  if (containerHeight && containerHeight > 0) {
+    // bottomInset을 고려하여 마지막 주가 탭바에 가리지 않도록 여백 확보
+    // iOS: 홈 인디케이터 + 추가 여백, Android: 최소 여백만
+    const safeBottomPadding = Platform.OS === 'ios'
+      ? (bottomInset > 0 ? bottomInset + 15 : 35)
+      : (bottomInset > 0 ? bottomInset : 5);
+    const availableHeight = containerHeight - HEADER_HEIGHT - DAY_NAMES_HEIGHT - safeBottomPadding;
+    const calculated = Math.max(availableHeight / weekCount, 60);
+    console.log(`[Calendar] Using containerHeight: ${containerHeight}, bottomPadding: ${safeBottomPadding}, cellHeight: ${calculated.toFixed(1)}`);
+    return calculated;
+  }
+
+  // fallback: 화면 크기 기반 계산
   const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 85 : 60;
   const AD_BANNER_HEIGHT = 60;
-  
-  // 화면 비율 계산 추가
-  const screenRatio = screenHeight / screenWidth;
-  
-  let EXTRA_PADDING = 0;
-  if (Platform.OS === 'android') {
-    if (screenRatio > 2.3) {
-      EXTRA_PADDING = 77;  // Z플립 등 긴 화면
-    } else if (screenRatio > 2.1) {
-      EXTRA_PADDING = 30;
-    } else {
-      EXTRA_PADDING = 10;
-    }
-  } else {
-    EXTRA_PADDING = 10;
-  }
-  
-  const availableHeight = screenHeight - 
+
+  // Android에서는 탭바가 화면에서 차지하는 공간이 다름
+  // SafeAreaView가 bottom을 처리하므로 insets.bottom도 고려
+  const availableHeight = screenHeight -
     insets.top -
+    insets.bottom -
     TAB_BAR_HEIGHT -
     AD_BANNER_HEIGHT -
     HEADER_HEIGHT -
-    DAY_NAMES_HEIGHT -
-    EXTRA_PADDING;
-  
-  return Math.max(availableHeight / weekCount, 60);
-}, [screenHeight, screenWidth, weekCount, insets]);
+    DAY_NAMES_HEIGHT;
+
+  const calculated = Math.max(availableHeight / weekCount, 60);
+  console.log(`[Calendar] Fallback calc - screenHeight: ${screenHeight}, insets: top=${insets.top} bottom=${insets.bottom}, cellHeight: ${calculated.toFixed(1)}`);
+  return calculated;
+}, [screenHeight, screenWidth, weekCount, insets, containerHeight]);
   
   // 달력 데이터 업데이트
   useEffect(() => {
@@ -334,10 +336,14 @@ const cellHeight = useMemo(() => {
 
           {/* 공휴일 이름 표시 (선택사항) */}
           {holiday && holiday.isHoliday && (
-            <Text style={[
-              styles.holidayNameText,
-              { color: isDark ? '#ff6b6b' : '#ff3b30' }
-            ]} numberOfLines={1}>
+            <Text
+              style={[
+                styles.holidayNameText,
+                { color: isDark ? '#ff6b6b' : '#ff3b30' }
+              ]}
+              numberOfLines={1}
+              allowFontScaling={false}
+            >
               {holiday.name}
             </Text>
           )}
@@ -355,7 +361,12 @@ const cellHeight = useMemo(() => {
                   { backgroundColor: calendarEvent.color || '#3c66af' }
                 ]}
               >
-                <Text style={styles.eventText} numberOfLines={1} ellipsizeMode="tail">
+                <Text
+                  style={styles.eventText}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  allowFontScaling={false}
+                >
                   {calendarEvent.title}
                 </Text>
               </View>

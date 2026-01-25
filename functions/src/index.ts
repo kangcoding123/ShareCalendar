@@ -4,6 +4,7 @@ import { Expo, ExpoPushMessage } from 'expo-server-sdk';
 
 admin.initializeApp();
 const db = admin.firestore();
+const storage = admin.storage();
 const expo = new Expo();
 
 /**
@@ -237,6 +238,82 @@ export const cleanupOldNotifications = functions
       return null;
     } catch (error) {
       console.error('알림 정리 오류:', error);
+      return null;
+    }
+  });
+
+/**
+ * 오래된 첨부파일 자동 삭제 (매일 새벽 3시 실행)
+ * 90일 이상 된 게시글의 첨부파일을 Storage에서 삭제하고 Firestore 필드 비움
+ */
+export const cleanupOldAttachments = functions
+  .region('asia-northeast3')
+  .pubsub.schedule('0 3 * * *') // 매일 새벽 3시
+  .timeZone('Asia/Seoul')
+  .onRun(async () => {
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    const cutoffDate = ninetyDaysAgo.toISOString();
+
+    console.log(`90일 이전 기준 날짜: ${cutoffDate}`);
+
+    try {
+      // 90일 이상 된 게시글 중 첨부파일이 있는 것만 조회
+      const postsSnapshot = await db.collection('posts')
+        .where('createdAt', '<', cutoffDate)
+        .get();
+
+      if (postsSnapshot.empty) {
+        console.log('90일 이상 된 게시글이 없습니다.');
+        return null;
+      }
+
+      let deletedFilesCount = 0;
+      let processedPostsCount = 0;
+
+      for (const postDoc of postsSnapshot.docs) {
+        const postData = postDoc.data();
+        const attachments = postData.attachments;
+
+        // 첨부파일이 없으면 건너뛰기
+        if (!attachments || attachments.length === 0) {
+          continue;
+        }
+
+        console.log(`게시글 ${postDoc.id} 처리 중 (첨부파일 ${attachments.length}개)`);
+
+        // Storage에서 파일 삭제
+        for (const attachment of attachments) {
+          if (attachment.storagePath) {
+            try {
+              const file = storage.bucket().file(attachment.storagePath);
+              await file.delete();
+              deletedFilesCount++;
+              console.log(`파일 삭제 완료: ${attachment.storagePath}`);
+            } catch (deleteError: any) {
+              // 파일이 이미 없는 경우 무시
+              if (deleteError.code === 404) {
+                console.log(`파일이 이미 없음: ${attachment.storagePath}`);
+              } else {
+                console.error(`파일 삭제 오류: ${attachment.storagePath}`, deleteError);
+              }
+            }
+          }
+        }
+
+        // Firestore에서 attachments 필드 비우기
+        await postDoc.ref.update({
+          attachments: [],
+          attachmentsCleanedAt: admin.firestore.Timestamp.now(),
+        });
+
+        processedPostsCount++;
+      }
+
+      console.log(`첨부파일 정리 완료: 게시글 ${processedPostsCount}개, 파일 ${deletedFilesCount}개 삭제`);
+      return null;
+    } catch (error) {
+      console.error('첨부파일 정리 오류:', error);
       return null;
     }
   });

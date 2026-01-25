@@ -61,7 +61,11 @@ const DatePicker = ({
           <View
             style={[styles.dateButton, { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder }]}
           >
-            <Text style={[styles.dateButtonText, { color: colors.text }]}>
+            <Text
+              style={[styles.dateButtonText, { color: colors.text }]}
+              adjustsFontSizeToFit
+              numberOfLines={1}
+            >
               {formatDate(parseDateString(startDate), 'yyyy년 MM월 dd일')}
             </Text>
           </View>
@@ -94,7 +98,11 @@ const DatePicker = ({
             <View
               style={[styles.dateButton, { backgroundColor: colors.inputBackground, borderColor: colors.inputBorder }]}
             >
-              <Text style={[styles.dateButtonText, { color: colors.text }]}>
+              <Text
+                style={[styles.dateButtonText, { color: colors.text }]}
+                adjustsFontSizeToFit
+                numberOfLines={1}
+              >
                 {formatDate(parseDateString(endDate), 'yyyy년 MM월 dd일')}
               </Text>
             </View>
@@ -138,7 +146,8 @@ const styles = StyleSheet.create({
   },
   dateButton: {
     flex: 1,
-    height: 40,
+    minHeight: 40,
+    paddingVertical: 8,
     borderWidth: 1,
     borderRadius: 8,
     justifyContent: 'center',

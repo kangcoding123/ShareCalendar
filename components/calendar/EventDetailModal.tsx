@@ -1,29 +1,27 @@
 // components/calendar/EventDetailModal.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';  // useRef는 wasVisibleRef, isInitialLoadRef에 사용
 import {
   View,
   Text,
   Modal,
   StyleSheet,
   TouchableOpacity,
-  FlatList,
+  ScrollView,
   Alert,
-  ActivityIndicator,
   ColorSchemeName,
-  Platform,
-  Animated,     // 🔥 추가: 애니메이션을 위해
-  Dimensions    // 🔥 추가: 화면 크기 가져오기
+  ActivityIndicator,
+  InteractionManager
 } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addEvent, updateEvent, deleteEvent, CalendarEvent } from '../../services/calendarService';
 import { Group } from '../../services/groupService';
 import { formatDate } from '../../utils/dateUtils';
 import EventItem from './event/EventItem';
-import EventForm from './event/EventForm';
+import EventForm, { AttachmentChanges } from './event/EventForm';
 import { useRouter } from 'expo-router';
-
-// 🔥 추가: 화면 높이 상수
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+import { uploadEventFiles, deleteFiles } from '../../services/fileService';
+import { Attachment } from '../../types/board';
 
 // 타입 정의 수정
 interface CalendarDay {
@@ -45,14 +43,14 @@ interface EventDetailModalProps {
   colors: any;
 }
 
-const EventDetailModal = ({ 
-  visible, 
-  selectedDate, 
-  events, 
-  groups, 
+const EventDetailModal = ({
+  visible,
+  selectedDate,
+  events,
+  groups,
   userId,
   user,
-  onClose, 
+  onClose,
   onEventUpdated,
   colorScheme,
   colors
@@ -60,56 +58,31 @@ const EventDetailModal = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // 모달 내부에서 사용할 로컬 events 상태 (모달이 열릴 때 캡처)
+  const [localEvents, setLocalEvents] = useState<CalendarEvent[]>([]);
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  
-  // 🔥 추가: 애니메이션 값
-  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  
-  // 🔥 이전 visible 상태를 추적하는 ref 추가
+
+  // 삭제 확인 모달 상태
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<CalendarEvent | null>(null);
+  const [deleteStatus, setDeleteStatus] = useState<'idle' | 'deleting' | 'completed'>('idle');
+
+  // 이전 visible 상태를 추적하는 ref
   const wasVisibleRef = useRef(visible);
-  // 🔥 초기 로드 완료 상태 추적
+  // 초기 로드 완료 상태 추적
   const isInitialLoadRef = useRef(true);
-  
-  // 🔥 추가: 모달 애니메이션 처리
-  useEffect(() => {
-    if (visible) {
-      // 모달 열기 애니메이션
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      // 모달 닫기 애니메이션
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: SCREEN_HEIGHT,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [visible, slideAnim, fadeAnim]);
-  
-  // 🔥 수정된 useEffect - visible이 false에서 true로 변경될 때만 실행
+  // ScrollView ref
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  // visible이 변경될 때만 실행 (events 변경에는 반응하지 않음)
   useEffect(() => {
     // visible이 false → true로 변경되었을 때만 실행
     if (visible && !wasVisibleRef.current) {
-      console.log('[EventDetailModal] 모달 열림');
+      console.log('[EventDetailModal] 모달 열림, events 캡처:', events?.length || 0);
+      // 모달이 열릴 때 events를 로컬 상태로 캡처
+      setLocalEvents(events || []);
+
       // 모달이 새로 열릴 때만 자동 편집 모드 전환
       if (events && events.length === 0 && user) {
         setIsEditing(true);
@@ -118,25 +91,41 @@ const EventDetailModal = ({
         setIsEditing(false);
         setEditingEvent(null);
       }
-      
+
       // 초기 로드 완료 표시
       isInitialLoadRef.current = false;
+
+      // 모달 애니메이션 완료 후 스크롤 초기화
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+      }, 150);
     }
-    
+
     // 현재 visible 상태 저장
     wasVisibleRef.current = visible;
-    
+
     // 모달이 닫힐 때 상태 초기화
     if (!visible) {
-      // 🔥 애니메이션 완료 후 상태 초기화
       setTimeout(() => {
         setIsEditing(false);
         setEditingEvent(null);
+        setLocalEvents([]);
         isInitialLoadRef.current = true;
       }, 300);
     }
-  }, [visible, user]); // 🔥 events 의존성 제거
-  
+  }, [visible, user]); // events를 의존성에서 제거 - 모달이 열릴 때만 캡처
+
+  // ✅ 추가: 모달이 열려있고 localEvents가 비어있는데 events가 로드되면 업데이트
+  useEffect(() => {
+    if (visible && localEvents.length === 0 && events && events.length > 0) {
+      console.log('[EventDetailModal] 이벤트 지연 로드 감지, 업데이트:', events.length);
+      setLocalEvents(events);
+      // 이벤트가 있으면 편집 모드 해제
+      setIsEditing(false);
+      setEditingEvent(null);
+    }
+  }, [visible, events, localEvents.length]);
+
   // 이벤트 ID 제거 핸들러
   const handleRemoveEventId = () => {
     if (editingEvent) {
@@ -193,76 +182,127 @@ const EventDetailModal = ({
     }
   };
   
-  const handleDeleteEvent = async (event: CalendarEvent) => {
+  // 삭제 확인 모달 열기
+  const handleDeleteEvent = (event: CalendarEvent) => {
     if (!user) {
       onClose();
       router.push('/(auth)/login');
       return;
     }
 
+    setDeleteTarget(event);
+    setDeleteStatus('idle');
+    setDeleteModalVisible(true);
+  };
+
+  // 실제 삭제 실행
+  const executeDelete = async () => {
+    if (!deleteTarget) return;
+
     // 반복 일정 인스턴스인 경우 마스터 이벤트 삭제
-    const isRecurringInstance = event.isRecurringInstance && event.masterEventId;
-    const eventIdToDelete = isRecurringInstance ? event.masterEventId : event.id;
-    const deleteMessage = isRecurringInstance
-      ? '이 반복 일정의 모든 인스턴스가 삭제됩니다.'
-      : '이 일정을 삭제하시겠습니까?';
+    const isRecurringInstance = deleteTarget.isRecurringInstance && deleteTarget.masterEventId;
+    const eventIdToDelete = isRecurringInstance ? deleteTarget.masterEventId : deleteTarget.id;
 
-    Alert.alert(
-      '일정 삭제',
-      deleteMessage,
-      [
-        { text: '취소', style: 'cancel' },
-        {
-          text: '삭제',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              if (eventIdToDelete) {
-                console.log('Deleting event:', eventIdToDelete, isRecurringInstance ? '(recurring master)' : '');
+    if (!eventIdToDelete) return;
 
-                // 🔥 삭제는 서비스에서 낙관적 업데이트 처리
-                await deleteEvent(eventIdToDelete);
-                onEventUpdated('delete', eventIdToDelete);
-                onClose();
-              }
-            } catch (error) {
-              console.error('Event deletion error:', error);
-              Alert.alert('오류', '일정 삭제 중 오류가 발생했습니다.');
-            }
-          }
-        }
-      ]
-    );
+    setDeleteStatus('deleting');
+
+    try {
+      console.log('Deleting event:', eventIdToDelete, isRecurringInstance ? '(recurring master)' : '');
+
+      // 🔥 삭제는 서비스에서 낙관적 업데이트 처리
+      await deleteEvent(eventIdToDelete);
+
+      setDeleteStatus('completed');
+
+      // 완료 애니메이션 후 모달 닫기
+      setTimeout(() => {
+        setDeleteModalVisible(false);
+        setDeleteTarget(null);
+        onEventUpdated('delete', eventIdToDelete);
+        onClose();
+      }, 400);
+    } catch (error) {
+      console.error('Event deletion error:', error);
+      setDeleteStatus('idle');
+      Alert.alert('오류', '일정 삭제 중 오류가 발생했습니다.');
+    }
+  };
+
+  // 삭제 모달 닫기
+  const closeDeleteModal = () => {
+    if (deleteStatus === 'deleting') return; // 삭제 중에는 닫기 불가
+    setDeleteModalVisible(false);
+    setDeleteTarget(null);
+    setDeleteStatus('idle');
   };
   
-  const handleSubmitEvent = async (eventData: CalendarEvent) => {
+  const handleSubmitEvent = async (eventData: CalendarEvent, attachmentChanges?: AttachmentChanges) => {
     if (isSubmitting) return;
-    
+
     try {
       setIsSubmitting(true);
-      
+
       eventData.notificationEnabled = false;
       eventData.notificationMinutesBefore = null;
       eventData.notificationId = null;
-      
+
       const mainGroupId = eventData.groupId;
       const targetGroupIds = eventData.targetGroupIds || [mainGroupId];
-      
+
       if (eventData.id) {
         // 🔥 업데이트는 서비스에서 낙관적 업데이트 처리
+
+        // 첨부파일 처리
+        let finalAttachments: Attachment[] = attachmentChanges?.existingAttachments || [];
+
+        // 새 첨부파일 업로드
+        if (attachmentChanges?.pendingAttachments && attachmentChanges.pendingAttachments.length > 0) {
+          try {
+            const uploadedAttachments = await uploadEventFiles(
+              attachmentChanges.pendingAttachments,
+              mainGroupId,
+              eventData.id
+            );
+            finalAttachments = [...finalAttachments, ...uploadedAttachments];
+          } catch (uploadError) {
+            console.error('첨부파일 업로드 오류:', uploadError);
+            Alert.alert('오류', '첨부파일 업로드 중 오류가 발생했습니다.');
+            return;
+          }
+        }
+
+        // 삭제된 첨부파일 처리 (기존 첨부파일 중 existingAttachments에 없는 것들)
+        const originalAttachments = editingEvent?.attachments || [];
+        const removedAttachments = originalAttachments.filter(
+          orig => !finalAttachments.some(kept => kept.id === orig.id)
+        );
+        if (removedAttachments.length > 0) {
+          try {
+            await deleteFiles(removedAttachments.map(att => att.storagePath));
+          } catch (deleteError) {
+            console.error('첨부파일 삭제 오류:', deleteError);
+            // 삭제 실패해도 진행
+          }
+        }
+
         const updatedEventData = {
           ...eventData,
           userId: userId,
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          attachments: finalAttachments.length > 0 ? finalAttachments : undefined,
         };
-        
+
         console.log('Updating event:', updatedEventData);
         const result = await updateEvent(eventData.id, updatedEventData);
-        
+
         if (result.success) {
           console.log('Event updated successfully:', updatedEventData);
           onEventUpdated('update', updatedEventData);
-          onClose();
+          // 모달 애니메이션 완료 후 닫기 (레이아웃 깜빡임 방지)
+          InteractionManager.runAfterInteractions(() => {
+            onClose();
+          });
         } else {
           Alert.alert('오류', '일정 업데이트 중 오류가 발생했습니다.');
         }
@@ -270,14 +310,14 @@ const EventDetailModal = ({
         // 🔥 생성은 서비스에서 낙관적 업데이트 처리
         const createdEvents = [];
         const { id, targetGroupIds: _, ...baseEventData } = eventData as any;
-        
+
         const baseEvent = {
           ...baseEventData,
           userId,
           createdByName: baseEventData.groupId !== 'personal' ? user?.displayName : null,
         };
-        
-        const createPromises = targetGroupIds.map(async (groupId) => {
+
+        const createPromises = targetGroupIds.map(async (groupId, index) => {
           const groupEventData = {
             ...baseEvent,
             groupId,
@@ -290,22 +330,41 @@ const EventDetailModal = ({
             isSharedEvent: targetGroupIds.length > 1
           };
 
+          // 첫 번째 그룹에만 첨부파일 업로드 (임시 eventId 사용)
+          if (index === 0 && attachmentChanges?.pendingAttachments && attachmentChanges.pendingAttachments.length > 0) {
+            const tempEventId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            try {
+              const uploadedAttachments = await uploadEventFiles(
+                attachmentChanges.pendingAttachments,
+                groupId,
+                tempEventId
+              );
+              groupEventData.attachments = uploadedAttachments;
+            } catch (uploadError) {
+              console.error('첨부파일 업로드 오류:', uploadError);
+              // 첨부파일 업로드 실패해도 이벤트 생성은 진행
+            }
+          }
+
           return addEvent(groupEventData);
         });
-        
+
         const results = await Promise.all(createPromises);
         const successResults = results.filter(r => r.success);
-        
+
         if (successResults.length > 0) {
           console.log(`Created ${successResults.length} events for ${targetGroupIds.length} groups`);
-          
+
           const firstSuccessResult = successResults[0];
           onEventUpdated('add', {
             ...baseEvent,
             id: firstSuccessResult.eventId
           });
-          
-          onClose();
+
+          // 모달 애니메이션 완료 후 닫기 (레이아웃 깜빡임 방지)
+          InteractionManager.runAfterInteractions(() => {
+            onClose();
+          });
         } else {
           Alert.alert('오류', '일정 저장 중 오류가 발생했습니다.');
         }
@@ -331,41 +390,45 @@ const EventDetailModal = ({
           onCancel={onClose}
           colors={colors}
           onRemoveEventId={handleRemoveEventId}
+          isSubmitting={isSubmitting}
         />
       );
     }
     
     if (!user) {
       return (
-        <View style={styles.content}>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={true}
+          bounces={true}
+        >
           <Text style={[styles.dateHeader, { color: colors.text }]}>
             {selectedDate ? formatDate(selectedDate.date, 'yyyy년 MM월 dd일 (eee)') : ''}
           </Text>
-          
-          {events && events.length > 0 ? (
-            <FlatList
-              data={events}
-              renderItem={({ item }) => (
+
+          {localEvents && localEvents.length > 0 ? (
+            <View style={styles.eventList}>
+              {localEvents.map((event) => (
                 <EventItem
-                  event={item}
+                  key={event.id || event.title}
+                  event={event}
                   onEdit={() => {}}
                   onDelete={() => {}}
                   userId=""
                   colors={colors}
                   readOnly={true}
                 />
-              )}
-              keyExtractor={(item) => item.id || item.title}
-              style={styles.eventList}
-            />
+              ))}
+            </View>
           ) : (
             <View style={styles.noEventsContainer}>
               <Text style={[styles.noEventsText, { color: colors.lightGray }]}>일정이 없습니다.</Text>
             </View>
           )}
-          
-          <TouchableOpacity 
-            style={[styles.loginButton, { backgroundColor: colors.tint }]} 
+
+          <TouchableOpacity
+            style={[styles.loginButton, { backgroundColor: colors.tint }]}
             onPress={() => {
               onClose();
               router.push('/(auth)/login');
@@ -373,90 +436,159 @@ const EventDetailModal = ({
           >
             <Text style={[styles.loginButtonText, { color: colors.buttonText }]}>로그인하여 일정 관리하기</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       );
     }
-    
+
     return (
-      <View style={styles.content}>
-        <Text style={[styles.dateHeader, { color: colors.text }]}>
-          {selectedDate ? formatDate(selectedDate.date, 'yyyy년 MM월 dd일 (eee)') : ''}
-        </Text>
-        
-        {events && events.length > 0 ? (
-          <FlatList
-            data={events}
-            renderItem={({ item }) => (
-              <EventItem
-                event={item}
-                onEdit={handleEditEvent}
-                onDelete={handleDeleteEvent}
-                userId={userId}
-                colors={colors}
-              />
-            )}
-            keyExtractor={(item) => item.id || item.title}
-            style={styles.eventList}
-          />
-        ) : (
-          <View style={styles.noEventsContainer}>
-            <Text style={[styles.noEventsText, { color: colors.lightGray }]}>일정이 없습니다.</Text>
-          </View>
-        )}
-        
-        <TouchableOpacity 
-          style={[styles.addButton, { backgroundColor: colors.buttonBackground }]} 
-          onPress={handleAddEvent}
+      <View style={styles.contentWrapper}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={true}
+          bounces={true}
+          scrollEventThrottle={16}
         >
-          <Text style={[styles.addButtonText, { color: colors.buttonText }]}>일정 추가</Text>
-        </TouchableOpacity>
+          <Text style={[styles.dateHeader, { color: colors.text }]}>
+            {selectedDate ? formatDate(selectedDate.date, 'yyyy년 MM월 dd일 (eee)') : ''}
+          </Text>
+
+          {localEvents && localEvents.length > 0 ? (
+            <View style={styles.eventList}>
+              {localEvents.map((event) => (
+                <EventItem
+                  key={event.id || event.title}
+                  event={event}
+                  onEdit={handleEditEvent}
+                  onDelete={handleDeleteEvent}
+                  userId={userId}
+                  colors={colors}
+                />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.noEventsContainer}>
+              <Text style={[styles.noEventsText, { color: colors.lightGray }]}>일정이 없습니다.</Text>
+            </View>
+          )}
+        </ScrollView>
+
+        {/* 하단 고정 버튼 */}
+        <View style={[styles.bottomButtonContainer, { backgroundColor: colors.card }]}>
+          <TouchableOpacity
+            style={[styles.addButton, { backgroundColor: colors.buttonBackground }]}
+            onPress={handleAddEvent}
+          >
+            <Text style={[styles.addButtonText, { color: colors.buttonText }]}>일정 추가</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   };
   
-  // 🔥 수정된 return 문 - 커스텀 애니메이션 적용
+  // 삭제 메시지 생성
+  const getDeleteMessage = () => {
+    if (!deleteTarget) return '이 일정을 삭제하시겠습니까?';
+    const isRecurringInstance = deleteTarget.isRecurringInstance && deleteTarget.masterEventId;
+    return isRecurringInstance
+      ? '이 반복 일정의 모든 인스턴스가 삭제됩니다.'
+      : '이 일정을 삭제하시겠습니까?';
+  };
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"  // 🔥 커스텀 애니메이션 사용
-      onRequestClose={onClose}
-      statusBarTranslucent  // 🔥 추가: 상태바 투명 처리
-    >
-      <Animated.View 
-        style={[
-          styles.modalContainer,
-          {
-            opacity: fadeAnim,  // 🔥 페이드 애니메이션
-          }
-        ]}
+    <>
+      <Modal
+        visible={visible}
+        transparent
+        animationType="slide"
+        onRequestClose={onClose}
+        statusBarTranslucent
       >
-        <Animated.View 
-          style={[
-            styles.modalContent, 
-            { 
-              backgroundColor: colors.card, 
-              paddingBottom: insets.bottom,
-              transform: [{ translateY: slideAnim }]  // 🔥 슬라이드 애니메이션
-            }
-          ]}
-        >
-          <View style={[styles.header, { borderBottomColor: colors.border }]}>
-            <Text style={[styles.headerTitle, { color: colors.text }]}>
-              {isEditing ? (editingEvent?.id ? '일정 편집' : '새 일정') : '일정 상세'}
-            </Text>
-            
-            {!isEditing && (
-              <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-                <Text style={[styles.closeButtonText, { color: colors.tint }]}>닫기</Text>
-              </TouchableOpacity>
-            )}
+        <View style={styles.modalContainer}>
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: colors.card,
+                paddingBottom: insets.bottom
+              }
+            ]}
+          >
+            <View style={[styles.header, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.headerTitle, { color: colors.text }]}>
+                {isEditing ? (editingEvent?.id ? '일정 편집' : '새 일정') : '일정 상세'}
+              </Text>
+
+              {!isEditing && (
+                <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+                  <Text style={[styles.closeButtonText, { color: colors.tint }]}>닫기</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {renderContent()}
           </View>
-          
-          {renderContent()}
-        </Animated.View>
-      </Animated.View>
-    </Modal>
+
+          {/* 삭제 확인 오버레이 (모달 내부에 표시) */}
+          {deleteModalVisible && (
+            <View style={styles.deleteModalOverlay}>
+              <View style={[styles.deleteModalContent, { backgroundColor: colors.card }]}>
+                {deleteStatus === 'idle' && (
+                  <>
+                    <View style={[styles.deleteIconContainer, { backgroundColor: '#ffebee' }]}>
+                      <Feather name="trash-2" size={32} color="#f44336" />
+                    </View>
+                    <Text style={[styles.deleteTitle, { color: colors.text }]}>일정 삭제</Text>
+                    <Text style={[styles.deleteMessage, { color: colors.lightGray }]}>
+                      {getDeleteMessage()}
+                    </Text>
+                    {deleteTarget?.title && (
+                      <Text style={[styles.deleteEventTitle, { color: colors.text }]} numberOfLines={1}>
+                        "{deleteTarget.title}"
+                      </Text>
+                    )}
+                    <View style={styles.deleteButtons}>
+                      <TouchableOpacity
+                        style={[styles.deleteButton, styles.cancelButton, { borderColor: colors.border }]}
+                        onPress={closeDeleteModal}
+                      >
+                        <Text style={[styles.cancelButtonText, { color: colors.text }]}>취소</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.deleteButton, styles.confirmDeleteButton]}
+                        onPress={executeDelete}
+                      >
+                        <Text style={styles.confirmDeleteButtonText}>삭제</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+
+                {deleteStatus === 'deleting' && (
+                  <View style={styles.deleteStatusContainer}>
+                    <ActivityIndicator size="large" color={colors.tint} />
+                    <Text style={[styles.deleteStatusText, { color: colors.text }]}>삭제 중...</Text>
+                    <Text style={[styles.deleteStatusSubtext, { color: colors.lightGray }]}>
+                      첨부파일을 정리하고 있습니다
+                    </Text>
+                  </View>
+                )}
+
+                {deleteStatus === 'completed' && (
+                  <View style={styles.deleteStatusContainer}>
+                    <View style={[styles.deleteIconContainer, { backgroundColor: '#e8f5e9' }]}>
+                      <Feather name="check-circle" size={32} color="#4CAF50" />
+                    </View>
+                    <Text style={[styles.deleteStatusText, { color: colors.text }]}>삭제 완료</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
+    </>
   );
 };
 
@@ -493,13 +625,16 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 15
   },
+  contentContainer: {
+    paddingBottom: 30
+  },
   dateHeader: {
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 15
   },
   eventList: {
-    flex: 1
+    marginBottom: 15
   },
   noEventsContainer: {
     flex: 1,
@@ -513,8 +648,7 @@ const styles = StyleSheet.create({
   addButton: {
     borderRadius: 8,
     padding: 12,
-    alignItems: 'center',
-    marginTop: 15
+    alignItems: 'center'
   },
   addButtonText: {
     fontSize: 16,
@@ -529,6 +663,108 @@ const styles = StyleSheet.create({
   loginButtonText: {
     fontSize: 16,
     fontWeight: '600'
+  },
+  contentWrapper: {
+    flex: 1
+  },
+  bottomButtonContainer: {
+    padding: 15,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)'
+  },
+  // 삭제 확인 오버레이 스타일 (모달 내부에 절대 위치로 표시)
+  deleteModalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    zIndex: 1000,
+  },
+  deleteModalContent: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8
+  },
+  deleteIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16
+  },
+  deleteTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8
+  },
+  deleteMessage: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 8,
+    lineHeight: 20
+  },
+  deleteEventTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 20,
+    paddingHorizontal: 12,
+    textAlign: 'center'
+  },
+  deleteButtons: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+    marginTop: 8
+  },
+  deleteButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  cancelButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    fontWeight: '600'
+  },
+  confirmDeleteButton: {
+    backgroundColor: '#f44336'
+  },
+  confirmDeleteButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#ffffff'
+  },
+  deleteStatusContainer: {
+    alignItems: 'center',
+    paddingVertical: 20
+  },
+  deleteStatusText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 16
+  },
+  deleteStatusSubtext: {
+    fontSize: 13,
+    marginTop: 8
   }
 });
 

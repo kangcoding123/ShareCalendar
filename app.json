@@ -2,7 +2,7 @@
   "expo": {
     "name": "WE:IN",
     "slug": "ShareCalendar",
-    "version": "1.2.38",
+    "version": "1.2.49",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "weincalendar",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kangcoding.sharecalendar",
-      "buildNumber": "65",
+      "buildNumber": "74",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "UIBackgroundModes": [
@@ -26,7 +26,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.kangcoding.sharecalendar",
-      "versionCode": 67,
+      "versionCode": 79,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "NOTIFICATIONS",
@@ -52,7 +52,9 @@
             "enableJetifier": true,
             "ndkVersion": "27.1.12297006",
             "packagingOptions": {
-              "pickFirst": ["**/libc++_shared.so"]
+              "pickFirst": [
+                "**/libc++_shared.so"
+              ]
             },
             "enableProguardInReleaseBuilds": false,
             "compileSdkVersion": 35,
@@ -151,7 +153,7 @@
       "eas": {
         "projectId": "acfa6bea-3fb9-4677-8980-6e08d2324c51"
       },
-      "releaseDate": "2026.01.02"
+      "releaseDate": "2026.01.23"
     }
   }
 }

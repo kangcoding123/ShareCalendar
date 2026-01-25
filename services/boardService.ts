@@ -1,7 +1,8 @@
 // services/boardService.ts
 import { nativeDb } from '../config/firebase';
-import { Post, Comment, PostResult, CommentResult, CreatePostData, CreateCommentData } from '../types/board';
+import { Post, Comment, PostResult, CommentResult, CreatePostData, CreateCommentData, Attachment } from '../types/board';
 import { sendGroupNotification, sendUserNotification } from './notificationService';
+import { deleteFiles } from './fileService';
 
 /**
  * 그룹 관리자 여부 확인
@@ -49,7 +50,10 @@ export const checkGroupMembership = async (
 /**
  * 게시글 생성
  */
-export const createPost = async (postData: CreatePostData): Promise<PostResult> => {
+export const createPost = async (
+  postData: CreatePostData,
+  attachments?: Attachment[]
+): Promise<PostResult> => {
   try {
     const now = new Date().toISOString();
 
@@ -57,6 +61,7 @@ export const createPost = async (postData: CreatePostData): Promise<PostResult> 
       ...postData,
       isPinned: false,
       commentCount: 0,
+      attachments: attachments || [],
       createdAt: now,
       updatedAt: now,
     });
@@ -82,6 +87,7 @@ export const createPost = async (postData: CreatePostData): Promise<PostResult> 
         ...postData,
         isPinned: false,
         commentCount: 0,
+        attachments: attachments || [],
         createdAt: now,
         updatedAt: now,
       }
@@ -97,13 +103,21 @@ export const createPost = async (postData: CreatePostData): Promise<PostResult> 
  */
 export const updatePost = async (
   postId: string,
-  updates: Partial<Pick<Post, 'title' | 'content'>>
+  updates: Partial<Pick<Post, 'title' | 'content'>>,
+  attachments?: Attachment[]
 ): Promise<PostResult> => {
   try {
-    await nativeDb.collection('posts').doc(postId).update({
+    const updateData: any = {
       ...updates,
       updatedAt: new Date().toISOString(),
-    });
+    };
+
+    // attachments가 전달되면 업데이트
+    if (attachments !== undefined) {
+      updateData.attachments = attachments;
+    }
+
+    await nativeDb.collection('posts').doc(postId).update(updateData);
 
     return { success: true };
   } catch (error: any) {
@@ -117,6 +131,10 @@ export const updatePost = async (
  */
 export const deletePost = async (postId: string): Promise<PostResult> => {
   try {
+    // 게시글 정보 먼저 조회 (첨부파일 삭제용)
+    const postDoc = await nativeDb.collection('posts').doc(postId).get();
+    const postData = postDoc.data();
+
     // 댓글도 함께 삭제
     const commentsSnapshot = await nativeDb
       .collection('comments')
@@ -133,6 +151,17 @@ export const deletePost = async (postId: string): Promise<PostResult> => {
     batch.delete(postRef);
 
     await batch.commit();
+
+    // 첨부파일 삭제 (Firebase Storage)
+    if (postData?.attachments && postData.attachments.length > 0) {
+      const storagePaths = postData.attachments.map((att: Attachment) => att.storagePath);
+      try {
+        await deleteFiles(storagePaths);
+      } catch (storageError) {
+        console.error('[deletePost] Storage 파일 삭제 오류:', storageError);
+        // Storage 삭제 실패해도 게시글 삭제는 성공으로 처리
+      }
+    }
 
     return { success: true };
   } catch (error: any) {

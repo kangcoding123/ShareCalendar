@@ -42,6 +42,7 @@ import { initializeFirstLaunchDate, shouldShowReviewRequest } from '@/services/r
 import { initializeAdMob } from '@/components/AdMobBanner';
 import { logger } from '@/utils/logger';
 import GroupSelectModal from '@/components/board/GroupSelectModal';
+import * as Notifications from 'expo-notifications';
 import { hasAnyUnreadPosts, getUnreadPostCounts, hasAnyUnreadComments, getUnreadCommentCountsByGroup } from '@/services/boardService';
 
 export default function HomeScreen() {
@@ -377,6 +378,9 @@ export default function HomeScreen() {
 
       // 게시판 배지 상태 새로고침
       checkUnreadPosts();
+
+      // 앱 아이콘 배지 초기화 (일정 확인 시)
+      Notifications.setBadgeCountAsync(0);
 
       // 선택: 필요시 전체 데이터 새로고침 (주석 해제하여 사용 가능)
       // refreshAll();
@@ -714,17 +718,6 @@ const handleConfirmDeleteAccount = async () => {
             <Text style={[styles.headerTitle, { color: colors.text }]}>WE:IN</Text>
           </View>
           <View style={styles.headerRightContainer}>
-            {user && groups.length > 0 && (
-              <TouchableOpacity
-                style={styles.boardButton}
-                onPress={() => setBoardModalVisible(true)}
-              >
-                <Feather name="message-square" size={22} color={colors.text} />
-                {(hasUnreadPosts || hasUnreadComments) && (
-                  <View style={styles.unreadBadge} />
-                )}
-              </TouchableOpacity>
-            )}
             {isAdmin && (
               <TouchableOpacity
                 style={styles.adminIconContainer}
@@ -972,7 +965,7 @@ const handleConfirmDeleteAccount = async () => {
         onRequestClose={() => setMenuVisible(false)}
       >
         <Pressable
-          style={styles.menuModalOverlay}
+          style={[styles.menuModalOverlay, { paddingTop: insets.top + 60 }]}
           onPress={() => setMenuVisible(false)}
         >
           <View style={[styles.dropdownMenu, { backgroundColor: colors.background, borderColor: colors.border }]}>
@@ -1113,7 +1106,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
-    paddingTop: 100,
     paddingRight: 15,
   },
   dropdownMenu: {
