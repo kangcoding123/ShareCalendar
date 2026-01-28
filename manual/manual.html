@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WE:IN 사용자 가이드</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap');
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(180deg, #fef9f3 0%, #fff5eb 50%, #fef0e6 100%);
+            color: #2c3e50;
+            line-height: 1.7;
+            min-height: 100vh;
+        }
+
+        /* 부드러운 장식 원 */
+        .deco-circle {
+            position: fixed;
+            border-radius: 50%;
+            z-index: -1;
+            opacity: 0.6;
+        }
+        .deco-1 {
+            width: 400px;
+            height: 400px;
+            background: linear-gradient(135deg, #ffd6e0 0%, #ffb8c9 100%);
+            top: -100px;
+            right: -100px;
+            filter: blur(60px);
+        }
+        .deco-2 {
+            width: 300px;
+            height: 300px;
+            background: linear-gradient(135deg, #c9e4ff 0%, #a8d4ff 100%);
+            bottom: 20%;
+            left: -80px;
+            filter: blur(50px);
+        }
+        .deco-3 {
+            width: 250px;
+            height: 250px;
+            background: linear-gradient(135deg, #d4f0c4 0%, #b8e6a0 100%);
+            top: 50%;
+            right: 5%;
+            filter: blur(40px);
+        }
+
+        /* 네비게이션 */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            background: rgba(255,255,255,0.85);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        .logo {
+            font-size: 26px;
+            font-weight: 800;
+            color: #e67e22;
+            letter-spacing: -0.5px;
+        }
+        .nav-links {
+            display: flex;
+            gap: 32px;
+        }
+        .nav-links a {
+            color: #666;
+            text-decoration: none;
+            font-size: 15px;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+        .nav-links a:hover {
+            color: #e67e22;
+        }
+
+        /* 히어로 섹션 */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 120px 40px 80px;
+        }
+        .hero-emoji {
+            font-size: 64px;
+            margin-bottom: 24px;
+        }
+        .hero h1 {
+            font-size: clamp(42px, 8vw, 72px);
+            font-weight: 800;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            letter-spacing: -2px;
+        }
+        .hero h1 span {
+            color: #e67e22;
+        }
+        .hero p {
+            font-size: clamp(16px, 2.5vw, 20px);
+            color: #666;
+            max-width: 500px;
+            font-weight: 400;
+            line-height: 1.8;
+        }
+        .scroll-hint {
+            margin-top: 60px;
+            color: #bbb;
+            font-size: 14px;
+            animation: bounce 2s infinite;
+        }
+        .scroll-hint::after {
+            content: '↓';
+            display: block;
+            margin-top: 8px;
+            font-size: 20px;
+        }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(8px); }
+        }
+
+        /* 섹션 공통 */
+        section {
+            padding: 100px 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .section-header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+        .section-label {
+            display: inline-block;
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #fff3e0, #ffe0b2);
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #e67e22;
+            margin-bottom: 16px;
+        }
+        .section-title {
+            font-size: clamp(28px, 4vw, 40px);
+            font-weight: 700;
+            color: #2c3e50;
+            letter-spacing: -1px;
+        }
+
+        /* 스텝 그리드 */
+        .steps-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 28px;
+        }
+
+        /* 스텝 카드 */
+        .step-card {
+            background: rgba(255,255,255,0.9);
+            border-radius: 24px;
+            padding: 36px;
+            box-shadow: 0 4px 30px rgba(0,0,0,0.06);
+            border: 1px solid rgba(255,255,255,0.8);
+            transition: all 0.4s ease;
+        }
+        .step-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 40px rgba(230, 126, 34, 0.12);
+        }
+
+        .step-number {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(135deg, #e67e22, #f39c12);
+            color: white;
+            border-radius: 14px;
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 20px;
+        }
+
+        .step-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            letter-spacing: -0.3px;
+        }
+
+        .phone-wrapper {
+            display: flex;
+            justify-content: center;
+            margin: 24px 0;
+        }
+        .phone-img {
+            width: 180px;
+            border-radius: 20px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.12);
+            transition: transform 0.4s;
+        }
+        .step-card:hover .phone-img {
+            transform: scale(1.03);
+        }
+
+        .step-desc {
+            color: #444;
+            font-size: 16px;
+            line-height: 1.9;
+            font-weight: 500;
+        }
+        .step-desc ul {
+            list-style: none;
+            padding: 0;
+            margin-top: 16px;
+        }
+        .step-desc li {
+            padding: 10px 0;
+            padding-left: 28px;
+            position: relative;
+            font-size: 15px;
+        }
+        .step-desc li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: #e67e22;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        .step-desc strong {
+            color: #2c3e50;
+            font-weight: 700;
+        }
+
+        .tip-box {
+            background: linear-gradient(135deg, #fff8e1, #ffecb3);
+            padding: 16px 18px;
+            margin-top: 18px;
+            border-radius: 14px;
+            font-size: 15px;
+            font-weight: 500;
+            color: #bf8c00;
+            line-height: 1.7;
+        }
+
+        /* 구분선 */
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(230,126,34,0.2), transparent);
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        /* 푸터 */
+        footer {
+            padding: 60px 40px;
+            text-align: center;
+            background: rgba(255,255,255,0.5);
+            border-top: 1px solid rgba(0,0,0,0.05);
+        }
+        .footer-logo {
+            font-size: 24px;
+            font-weight: 800;
+            color: #e67e22;
+            margin-bottom: 16px;
+        }
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-bottom: 20px;
+        }
+        .footer-links a {
+            color: #888;
+            text-decoration: none;
+            font-size: 14px;
+            transition: color 0.3s;
+        }
+        .footer-links a:hover {
+            color: #e67e22;
+        }
+        .footer-copy {
+            color: #aaa;
+            font-size: 13px;
+        }
+
+        /* 반응형 */
+        @media (max-width: 1200px) {
+            .steps-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (max-width: 768px) {
+            nav {
+                padding: 16px 20px;
+            }
+            .nav-links {
+                display: none;
+            }
+            section {
+                padding: 60px 20px;
+            }
+            .steps-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            .step-card {
+                padding: 28px;
+            }
+            .phone-img {
+                width: 160px;
+            }
+            .hero {
+                padding: 100px 24px 60px;
+            }
+            .hero-emoji {
+                font-size: 48px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="deco-circle deco-1"></div>
+    <div class="deco-circle deco-2"></div>
+    <div class="deco-circle deco-3"></div>
+
+    <nav>
+        <div class="logo">WE:IN</div>
+        <div class="nav-links">
+            <a href="#start">시작하기</a>
+            <a href="#use">활용하기</a>
+            <a href="mailto:gangseogju106@gmail.com">문의</a>
+        </div>
+    </nav>
+
+    <div class="hero">
+        <div class="hero-emoji">👨‍👩‍👧‍👦</div>
+        <h1>함께하는 일정,<br>연결되는 <span>마음</span></h1>
+        <p>가족, 모임의 일정을 한눈에 공유하고<br>소중한 순간을 함께 만들어가세요.</p>
+        <div class="scroll-hint">아래로 스크롤</div>
+    </div>
+
+    <section id="start">
+        <div class="section-header">
+            <div class="section-label">🚀 Getting Started</div>
+            <h2 class="section-title">5분이면 충분해요</h2>
+        </div>
+
+        <div class="steps-grid">
+            <div class="step-card">
+                <div class="step-number">1</div>
+                <h3 class="step-title">회원가입</h3>
+                <div class="phone-wrapper">
+                    <img src="step1.jpg" class="phone-img" alt="회원가입">
+                </div>
+                <div class="step-desc">
+                    앱을 설치하고 <strong>[회원가입]</strong>을 눌러주세요.
+                    <ul>
+                        <li><strong>이름</strong> — 가족에게 보여질 닉네임</li>
+                        <li><strong>이메일</strong> — 로그인에 사용돼요</li>
+                        <li><strong>비밀번호</strong> — 6자리 이상</li>
+                    </ul>
+                    <div class="tip-box">
+                        💡 복잡한 인증 없이, 이메일만 있으면 바로 가입돼요!
+                    </div>
+                </div>
+            </div>
+
+            <div class="step-card">
+                <div class="step-number">2</div>
+                <h3 class="step-title">그룹 만들기</h3>
+                <div class="phone-wrapper">
+                    <img src="step2.jpg" class="phone-img" alt="그룹 생성">
+                </div>
+                <div class="step-desc">
+                    우리 가족만의 공간을 만들어보세요.
+                    <ul>
+                        <li><strong>[그룹]</strong> 탭에서 시작</li>
+                        <li><strong>[+ 새 그룹 생성]</strong> 클릭</li>
+                        <li>그룹 이름과 설명 입력</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="step-card">
+                <div class="step-number">3</div>
+                <h3 class="step-title">가족 초대하기</h3>
+                <div class="phone-wrapper">
+                    <img src="step3.jpg" class="phone-img" alt="초대하기">
+                </div>
+                <div class="step-desc">
+                    소중한 가족을 초대해보세요.
+                    <ul>
+                        <li><strong>카카오톡</strong>으로 초대 코드 공유</li>
+                        <li>또는 <strong>이메일</strong>로 바로 초대</li>
+                    </ul>
+                    <div class="tip-box">
+                        💡 초대 코드는 6자리로 자동 생성돼요.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <section id="use">
+        <div class="section-header">
+            <div class="section-label">💝 Daily Use</div>
+            <h2 class="section-title">이렇게 활용해보세요</h2>
+        </div>
+
+        <div class="steps-grid">
+            <div class="step-card">
+                <div class="step-number">4</div>
+                <h3 class="step-title">그룹에 참여하기</h3>
+                <div class="phone-wrapper">
+                    <img src="step4.jpg" class="phone-img" alt="코드 입력">
+                </div>
+                <div class="step-desc">
+                    초대받으셨나요?
+                    <ul>
+                        <li><strong>[그룹]</strong> → <strong>[초대 코드로 가입]</strong></li>
+                        <li>받은 6자리 코드 입력</li>
+                        <li>이메일 초대는 자동 가입!</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="step-card">
+                <div class="step-number">5</div>
+                <h3 class="step-title">일정 등록하기</h3>
+                <div class="phone-wrapper">
+                    <img src="step5.jpg" class="phone-img" alt="일정 등록">
+                </div>
+                <div class="step-desc">
+                    가족 일정을 함께 공유해요.
+                    <ul>
+                        <li>달력에서 <strong>날짜 선택</strong></li>
+                        <li>제목, 시간, 장소 입력</li>
+                        <li>모든 가족에게 <strong>실시간 공유</strong>!</li>
+                    </ul>
+                    <div class="tip-box">
+                        💡 사진이나 파일도 첨부할 수 있어요.
+                    </div>
+                </div>
+            </div>
+
+            <div class="step-card">
+                <div class="step-number">6</div>
+                <h3 class="step-title">홈에서 확인하기</h3>
+                <div class="phone-wrapper">
+                    <img src="step6.jpg" class="phone-img" alt="홈 화면">
+                </div>
+                <div class="step-desc">
+                    앱을 열면 바로 확인할 수 있어요.
+                    <ul>
+                        <li><strong>오늘 일정</strong> 한눈에</li>
+                        <li><strong>D-Day</strong> 카운트다운</li>
+                        <li><strong>게시판</strong>에서 소통</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-logo">WE:IN</div>
+        <div class="footer-links">
+            <a href="https://play.google.com/store/apps/details?id=com.kangcoding.sharecalendar">Google Play</a>
+            <a href="https://apps.apple.com/app/id6744455915">App Store</a>
+            <a href="https://sharecalendar-c8a9b.web.app/">공식 홈페이지</a>
+        </div>
+        <p class="footer-copy">함께하는 시간을 더 특별하게 ❤️</p>
+    </footer>
+
+</body>
+</html>

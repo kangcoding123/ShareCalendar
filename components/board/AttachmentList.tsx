@@ -17,7 +17,6 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
-import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
@@ -136,7 +135,7 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
     }
   };
 
-  // 파일 저장 핸들러
+  // 파일 저장 핸들러 (모달에서 호출)
   const handleSaveFile = async () => {
     if (!selectedFile) return;
     const attachment = selectedFile.attachment;
@@ -174,6 +173,59 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
     } catch (saveError) {
       console.log('저장 오류:', saveError);
       showResultModal('error', '오류', '파일 저장 중 오류가 발생했습니다.');
+    }
+  };
+
+  // 이미지 미리보기에서 직접 저장 (Android: SAF, iOS: Sharing)
+  const saveFromPreview = async (attachment: Attachment) => {
+    try {
+      setDownloading(attachment.id);
+
+      const localUri = FileSystem.cacheDirectory + attachment.fileName;
+      const downloadResult = await FileSystem.downloadAsync(attachment.url, localUri);
+
+      if (downloadResult.status !== 200) {
+        Alert.alert('오류', '파일 다운로드에 실패했습니다.');
+        return;
+      }
+
+      if (Platform.OS === 'android') {
+        // Android: StorageAccessFramework로 폴더 선택 후 저장
+        const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (permissions.granted) {
+          const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          const savedUri = await FileSystem.StorageAccessFramework.createFileAsync(
+            permissions.directoryUri,
+            attachment.fileName,
+            attachment.mimeType
+          );
+          await FileSystem.writeAsStringAsync(savedUri, base64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          try {
+            await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
+          } catch (e) {}
+          showResultModal('success', '저장 완료', '파일이 선택한 폴더에 저장되었습니다.');
+        }
+      } else {
+        // iOS: 공유 시트
+        const isAvailable = await Sharing.isAvailableAsync();
+        if (!isAvailable) {
+          Alert.alert('알림', '이 기기에서는 파일 저장 기능을 사용할 수 없습니다.');
+          return;
+        }
+        await Sharing.shareAsync(downloadResult.uri, {
+          mimeType: attachment.mimeType,
+          dialogTitle: `${attachment.fileName} 저장`,
+        });
+      }
+    } catch (error) {
+      console.error('저장 오류:', error);
+      Alert.alert('오류', '파일 저장 중 오류가 발생했습니다.');
+    } finally {
+      setDownloading(null);
     }
   };
 
@@ -224,8 +276,6 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
     try {
       setDownloading(attachment.id);
 
-      const isMediaFile = attachment.fileType === 'image' || attachment.fileType === 'video';
-
       // 파일을 캐시 디렉토리에 다운로드
       const localUri = FileSystem.cacheDirectory + attachment.fileName;
       const downloadResult = await FileSystem.downloadAsync(
@@ -239,29 +289,10 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
       }
 
       if (Platform.OS === 'android') {
-        if (isMediaFile) {
-          // Android: 이미지/비디오는 MediaLibrary로 갤러리에 저장
-          const { status } = await MediaLibrary.requestPermissionsAsync(true);
-          if (status !== 'granted') {
-            Alert.alert('권한 필요', '갤러리에 저장하려면 미디어 라이브러리 접근 권한이 필요합니다.');
-            return;
-          }
-
-          await MediaLibrary.createAssetAsync(downloadResult.uri);
-
-          // 캐시 파일 삭제
-          try {
-            await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
-          } catch (e) {
-            // 캐시 삭제 실패는 무시
-          }
-
-          showResultModal('success', '저장 완료', `${attachment.fileType === 'image' ? '이미지가' : '동영상이'} 갤러리에 저장되었습니다.`);
-        } else {
-          // Android: 문서 파일은 커스텀 모달로 열기/저장 옵션 제공
-          setSelectedFile({ attachment, downloadUri: downloadResult.uri });
-          setFileOptionVisible(true);
-        }
+        // Android: 모든 파일 타입에 대해 커스텀 모달로 열기/저장/공유 옵션 제공
+        // (MediaLibrary 권한 불필요 - Google Play 정책 준수)
+        setSelectedFile({ attachment, downloadUri: downloadResult.uri });
+        setFileOptionVisible(true);
       } else {
         // iOS: 공유 시트를 통해 저장
         const isAvailable = await Sharing.isAvailableAsync();
@@ -408,7 +439,7 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
                   onPress={() => {
                     if (previewImage) {
                       closeImagePreview();
-                      setTimeout(() => downloadFile(previewImage), 300);
+                      setTimeout(() => saveFromPreview(previewImage), 300);
                     }
                   }}
                   disabled={downloading === previewImage?.id}
@@ -482,29 +513,35 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
                   <Text style={[styles.fileOptionSubtitle, { color: colors.lightGray }]}>
                     {formatFileSize(selectedFile.attachment.fileSize)}
                   </Text>
-                  <View style={styles.fileOptionButtons}>
+
+                  {/* 열기/저장 버튼 (가로 배치) */}
+                  <View style={styles.fileOptionButtonRow}>
                     <TouchableOpacity
-                      style={[styles.fileOptionButton, { backgroundColor: colors.tint }]}
+                      style={[styles.fileOptionActionButton, { backgroundColor: colors.tint }]}
                       onPress={handleOpenFile}
                     >
                       <Feather name="external-link" size={18} color="#ffffff" />
                       <Text style={styles.fileOptionButtonText}>열기</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.fileOptionButton, { backgroundColor: '#4CAF50' }]}
+                      style={[styles.fileOptionActionButton, { backgroundColor: '#4CAF50' }]}
                       onPress={handleSaveFile}
                     >
                       <Feather name="download" size={18} color="#ffffff" />
                       <Text style={styles.fileOptionButtonText}>저장</Text>
                     </TouchableOpacity>
                   </View>
+
+                  {/* 공유 버튼 */}
                   <TouchableOpacity
-                    style={[styles.fileOptionButton, { backgroundColor: '#666666', width: '100%', marginBottom: 12 }]}
+                    style={[styles.fileOptionFullButton, { backgroundColor: '#666666' }]}
                     onPress={handleShareFile}
                   >
                     <Feather name="share-2" size={18} color="#ffffff" />
                     <Text style={styles.fileOptionButtonText}>공유</Text>
                   </TouchableOpacity>
+
+                  {/* 취소 버튼 */}
                   <TouchableOpacity
                     style={[styles.fileOptionCancelButton, { borderColor: colors.border }]}
                     onPress={closeFileOptionModal}
@@ -669,7 +706,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    padding: 20,
   },
   fileOptionBackdrop: {
     position: 'absolute',
@@ -677,10 +715,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
   fileOptionContent: {
-    width: SCREEN_WIDTH - 48,
+    width: '100%',
+    maxWidth: 320,
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
@@ -688,7 +726,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 10,
+    elevation: 8,
   },
   fileOptionIconContainer: {
     width: 64,
@@ -699,23 +737,23 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   fileOptionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     textAlign: 'center',
     marginBottom: 4,
     paddingHorizontal: 8,
   },
   fileOptionSubtitle: {
-    fontSize: 13,
+    fontSize: 14,
     marginBottom: 20,
   },
-  fileOptionButtons: {
+  fileOptionButtonRow: {
     flexDirection: 'row',
     width: '100%',
     gap: 12,
     marginBottom: 12,
   },
-  fileOptionButton: {
+  fileOptionActionButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
@@ -723,6 +761,16 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 10,
     gap: 8,
+  },
+  fileOptionFullButton: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 10,
+    gap: 8,
+    marginBottom: 12,
   },
   fileOptionButtonText: {
     fontSize: 15,

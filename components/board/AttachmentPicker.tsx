@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  Modal,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { PendingAttachment, Attachment } from '@/types/board';
@@ -42,6 +43,7 @@ export default function AttachmentPicker({
   disabled = false,
 }: AttachmentPickerProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [pickerModalVisible, setPickerModalVisible] = useState(false);
 
   const totalCount = pendingAttachments.length + existingAttachments.length;
   const canAddMore = totalCount < MAX_ATTACHMENTS;
@@ -115,16 +117,24 @@ export default function AttachmentPicker({
   };
 
   const showPickerOptions = () => {
-    Alert.alert(
-      '파일 첨부',
-      '첨부할 파일을 선택하세요',
-      [
-        { text: '사진 촬영', onPress: () => handlePickImage('camera') },
-        { text: '갤러리에서 선택', onPress: () => handlePickImage('gallery') },
-        { text: '파일 선택', onPress: handlePickDocument },
-        { text: '취소', style: 'cancel' },
-      ]
-    );
+    setPickerModalVisible(true);
+  };
+
+  const closePickerModal = () => {
+    setPickerModalVisible(false);
+  };
+
+  const handleOptionSelect = (option: 'camera' | 'gallery' | 'document') => {
+    closePickerModal();
+    setTimeout(() => {
+      if (option === 'camera') {
+        handlePickImage('camera');
+      } else if (option === 'gallery') {
+        handlePickImage('gallery');
+      } else {
+        handlePickDocument();
+      }
+    }, 300);
   };
 
   const renderPendingItem = (item: PendingAttachment) => (
@@ -222,6 +232,67 @@ export default function AttachmentPicker({
           {pendingAttachments.map(renderPendingItem)}
         </ScrollView>
       )}
+
+      {/* 파일 첨부 옵션 모달 */}
+      <Modal
+        visible={pickerModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closePickerModal}
+        statusBarTranslucent={true}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={closePickerModal}
+          />
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={[styles.modalIconContainer, { backgroundColor: colors.tint + '20' }]}>
+              <Feather name="paperclip" size={32} color={colors.tint} />
+            </View>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>파일 첨부</Text>
+            <Text style={[styles.modalSubtitle, { color: colors.lightGray }]}>
+              첨부할 파일을 선택하세요
+            </Text>
+
+            {/* 사진 촬영 / 갤러리 선택 버튼 (가로 배치) */}
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity
+                style={[styles.modalActionButton, { backgroundColor: colors.tint }]}
+                onPress={() => handleOptionSelect('camera')}
+              >
+                <Feather name="camera" size={18} color="#ffffff" />
+                <Text style={styles.modalButtonText}>사진 촬영</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalActionButton, { backgroundColor: '#4CAF50' }]}
+                onPress={() => handleOptionSelect('gallery')}
+              >
+                <Feather name="image" size={18} color="#ffffff" />
+                <Text style={styles.modalButtonText}>갤러리</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* 파일 선택 버튼 */}
+            <TouchableOpacity
+              style={[styles.modalFullButton, { backgroundColor: '#666666' }]}
+              onPress={() => handleOptionSelect('document')}
+            >
+              <Feather name="file" size={18} color="#ffffff" />
+              <Text style={styles.modalButtonText}>파일 선택</Text>
+            </TouchableOpacity>
+
+            {/* 취소 버튼 */}
+            <TouchableOpacity
+              style={[styles.modalCancelButton, { borderColor: colors.border }]}
+              onPress={closePickerModal}
+            >
+              <Text style={[styles.modalCancelText, { color: colors.text }]}>취소</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -293,5 +364,90 @@ const styles = StyleSheet.create({
   },
   removeButton: {
     padding: 4,
+  },
+  // 모달 스타일
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    padding: 20,
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 16,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  modalIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    marginBottom: 20,
+  },
+  modalButtonRow: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+    marginBottom: 12,
+  },
+  modalActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 10,
+    gap: 8,
+  },
+  modalFullButton: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 10,
+    gap: 8,
+    marginBottom: 12,
+  },
+  modalButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#ffffff',
+  },
+  modalCancelButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
