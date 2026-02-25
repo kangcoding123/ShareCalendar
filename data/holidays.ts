@@ -1,5 +1,5 @@
 // data/holidays.ts
-import { Lunar, Solar } from 'lunar-javascript';
+import KoreanLunarCalendar from 'korean-lunar-calendar';
 
 // 타입 정의
 export interface Holiday {
@@ -18,6 +18,7 @@ export const SOLAR_HOLIDAYS: Record<string, Omit<Holiday, 'date'>> = {
   '03-01': { name: '삼일절', isHoliday: true },
   '05-05': { name: '어린이날', isHoliday: true },
   '06-06': { name: '현충일', isHoliday: true },
+  '07-17': { name: '제헌절', isHoliday: true },
   '08-15': { name: '광복절', isHoliday: true },
   '10-03': { name: '개천절', isHoliday: true },
   '10-09': { name: '한글날', isHoliday: true },
@@ -54,9 +55,10 @@ function addDays(date: Date, days: number): Date {
  * 음력 날짜를 양력 날짜로 변환
  */
 function lunarToSolar(year: number, month: number, day: number): Date {
-  const lunar = Lunar.fromYmd(year, month, day);
-  const solar = lunar.getSolar();
-  return new Date(solar.getYear(), solar.getMonth() - 1, solar.getDay());
+  const cal = new KoreanLunarCalendar();
+  cal.setLunarDate(year, month, day, false);
+  const solar = cal.getSolarCalendar();
+  return new Date(solar.year, solar.month - 1, solar.day);
 }
 
 /**
@@ -92,10 +94,13 @@ function calculateLunarHolidays(year: number): Record<string, Holiday> {
 /**
  * 날짜가 공휴일인지 확인
  */
-function isDateHoliday(date: Date, holidays: Record<string, Holiday>): boolean {
+function isDateHolidayOrWeekend(date: Date, holidays: Record<string, Holiday>): boolean {
+  const day = date.getDay();
+  if (day === 0 || day === 6) return true; // 주말
+
   const dateString = formatDateToString(date);
   const monthDay = dateString.substring(5); // MM-DD 형식
-  
+
   return !!holidays[dateString] || !!SOLAR_HOLIDAYS[monthDay];
 }
 
@@ -124,7 +129,7 @@ function calculateAlternativeHolidays(year: number, allHolidays: Record<string, 
     let alternativeDayString = formatDateToString(alternativeDay);
     
     // 이미 해당일이 공휴일이면 다음날 찾기
-    while (isDateHoliday(alternativeDay, allHolidays)) {
+    while (isDateHolidayOrWeekend(alternativeDay, allHolidays)) {
       alternativeDay = addDays(alternativeDay, 1);
       alternativeDayString = formatDateToString(alternativeDay);
     }
@@ -153,15 +158,15 @@ function calculateAlternativeHolidays(year: number, allHolidays: Record<string, 
       return formatDateToString(date);
     });
     
-    // 연휴 중 일요일이 있는지 확인
-    let hasSunday = false;
+    // 연휴 중 일요일이 있는지 확인 (설/추석은 일요일 겹침만 대체공휴일)
+    let hasSundayOverlap = false;
     let hasCollision = false;
-    
+
     holidayDates.forEach(date => {
       const dateObj = new Date(date);
-      // 일요일인 경우
+      // 일요일인 경우만 체크 (토요일 겹침은 대체공휴일 아님)
       if (dateObj.getDay() === 0) {
-        hasSunday = true;
+        hasSundayOverlap = true;
       }
       
       // 다른 공휴일과 충돌하는 경우
@@ -173,13 +178,13 @@ function calculateAlternativeHolidays(year: number, allHolidays: Record<string, 
     });
     
     // 일요일 포함 또는 다른 공휴일과 충돌이 있으면 대체공휴일 계산
-    if (hasSunday || hasCollision) {
+    if (hasSundayOverlap || hasCollision) {
       // 연휴 다음날부터 검색 시작
       let alternativeDay = addDays(baseDate, 2);
       let alternativeDayString = formatDateToString(alternativeDay);
       
       // 이미 해당일이 공휴일이면 다음날 찾기
-      while (isDateHoliday(alternativeDay, allHolidays)) {
+      while (isDateHolidayOrWeekend(alternativeDay, allHolidays)) {
         alternativeDay = addDays(alternativeDay, 1);
         alternativeDayString = formatDateToString(alternativeDay);
       }
@@ -205,14 +210,14 @@ function calculateAlternativeHolidays(year: number, allHolidays: Record<string, 
     const dayOfWeek = buddhasBirthday.getDay();
     const monthDay = date.substring(5); // MM-DD 형식
     
-    // 부처님오신날이 일요일이거나 다른 공휴일과 겹치는 경우
-    if (dayOfWeek === 0 || SOLAR_HOLIDAYS[monthDay]) {
+    // 부처님오신날이 토요일/일요일이거나 다른 공휴일과 겹치는 경우
+    if (dayOfWeek === 0 || dayOfWeek === 6 || SOLAR_HOLIDAYS[monthDay]) {
       // 대체공휴일 찾기
       let alternativeDay = addDays(buddhasBirthday, 1);
       let alternativeDayString = formatDateToString(alternativeDay);
       
       // 이미 해당일이 공휴일이면 다음날 찾기
-      while (isDateHoliday(alternativeDay, allHolidays)) {
+      while (isDateHolidayOrWeekend(alternativeDay, allHolidays)) {
         alternativeDay = addDays(alternativeDay, 1);
         alternativeDayString = formatDateToString(alternativeDay);
       }
@@ -228,6 +233,38 @@ function calculateAlternativeHolidays(year: number, allHolidays: Record<string, 
     }
   });
   
+  // 4. 양력 고정 공휴일 대체공휴일 계산 (어린이날 제외 - 위에서 이미 처리)
+  Object.entries(SOLAR_HOLIDAYS).forEach(([monthDay, holiday]) => {
+    if (monthDay === '05-05') return; // 어린이날은 위에서 이미 처리
+    if (monthDay === '01-01') return; // 신정은 대체공휴일 없음
+    if (monthDay === '06-06') return; // 현충일은 대체공휴일 없음
+    if (monthDay === '07-17') return; // 제헌절은 대체공휴일 없음
+
+    const dateString = `${yearString}-${monthDay}`;
+    const dateObj = new Date(dateString);
+    const dow = dateObj.getDay();
+
+    // 토요일 또는 일요일인 경우 대체공휴일 계산
+    if (dow === 0 || dow === 6) {
+      let alternativeDay = addDays(dateObj, dow === 0 ? 1 : 2); // 일→월, 토→월
+      let alternativeDayString = formatDateToString(alternativeDay);
+
+      // 이미 해당일이 공휴일이면 다음날 찾기
+      while (isDateHolidayOrWeekend(alternativeDay, allHolidays) || alternativeHolidays[alternativeDayString]) {
+        alternativeDay = addDays(alternativeDay, 1);
+        alternativeDayString = formatDateToString(alternativeDay);
+      }
+
+      alternativeHolidays[alternativeDayString] = {
+        name: `대체공휴일(${holiday.name})`,
+        isHoliday: true,
+        isAlternative: true,
+        originalDate: dateString,
+        date: alternativeDayString
+      };
+    }
+  });
+
   return alternativeHolidays;
 }
 

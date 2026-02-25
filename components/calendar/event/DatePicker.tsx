@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet
 } from 'react-native';
-import { formatDate } from '../../../utils/dateUtils';
+import { formatDate, getLunarDateLong } from '../../../utils/dateUtils';
 
 // 로컬 타임존으로 날짜 문자열을 파싱 (UTC 문제 방지)
 const parseDateString = (dateStr: string): Date => {
@@ -77,6 +77,9 @@ const DatePicker = ({
             <Text style={{ color: colors.text }}>+</Text>
           </TouchableOpacity>
         </View>
+        <Text style={[styles.lunarDateText, { color: colors.lightGray }]}>
+          {getLunarDateLong(parseDateString(startDate))}
+        </Text>
       </View>
       
       {isMultiDay && (
@@ -114,6 +117,9 @@ const DatePicker = ({
               <Text style={{ color: colors.text }}>+</Text>
             </TouchableOpacity>
           </View>
+          <Text style={[styles.lunarDateText, { color: colors.lightGray }]}>
+            {getLunarDateLong(parseDateString(endDate))}
+          </Text>
         </View>
       )}
     </View>
@@ -156,6 +162,11 @@ const styles = StyleSheet.create({
   },
   dateButtonText: {
     fontSize: 14
+  },
+  lunarDateText: {
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 4,
   }
 });
 

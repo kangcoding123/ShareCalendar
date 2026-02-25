@@ -229,7 +229,7 @@ const getStoreUrl = (): string | null => {
 
   if (Platform.OS === 'ios') {
     // iOS App Store URL (앱 ID가 필요하면 수정)
-    return `https://apps.apple.com/app/id6739902737`;
+    return `https://apps.apple.com/app/id6744455915`;
   } else if (Platform.OS === 'android') {
     // Google Play Store URL
     return `https://play.google.com/store/apps/details?id=${appId}`;

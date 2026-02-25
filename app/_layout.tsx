@@ -7,7 +7,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { router } from 'expo-router';
-import { Platform, Alert, AppState, AppStateStatus } from 'react-native';
+import { Platform, Alert, AppState, AppStateStatus, useColorScheme } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import * as NavigationBar from 'expo-navigation-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import {
   registerForPushNotificationsAsync,
@@ -335,9 +337,22 @@ function RootLayoutNav() {
 }
 
 export default function RootLayout() {
+  const colorScheme = useColorScheme();
+
+  useEffect(() => {
+    if (Platform.OS === 'android') {
+      NavigationBar.setBackgroundColorAsync(colorScheme === 'dark' ? '#121212' : '#ffffff');
+      NavigationBar.setButtonStyleAsync(colorScheme === 'dark' ? 'light' : 'dark');
+    }
+  }, [colorScheme]);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
+        <StatusBar
+          style={colorScheme === 'dark' ? 'light' : 'dark'}
+          backgroundColor={colorScheme === 'dark' ? '#121212' : '#ffffff'}
+        />
         <AuthProvider>
           <EventProvider>
             <RootLayoutNav />

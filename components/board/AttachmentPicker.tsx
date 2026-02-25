@@ -10,8 +10,8 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
-  Modal,
 } from 'react-native';
+import AppModal from '../AppModal';
 import { Feather } from '@expo/vector-icons';
 import { PendingAttachment, Attachment } from '@/types/board';
 import {
@@ -234,7 +234,7 @@ export default function AttachmentPicker({
       )}
 
       {/* 파일 첨부 옵션 모달 */}
-      <Modal
+      <AppModal
         visible={pickerModalVisible}
         transparent={true}
         animationType="fade"
@@ -292,7 +292,7 @@ export default function AttachmentPicker({
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      </AppModal>
     </View>
   );
 }

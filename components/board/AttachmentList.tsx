@@ -10,10 +10,10 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
-  Modal,
   Image,
   Dimensions,
   StatusBar,
+  Modal,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
@@ -24,6 +24,17 @@ import { Attachment } from '@/types/board';
 import { formatFileSize, getFileIcon } from '@/services/fileService';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+
+// Firebase Storage URL의 경로를 올바르게 인코딩
+const fixFirebaseStorageUrl = (url: string): string => {
+  const match = url.match(/^(https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^/]+\/o\/)(.+?)(\?.+)$/);
+  if (!match) return url;
+  const [, prefix, path, query] = match;
+  // 이미 %2F로 인코딩되어 있으면 그대로 반환
+  if (path.includes('%2F')) return url;
+  const encodedPath = path.split('/').map(s => encodeURIComponent(s)).join('%2F');
+  return prefix + encodedPath + query;
+};
 
 interface AttachmentListProps {
   attachments: Attachment[];
@@ -36,6 +47,7 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
   const [previewImage, setPreviewImage] = useState<Attachment | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
+  const [imageError, setImageError] = useState(false);
   const insets = useSafeAreaInsets();
 
   // 파일 옵션 모달 상태
@@ -72,6 +84,7 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
     setPreviewImage(attachment);
     setPreviewVisible(true);
     setImageLoading(true);
+    setImageError(false);
   };
 
   // 이미지 미리보기 닫기
@@ -93,7 +106,7 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
     try {
       setIsDownloading(true);
       const localUri = FileSystem.cacheDirectory + attachment.fileName;
-      const downloadResult = await FileSystem.downloadAsync(attachment.url, localUri);
+      const downloadResult = await FileSystem.downloadAsync(fixFirebaseStorageUrl(attachment.url), localUri);
       if (downloadResult.status === 200) {
         return downloadResult.uri;
       }
@@ -182,10 +195,11 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
       setDownloading(attachment.id);
 
       const localUri = FileSystem.cacheDirectory + attachment.fileName;
-      const downloadResult = await FileSystem.downloadAsync(attachment.url, localUri);
+      const downloadResult = await FileSystem.downloadAsync(fixFirebaseStorageUrl(attachment.url), localUri);
 
       if (downloadResult.status !== 200) {
-        Alert.alert('오류', '파일 다운로드에 실패했습니다.');
+        console.error('[saveFromPreview] 다운로드 실패 - status:', downloadResult.status, 'URL:', attachment.url);
+        Alert.alert('오류', '파일 다운로드에 실패했습니다.\n네트워크 연결을 확인해주세요.');
         return;
       }
 
@@ -279,7 +293,7 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
       // 파일을 캐시 디렉토리에 다운로드
       const localUri = FileSystem.cacheDirectory + attachment.fileName;
       const downloadResult = await FileSystem.downloadAsync(
-        attachment.url,
+        fixFirebaseStorageUrl(attachment.url),
         localUri
       );
 
@@ -327,7 +341,7 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
 
       const localUri = FileSystem.cacheDirectory + attachment.fileName;
       const downloadResult = await FileSystem.downloadAsync(
-        attachment.url,
+        fixFirebaseStorageUrl(attachment.url),
         localUri
       );
 
@@ -415,12 +429,25 @@ export default function AttachmentList({ attachments, colors }: AttachmentListPr
               )}
               {previewImage && (
                 <Image
-                  source={{ uri: previewImage.url }}
+                  source={{ uri: fixFirebaseStorageUrl(previewImage.url) }}
                   style={styles.previewImage}
                   resizeMode="contain"
                   onLoadStart={() => setImageLoading(true)}
                   onLoadEnd={() => setImageLoading(false)}
+                  onError={(e) => {
+                    console.error('[ImagePreview] 이미지 로드 실패:', e.nativeEvent.error, 'URL:', previewImage.url);
+                    setImageLoading(false);
+                    setImageError(true);
+                  }}
                 />
+              )}
+              {imageError && (
+                <View style={styles.previewLoading}>
+                  <Feather name="alert-circle" size={48} color="#ff6b6b" />
+                  <Text style={{ color: '#ffffff', marginTop: 12, fontSize: 15 }}>
+                    이미지를 불러올 수 없습니다
+                  </Text>
+                </View>
               )}
             </View>
 

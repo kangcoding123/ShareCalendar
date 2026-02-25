@@ -1,1 +1,3 @@
-<resources/>
+<resources>
+  <color name="windowBg">#121212</color>
+</resources>

@@ -27,7 +27,6 @@ import {
   unpinPost,
   createComment,
   deleteComment,
-  checkGroupOwnership,
   updatePostLastViewed,
 } from '@/services/boardService';
 import { nativeDb } from '@/config/firebase';
@@ -47,29 +46,57 @@ function formatDateTime(dateString: string): string {
 
 export default function PostDetailScreen() {
   const router = useRouter();
-  const { postId, groupId, groupName } = useLocalSearchParams<{
+  const { postId, groupId, groupName, isOwner, postData } = useLocalSearchParams<{
     postId: string;
     groupId: string;
     groupName: string;
+    isOwner: string;
+    postData: string;
   }>();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
   const { user } = useAuth();
 
-  const [post, setPost] = useState<Post | null>(null);
+  // params에서 받은 post 데이터로 즉시 표시
+  const initialPost = React.useMemo(() => {
+    if (postData) {
+      try { return JSON.parse(postData) as Post; } catch { return null; }
+    }
+    return null;
+  }, [postData]);
+
+  const [post, setPost] = useState<Post | null>(initialPost);
   const [comments, setComments] = useState<Comment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialPost);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [isGroupOwner, setIsGroupOwner] = useState(false);
+  const [isGroupOwner, setIsGroupOwner] = useState(isOwner === 'true');
   const [menuVisible, setMenuVisible] = useState(false);
+
+  // postId 변경 시 이전 데이터 초기화 (잔상 방지)
+  useEffect(() => {
+    if (postData) {
+      try {
+        const parsed = JSON.parse(postData) as Post;
+        setPost(parsed);
+        setLoading(false);
+      } catch {
+        setPost(null);
+        setLoading(true);
+      }
+    } else {
+      setPost(null);
+      setLoading(true);
+    }
+    setComments([]);
+    setIsGroupOwner(isOwner === 'true');
+  }, [postId, postData, isOwner]);
 
   // 게시글 작성자인지 확인
   const isPostAuthor = post?.authorId === user?.uid;
 
   const loadPost = useCallback(async () => {
     if (!postId) return;
-
     try {
       const result = await getPostById(postId);
       if (result.success && result.post) {
@@ -80,30 +107,21 @@ export default function PostDetailScreen() {
     }
   }, [postId, user?.uid]);
 
-  const checkOwnerStatus = useCallback(async () => {
-    if (!groupId || !user?.uid) return;
-    const ownerStatus = await checkGroupOwnership(groupId, user.uid);
-    setIsGroupOwner(ownerStatus);
-  }, [groupId, user?.uid]);
-
-  // 게시글 로드
+  // params에 post 데이터가 없을 때만 Firestore에서 로드
   useEffect(() => {
-    const load = async () => {
-      await Promise.all([loadPost(), checkOwnerStatus()]);
-      setLoading(false);
-    };
-    load();
-  }, [loadPost, checkOwnerStatus]);
+    if (!post) {
+      const load = async () => {
+        await loadPost();
+        setLoading(false);
+      };
+      load();
+    }
+  }, [postId]);
 
-  // 화면 포커스 시 게시글 다시 로드 (수정 후 돌아올 때 반영)
   // 화면을 나갈 때 postLastViewedAt 업데이트 (댓글 읽음 처리)
   // Android 하드웨어 뒤로가기 버튼 처리
   useFocusEffect(
     useCallback(() => {
-      if (!loading && postId) {
-        loadPost();
-      }
-
       // Android 하드웨어 뒤로가기 버튼 처리
       const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
         router.replace({
@@ -120,7 +138,7 @@ export default function PostDetailScreen() {
         }
         backHandler.remove();
       };
-    }, [loading, postId, loadPost, user?.uid, groupId, groupName, router])
+    }, [postId, user?.uid, groupId, groupName, router])
   );
 
   // 댓글 실시간 리스너
@@ -261,37 +279,32 @@ export default function PostDetailScreen() {
     );
   };
 
-  if (loading) {
+  if (loading || !post) {
+    if (!loading && !post) {
+      return (
+        <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+          <View style={styles.errorContainer}>
+            <Text style={[styles.errorText, { color: colors.text }]}>
+              게시글을 찾을 수 없습니다.
+            </Text>
+            <TouchableOpacity onPress={() => router.back()}>
+              <Text style={[styles.backLink, { color: colors.tint }]}>돌아가기</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      );
+    }
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.tint} />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!post) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
-        <View style={styles.errorContainer}>
-          <Text style={[styles.errorText, { color: colors.text }]}>
-            게시글을 찾을 수 없습니다.
-          </Text>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Text style={[styles.backLink, { color: colors.tint }]}>돌아가기</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']} />
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <KeyboardAvoidingView
         style={styles.keyboardAvoid}
-        behavior="padding"
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <View style={styles.header}>
           <TouchableOpacity

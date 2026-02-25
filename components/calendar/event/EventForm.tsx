@@ -849,7 +849,7 @@ return (
       <View style={[styles.stickyButtons, { 
         backgroundColor: colors.card,
         borderTopColor: colors.border,
-        paddingBottom: Platform.OS === 'ios' ? 0 : 15  
+        paddingBottom: Platform.OS === 'ios' ? 0 : 15
       }]}>
         <TouchableOpacity 
           style={[styles.cancelButton, { backgroundColor: colors.secondary }]} 

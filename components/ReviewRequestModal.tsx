@@ -1,13 +1,13 @@
 // components/ReviewRequestModal.tsx
 import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
+import AppModal from './AppModal';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import {
@@ -156,7 +156,7 @@ const ReviewRequestModal: React.FC<ReviewRequestModalProps> = ({
   );
 
   return (
-    <Modal
+    <AppModal
       visible={visible}
       transparent
       animationType="fade"
@@ -169,7 +169,7 @@ const ReviewRequestModal: React.FC<ReviewRequestModalProps> = ({
           {step === 'negative' && renderNegativeStep()}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 };
 

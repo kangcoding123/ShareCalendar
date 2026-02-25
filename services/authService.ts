@@ -6,7 +6,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 
 // 인증 상태 저장을 위한 키
-const AUTH_CREDENTIALS_KEY = 'auth_credentials';
 const AUTH_USER_KEY = 'auth_user';
 
 // 타입 정의
@@ -150,7 +149,6 @@ export const deleteAccount = async (password: string): Promise<AuthResult> => {
 
     // 4. 로컬 저장소에서 인증 정보 제거
     try {
-      await AsyncStorage.removeItem(AUTH_CREDENTIALS_KEY);
       await AsyncStorage.removeItem(AUTH_USER_KEY);
     } catch (storageError) {
       console.error('인증 정보 제거 실패:', storageError);
@@ -226,7 +224,6 @@ export const loginUser = async (
         displayName: userCredential.user.displayName
       };
       await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData));
-      await AsyncStorage.setItem(AUTH_CREDENTIALS_KEY, JSON.stringify({ email, password }));
       
       // 푸시 토큰 등록
       try {
@@ -319,47 +316,14 @@ export const logoutUser = async (): Promise<AuthResult> => {
     await auth().signOut();
     
     try {
-      await AsyncStorage.removeItem(AUTH_CREDENTIALS_KEY);
       await AsyncStorage.removeItem(AUTH_USER_KEY);
     } catch (storageError) {
       console.error('인증 정보 제거 실패:', storageError);
     }
-    
+
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
-  }
-};
-
-/**
- * 저장된 사용자 정보로 자동 로그인 시도
- */
-export const autoLoginWithSavedCredentials = async (): Promise<AuthResult> => {
-  try {
-    const savedCredentialsJson = await AsyncStorage.getItem(AUTH_CREDENTIALS_KEY);
-    
-    if (!savedCredentialsJson) {
-      return { success: false, error: '저장된 로그인 정보 없음' };
-    }
-    
-    const { email, password } = JSON.parse(savedCredentialsJson);
-    
-    if (!email || !password) {
-      return { success: false, error: '유효하지 않은 저장 정보' };
-    }
-    
-    return await loginUser(email, password);
-  } catch (error: any) {
-    console.error('자동 로그인 오류:', error);
-    
-    try {
-      await AsyncStorage.removeItem(AUTH_CREDENTIALS_KEY);
-      await AsyncStorage.removeItem(AUTH_USER_KEY);
-    } catch (storageError) {
-      console.error('인증 정보 제거 실패:', storageError);
-    }
-    
-    return { success: false, error: '자동 로그인 실패' };
   }
 };
 

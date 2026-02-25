@@ -17,10 +17,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { addMonths, subMonths, isSameMonth } from 'date-fns';
 
 // 유틸리티 함수
-import { 
-  getCalendarDays, 
-  formatDate, 
+import {
+  getCalendarDays,
+  formatDate,
   getKoreanDayName,
+  getLunarDateCompact,
   CalendarDay,
   getMultiDayPosition
 } from '../../utils/dateUtils';
@@ -51,11 +52,12 @@ interface CalendarProps {
   colorScheme: ColorSchemeName;
   initialMonth?: Date;
   onMonthChange?: (direction: 'prev' | 'next') => void;
-  containerHeight?: number;  // ✅ 추가: CalendarPager에서 전달받은 높이
+  onHeaderPress?: () => void;
+  containerHeight?: number;
   holidays?: Record<string, Holiday>;
-  highlightDate?: string | null;  // 하이라이트할 날짜
-  highlightEndDate?: string | null;  // 다일 일정 종료일
-  bottomInset?: number;  // SafeArea 하단 여백
+  highlightDate?: string | null;
+  highlightEndDate?: string | null;
+  bottomInset?: number;
 }
 
 // 헤더와 요일 행 높이 고정
@@ -68,7 +70,8 @@ const Calendar = ({
   colorScheme,
   initialMonth,
   onMonthChange,
-  containerHeight,  // ✅ props로 받은 높이
+  onHeaderPress,
+  containerHeight,
   holidays = {},
   highlightDate,
   highlightEndDate,
@@ -97,29 +100,34 @@ const Calendar = ({
   const blinkAnim = useRef(new Animated.Value(0)).current;
   const [isBlinking, setIsBlinking] = useState(false);
 
-  // 하이라이트 날짜가 변경되면 깜빡임 시작
+  // 하이라이트 날짜가 변경되면 깜빡임 시작 (화면 전환 완료 후)
   useEffect(() => {
     if (highlightDate) {
-      setIsBlinking(true);
-      // 3번 깜빡이는 애니메이션
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(blinkAnim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: false,
-          }),
-          Animated.timing(blinkAnim, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: false,
-          }),
-        ]),
-        { iterations: 3 }
-      ).start(() => {
-        setIsBlinking(false);
+      // 화면 전환이 안정된 후 자연스럽게 시작
+      const timer = setTimeout(() => {
+        setIsBlinking(true);
         blinkAnim.setValue(0);
-      });
+        // 3번 깜빡이는 애니메이션 (useNativeDriver: true로 부드럽게)
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(blinkAnim, {
+              toValue: 1,
+              duration: 400,
+              useNativeDriver: true,
+            }),
+            Animated.timing(blinkAnim, {
+              toValue: 0,
+              duration: 400,
+              useNativeDriver: true,
+            }),
+          ]),
+          { iterations: 3 }
+        ).start(() => {
+          blinkAnim.setValue(0);
+          setIsBlinking(false);
+        });
+      }, 300);
+      return () => clearTimeout(timer);
     }
   }, [highlightDate, highlightEndDate]);
   
@@ -155,43 +163,21 @@ const Calendar = ({
     }
   };
   
-  // 주 수 계산
+  // 주 수 계산 (최소 1로 Infinity 방지)
   const weekCount = useMemo(() => {
-    return Math.ceil(calendarDays.length / 7);
+    return Math.max(Math.ceil(calendarDays.length / 7), 1);
   }, [calendarDays]);
-  
-const cellHeight = useMemo(() => {
-  // containerHeight가 전달되면 그것을 기준으로 계산 (CalendarPager에서 측정한 실제 높이)
-  if (containerHeight && containerHeight > 0) {
-    // bottomInset을 고려하여 마지막 주가 탭바에 가리지 않도록 여백 확보
-    // iOS: 홈 인디케이터 + 추가 여백, Android: 최소 여백만
+
+  const cellHeight = useMemo(() => {
+    if (!containerHeight || containerHeight <= 0) {
+      return 80;
+    }
     const safeBottomPadding = Platform.OS === 'ios'
       ? (bottomInset > 0 ? bottomInset + 15 : 35)
       : (bottomInset > 0 ? bottomInset : 5);
     const availableHeight = containerHeight - HEADER_HEIGHT - DAY_NAMES_HEIGHT - safeBottomPadding;
-    const calculated = Math.max(availableHeight / weekCount, 60);
-    console.log(`[Calendar] Using containerHeight: ${containerHeight}, bottomPadding: ${safeBottomPadding}, cellHeight: ${calculated.toFixed(1)}`);
-    return calculated;
-  }
-
-  // fallback: 화면 크기 기반 계산
-  const TAB_BAR_HEIGHT = Platform.OS === 'ios' ? 85 : 60;
-  const AD_BANNER_HEIGHT = 60;
-
-  // Android에서는 탭바가 화면에서 차지하는 공간이 다름
-  // SafeAreaView가 bottom을 처리하므로 insets.bottom도 고려
-  const availableHeight = screenHeight -
-    insets.top -
-    insets.bottom -
-    TAB_BAR_HEIGHT -
-    AD_BANNER_HEIGHT -
-    HEADER_HEIGHT -
-    DAY_NAMES_HEIGHT;
-
-  const calculated = Math.max(availableHeight / weekCount, 60);
-  console.log(`[Calendar] Fallback calc - screenHeight: ${screenHeight}, insets: top=${insets.top} bottom=${insets.bottom}, cellHeight: ${calculated.toFixed(1)}`);
-  return calculated;
-}, [screenHeight, screenWidth, weekCount, insets, containerHeight]);
+    return Math.max(availableHeight / weekCount, 60);
+  }, [weekCount, containerHeight, bottomInset]);
   
   // 달력 데이터 업데이트
   useEffect(() => {
@@ -213,9 +199,11 @@ const cellHeight = useMemo(() => {
           <Text style={[styles.headerButtonText, { color: isDark ? '#4e7bd4' : '#3c66af' }]}>{'<'}</Text>
         </TouchableOpacity>
         
-        <Text style={[styles.headerTitle, { color: isDark ? '#ffffff' : '#333333' }]}>
-          {formatDate(currentDate, 'yyyy년 MM월')}
-        </Text>
+        <TouchableOpacity onPress={onHeaderPress} activeOpacity={0.6}>
+          <Text style={[styles.headerTitle, { color: isDark ? '#ffffff' : '#333333' }]}>
+            {formatDate(currentDate, 'yyyy년 MM월')}
+          </Text>
+        </TouchableOpacity>
         
         <TouchableOpacity onPress={handleNextMonth} style={styles.headerButton}>
           <Text style={[styles.headerButtonText, { color: isDark ? '#4e7bd4' : '#3c66af' }]}>{'>'}</Text>
@@ -296,12 +284,6 @@ const cellHeight = useMemo(() => {
     // 표시할 이벤트 수 조정
     const maxEventsToShow = cellHeight < 60 ? 2 : (cellHeight < 80 ? 3 : 5);
     
-    // 애니메이션 테두리 색상
-    const animatedBorderColor = blinkAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['transparent', isDark ? '#63a4ff' : '#007aff']
-    });
-
     const cellContent = (
       <TouchableOpacity
         style={[
@@ -334,8 +316,8 @@ const cellHeight = useMemo(() => {
             {dayOfMonth}
           </Text>
 
-          {/* 공휴일 이름 표시 (선택사항) */}
-          {holiday && holiday.isHoliday && (
+          {/* 공휴일 이름 표시 */}
+          {holiday && holiday.isHoliday ? (
             <Text
               style={[
                 styles.holidayNameText,
@@ -346,7 +328,18 @@ const cellHeight = useMemo(() => {
             >
               {holiday.name}
             </Text>
-          )}
+          ) : isSunday && isCurrentMonth ? (
+            <Text
+              style={[
+                styles.lunarText,
+                { color: isDark ? '#888888' : '#999999' }
+              ]}
+              numberOfLines={1}
+              allowFontScaling={false}
+            >
+              {getLunarDateCompact(date)}
+            </Text>
+          ) : null}
 
           {/* 이벤트 표시 */}
           <View style={styles.eventContainer}>
@@ -382,18 +375,26 @@ const cellHeight = useMemo(() => {
       </TouchableOpacity>
     );
 
-    // 하이라이트 셀은 Animated.View로 감싸서 테두리 깜빡임 적용
+    // 하이라이트 셀은 opacity 오버레이로 깜빡임 적용 (useNativeDriver: true 호환)
     if (isHighlighted && isBlinking) {
       return (
-        <Animated.View
-          style={{
-            borderWidth: 2,
-            borderColor: animatedBorderColor,
-            borderRadius: 4,
-          }}
-        >
+        <View style={{ position: 'relative' }}>
           {cellContent}
-        </Animated.View>
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              borderWidth: 2,
+              borderColor: isDark ? '#63a4ff' : '#007aff',
+              borderRadius: 4,
+              opacity: blinkAnim,
+            }}
+          />
+        </View>
       );
     }
 
@@ -496,6 +497,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 1,
   },
+  lunarText: {
+    fontSize: 8,
+    textAlign: 'center',
+    marginBottom: 1,
+  },
   eventContainer: {
     flex: 1,
     marginTop: 1,
@@ -543,4 +549,4 @@ const styles = StyleSheet.create({
   }
 });
 
-export default Calendar;
+export default React.memo(Calendar);

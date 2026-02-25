@@ -1,7 +1,6 @@
 // components/board/GroupSelectModal.tsx
 import React from 'react';
 import {
-  Modal,
   View,
   Text,
   TouchableOpacity,
@@ -9,6 +8,7 @@ import {
   StyleSheet,
   Pressable,
 } from 'react-native';
+import AppModal from '../AppModal';
 import { Feather } from '@expo/vector-icons';
 import { Group } from '../../services/groupService';
 
@@ -59,7 +59,7 @@ export default function GroupSelectModal({
   };
 
   return (
-    <Modal
+    <AppModal
       visible={visible}
       transparent
       animationType="slide"
@@ -98,7 +98,7 @@ export default function GroupSelectModal({
           )}
         </Pressable>
       </Pressable>
-    </Modal>
+    </AppModal>
   );
 }
 

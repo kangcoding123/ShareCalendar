@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  Modal,
   TextInput,
   ActivityIndicator,
   Alert,
@@ -16,6 +15,7 @@ import {
   useWindowDimensions,
   Platform
 } from 'react-native';
+import AppModal from '../../../components/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../../context/AuthContext';
@@ -150,7 +150,7 @@ const InviteModal = ({ visible, onClose, onSubmit, loading, colors }: InviteModa
   };
 
   return (
-    <Modal
+    <AppModal
       visible={visible}
       transparent
       animationType="slide"
@@ -205,7 +205,7 @@ const InviteModal = ({ visible, onClose, onSubmit, loading, colors }: InviteModa
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 };
 
@@ -252,7 +252,7 @@ const EditGroupModal = ({ visible, onClose, onSubmit, loading, group, colors }: 
   };
 
   return (
-    <Modal
+    <AppModal
       visible={visible}
       transparent
       animationType="slide"
@@ -323,7 +323,7 @@ const EditGroupModal = ({ visible, onClose, onSubmit, loading, group, colors }: 
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 };
 

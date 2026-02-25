@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  Modal,
   TextInput,
   ActivityIndicator,
   Alert,
@@ -16,6 +15,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard
 } from 'react-native';
+import AppModal from '../../components/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -335,7 +335,7 @@ export default function HolidaysScreen() {
       )}
       
       {/* 공휴일 추가/수정 모달 - KeyboardAvoidingView 제거 */}
-      <Modal
+      <AppModal
         visible={modalVisible}
         transparent
         animationType="slide"
@@ -458,7 +458,7 @@ export default function HolidaysScreen() {
             </ScrollView>
           </View>
         </TouchableWithoutFeedback>
-      </Modal>
+      </AppModal>
     </SafeAreaView>
   );
 }

@@ -10,13 +10,13 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
-  Modal,
   TextInput,
   useWindowDimensions,
   AppState,
   Linking,
   Pressable
 } from 'react-native';
+import AppModal from '../../components/AppModal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -499,6 +499,11 @@ export default function HomeScreen() {
     Linking.openURL('https://blog.naver.com/sjkang912');
   };
 
+  const handleOpenGuide = () => {
+    setMenuVisible(false);
+    Linking.openURL('https://sharecalendar-c8a9b.web.app/manual/manual.html');
+  };
+
   const handleMenuProfile = () => {
     setMenuVisible(false);
     handleOpenProfileModal();
@@ -651,7 +656,7 @@ const handleConfirmDeleteAccount = async () => {
       />
 
       {/* 회원탈퇴 비밀번호 입력 모달 */}
-      <Modal
+      <AppModal
         visible={deleteModalVisible}
         transparent
         animationType="fade"
@@ -710,7 +715,7 @@ const handleConfirmDeleteAccount = async () => {
             </View>
           </View>
         </View>
-      </Modal>
+      </AppModal>
 
       <View style={[styles.header, { backgroundColor: colors.headerBackground, borderBottomColor: colors.border }]}>
         <View style={styles.headerTop}>
@@ -854,7 +859,7 @@ const handleConfirmDeleteAccount = async () => {
         </View>
       </ScrollView>
       
-      <Modal
+      <AppModal
         visible={profileModalVisible}
         transparent
         animationType="fade"
@@ -950,7 +955,7 @@ const handleConfirmDeleteAccount = async () => {
             </View>
           </View>
         </View>
-      </Modal>
+      </AppModal>
       
       <PrivacyPolicyModal
         visible={privacyModalVisible}
@@ -958,14 +963,14 @@ const handleConfirmDeleteAccount = async () => {
       />
 
       {/* 드롭다운 메뉴 - Modal로 구현하여 항상 최상단에 표시 */}
-      <Modal
+      <AppModal
         visible={menuVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setMenuVisible(false)}
       >
         <Pressable
-          style={[styles.menuModalOverlay, { paddingTop: insets.top + 60 }]}
+          style={[styles.menuModalOverlay, { paddingTop: insets.top + 25 }]}
           onPress={() => setMenuVisible(false)}
         >
           <View style={[styles.dropdownMenu, { backgroundColor: colors.background, borderColor: colors.border }]}>
@@ -983,6 +988,11 @@ const handleConfirmDeleteAccount = async () => {
                 <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
               </>
             )}
+            <TouchableOpacity style={styles.menuItem} onPress={handleOpenGuide}>
+              <Feather name="book" size={18} color={colors.text} />
+              <Text style={[styles.menuItemText, { color: colors.text }]}>앱 사용가이드</Text>
+            </TouchableOpacity>
+            <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
             <TouchableOpacity style={styles.menuItem} onPress={handleOpenWebsite}>
               <Feather name="globe" size={18} color={colors.text} />
               <Text style={[styles.menuItemText, { color: colors.text }]}>공식 홈페이지</Text>
@@ -1004,7 +1014,7 @@ const handleConfirmDeleteAccount = async () => {
             </View>
           </View>
         </Pressable>
-      </Modal>
+      </AppModal>
     </SafeAreaView>
   );
 }

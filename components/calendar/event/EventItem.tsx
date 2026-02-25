@@ -295,4 +295,4 @@ const styles = StyleSheet.create({
   }
 });
 
-export default EventItem;
+export default React.memo(EventItem);

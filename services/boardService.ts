@@ -517,29 +517,37 @@ export const getUnreadPostCounts = async (
   try {
     if (groupIds.length === 0) return {};
 
-    // 사용자의 마지막 조회 시간 가져오기
-    const lastViewedAt = await getBoardLastViewedAt(userId);
+    // 마지막 조회 시간과 모든 posts를 병렬로 가져오기
+    // Firestore 'in' 쿼리는 최대 30개까지 지원
+    const chunks: string[][] = [];
+    for (let i = 0; i < groupIds.length; i += 30) {
+      chunks.push(groupIds.slice(i, i + 30));
+    }
+
+    const [lastViewedAt, ...snapshots] = await Promise.all([
+      getBoardLastViewedAt(userId),
+      ...chunks.map(chunk =>
+        nativeDb.collection('posts').where('groupId', 'in', chunk).get()
+      ),
+    ]);
+
     const counts: { [groupId: string]: number } = {};
-
+    // 초기값 설정
     for (const groupId of groupIds) {
-      const lastViewed = lastViewedAt[groupId];
+      counts[groupId] = 0;
+    }
 
-      const snapshot = await nativeDb
-        .collection('posts')
-        .where('groupId', '==', groupId)
-        .get();
-
-      // 마지막 조회 시간 이후의 게시글 수 계산 (본인 글 제외)
-      const unreadCount = snapshot.docs.filter(doc => {
+    // 모든 posts를 한번에 처리
+    for (const snapshot of snapshots) {
+      for (const doc of snapshot.docs) {
         const data = doc.data();
-        // 본인이 작성한 글은 제외
-        if (data.authorId === userId) return false;
-        const postCreatedAt = data.createdAt;
-        if (!lastViewed) return true; // 방문한 적 없으면 새 글로 처리
-        return new Date(postCreatedAt) > new Date(lastViewed);
-      }).length;
-
-      counts[groupId] = unreadCount;
+        const groupId = data.groupId;
+        if (data.authorId === userId) continue;
+        const lastViewed = lastViewedAt[groupId];
+        if (!lastViewed || new Date(data.createdAt) > new Date(lastViewed)) {
+          counts[groupId] = (counts[groupId] || 0) + 1;
+        }
+      }
     }
 
     return counts;
@@ -602,44 +610,28 @@ export const hasAnyUnreadComments = async (
     // 사용자의 게시글별 마지막 조회 시간 가져오기
     const postLastViewedAt = await getPostLastViewedAt(userId);
 
-    // 각 그룹의 모든 게시글 확인
-    for (const groupId of groupIds) {
-      // 그룹의 모든 게시글 조회
-      const postsSnapshot = await nativeDb
-        .collection('posts')
-        .where('groupId', '==', groupId)
-        .get();
+    // 모든 그룹을 병렬 조회
+    const results = await Promise.all(groupIds.map(async (groupId) => {
+      const [postsSnapshot, commentsSnapshot] = await Promise.all([
+        nativeDb.collection('posts').where('groupId', '==', groupId).get(),
+        nativeDb.collection('comments').where('groupId', '==', groupId).get(),
+      ]);
 
-      if (postsSnapshot.empty) continue;
+      if (postsSnapshot.empty || commentsSnapshot.empty) return false;
 
-      // 각 게시글의 댓글 확인
-      for (const postDoc of postsSnapshot.docs) {
-        const postId = postDoc.id;
-        const lastViewed = postLastViewedAt[postId];
+      const postIds = new Set(postsSnapshot.docs.map(doc => doc.id));
 
-        // 해당 게시글의 댓글 조회
-        const commentsSnapshot = await nativeDb
-          .collection('comments')
-          .where('postId', '==', postId)
-          .get();
+      return commentsSnapshot.docs.some(commentDoc => {
+        const commentData = commentDoc.data();
+        if (!postIds.has(commentData.postId)) return false;
+        if (commentData.authorId === userId) return false;
+        const lastViewed = postLastViewedAt[commentData.postId];
+        if (!lastViewed) return true;
+        return new Date(commentData.createdAt) > new Date(lastViewed);
+      });
+    }));
 
-        if (commentsSnapshot.empty) continue;
-
-        // 마지막 조회 이후의 새 댓글이 있는지 확인 (본인 댓글 제외)
-        const hasNewComment = commentsSnapshot.docs.some(commentDoc => {
-          const commentData = commentDoc.data();
-          // 본인이 작성한 댓글은 제외
-          if (commentData.authorId === userId) return false;
-          const commentCreatedAt = commentData.createdAt;
-          if (!lastViewed) return true; // 한번도 조회한 적 없으면 새 댓글로 처리
-          return new Date(commentCreatedAt) > new Date(lastViewed);
-        });
-
-        if (hasNewComment) return true;
-      }
-    }
-
-    return false;
+    return results.some(r => r);
   } catch (error) {
     console.error('[hasAnyUnreadComments] 오류:', error);
     return false;
@@ -661,49 +653,33 @@ export const getUnreadCommentCountsByGroup = async (
     const postLastViewedAt = await getPostLastViewedAt(userId);
     const counts: { [groupId: string]: number } = {};
 
-    // 각 그룹의 모든 게시글 확인
-    for (const groupId of groupIds) {
-      let groupUnreadCount = 0;
-
-      // 그룹의 모든 게시글 조회
-      const postsSnapshot = await nativeDb
-        .collection('posts')
-        .where('groupId', '==', groupId)
-        .get();
+    // 각 그룹별로 게시글 + 댓글을 병렬 조회 (N+1 제거)
+    await Promise.all(groupIds.map(async (groupId) => {
+      const [postsSnapshot, commentsSnapshot] = await Promise.all([
+        nativeDb.collection('posts').where('groupId', '==', groupId).get(),
+        nativeDb.collection('comments').where('groupId', '==', groupId).get(),
+      ]);
 
       if (postsSnapshot.empty) {
         counts[groupId] = 0;
-        continue;
+        return;
       }
 
-      // 각 게시글의 댓글 수 계산
-      for (const postDoc of postsSnapshot.docs) {
-        const postId = postDoc.id;
-        const lastViewed = postLastViewedAt[postId];
+      const postIds = new Set(postsSnapshot.docs.map(doc => doc.id));
+      let groupUnreadCount = 0;
 
-        // 해당 게시글의 댓글 조회
-        const commentsSnapshot = await nativeDb
-          .collection('comments')
-          .where('postId', '==', postId)
-          .get();
-
-        if (commentsSnapshot.empty) continue;
-
-        // 마지막 조회 이후의 새 댓글 수 계산 (본인 댓글 제외)
-        const unreadCount = commentsSnapshot.docs.filter(commentDoc => {
-          const commentData = commentDoc.data();
-          // 본인이 작성한 댓글은 제외
-          if (commentData.authorId === userId) return false;
-          const commentCreatedAt = commentData.createdAt;
-          if (!lastViewed) return true; // 한번도 조회한 적 없으면 새 댓글로 처리
-          return new Date(commentCreatedAt) > new Date(lastViewed);
-        }).length;
-
-        groupUnreadCount += unreadCount;
+      for (const commentDoc of commentsSnapshot.docs) {
+        const commentData = commentDoc.data();
+        if (!postIds.has(commentData.postId)) continue;
+        if (commentData.authorId === userId) continue;
+        const lastViewed = postLastViewedAt[commentData.postId];
+        if (!lastViewed || new Date(commentData.createdAt) > new Date(lastViewed)) {
+          groupUnreadCount++;
+        }
       }
 
       counts[groupId] = groupUnreadCount;
-    }
+    }));
 
     return counts;
   } catch (error) {
@@ -727,45 +703,35 @@ export const getUnreadCommentCounts = async (
     const postLastViewedAt = await getPostLastViewedAt(userId);
     const counts: { [postId: string]: number } = {};
 
-    // 각 그룹의 모든 게시글 확인
-    for (const groupId of groupIds) {
-      // 그룹의 모든 게시글 조회
-      const postsSnapshot = await nativeDb
-        .collection('posts')
-        .where('groupId', '==', groupId)
-        .get();
+    // 각 그룹별로 게시글 + 댓글을 병렬 조회 (N+1 제거)
+    await Promise.all(groupIds.map(async (groupId) => {
+      // 게시글과 댓글을 동시에 조회
+      const [postsSnapshot, commentsSnapshot] = await Promise.all([
+        nativeDb.collection('posts').where('groupId', '==', groupId).get(),
+        nativeDb.collection('comments').where('groupId', '==', groupId).get(),
+      ]);
 
-      if (postsSnapshot.empty) continue;
+      if (postsSnapshot.empty) return;
 
-      // 각 게시글의 댓글 수 계산
-      for (const postDoc of postsSnapshot.docs) {
-        const postId = postDoc.id;
-        const lastViewed = postLastViewedAt[postId];
+      // postId별로 게시글 목록 생성
+      const postIds = new Set(postsSnapshot.docs.map(doc => doc.id));
 
-        // 해당 게시글의 댓글 조회
-        const commentsSnapshot = await nativeDb
-          .collection('comments')
-          .where('postId', '==', postId)
-          .get();
-
-        if (commentsSnapshot.empty) {
-          counts[postId] = 0;
-          continue;
-        }
-
-        // 마지막 조회 이후의 새 댓글 수 계산 (본인 댓글 제외)
-        const unreadCount = commentsSnapshot.docs.filter(commentDoc => {
-          const commentData = commentDoc.data();
-          // 본인이 작성한 댓글은 제외
-          if (commentData.authorId === userId) return false;
-          const commentCreatedAt = commentData.createdAt;
-          if (!lastViewed) return true; // 한번도 조회한 적 없으면 새 댓글로 처리
-          return new Date(commentCreatedAt) > new Date(lastViewed);
-        }).length;
-
-        counts[postId] = unreadCount;
+      // 댓글을 postId별로 분류하여 읽지않음 수 계산
+      for (const postId of postIds) {
+        counts[postId] = 0;
       }
-    }
+
+      for (const commentDoc of commentsSnapshot.docs) {
+        const commentData = commentDoc.data();
+        const postId = commentData.postId;
+        if (!postIds.has(postId)) continue;
+        if (commentData.authorId === userId) continue;
+        const lastViewed = postLastViewedAt[postId];
+        if (!lastViewed || new Date(commentData.createdAt) > new Date(lastViewed)) {
+          counts[postId] = (counts[postId] || 0) + 1;
+        }
+      }
+    }));
 
     return counts;
   } catch (error) {

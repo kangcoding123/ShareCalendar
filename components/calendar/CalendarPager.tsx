@@ -1,17 +1,20 @@
 // components/calendar/CalendarPager.tsx
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  FlatList, 
-  ColorSchemeName, 
-  Dimensions, 
+import {
+  StyleSheet,
+  View,
+  FlatList,
+  ColorSchemeName,
+  Dimensions,
   ViewToken,
   LayoutAnimation,
   Platform,
   UIManager,
   NativeSyntheticEvent,
-  NativeScrollEvent
+  NativeScrollEvent,
+  Modal,
+  Text,
+  TouchableOpacity,
 } from 'react-native';
 import { addMonths, format, isSameMonth } from 'date-fns';
 import Calendar from './Calendar';
@@ -79,8 +82,15 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   
-  // 🔥 추가: 공휴일 상태
-  const [holidays, setHolidays] = useState<Record<string, Holiday>>({});
+  // 년/월 선택 모달 상태
+  const [monthPickerVisible, setMonthPickerVisible] = useState(false);
+  const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+
+  // 🔥 추가: 공휴일 상태 - 정적 공휴일로 즉시 초기화 (Firestore 응답 전에도 표시)
+  const [holidays, setHolidays] = useState<Record<string, Holiday>>(() => {
+    const now = initialMonth || new Date();
+    return getHolidaysForYear(now.getFullYear());
+  });
   const loadedYears = useRef<Set<number>>(new Set());
   // 🔥 추가: 현재 로딩 중인 연도 추적
   const loadingYears = useRef<Set<number>>(new Set());
@@ -113,7 +123,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
   const loadHolidaysForYear = useCallback(async (year: number, forceReload: boolean = false) => {
     // 🔥 강제 새로고침이면 무조건 로드
     if (forceReload) {
-      console.log(`[CalendarPager] ${year}년 공휴일 강제 새로고침`);
+      if (__DEV__) console.log(`[CalendarPager] ${year}년 공휴일 강제 새로고침`);
     } else if (loadedYears.current.has(year) || loadingYears.current.has(year)) {
       return;
     }
@@ -122,7 +132,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     loadingYears.current.add(year);
     
     try {
-      console.log(`[CalendarPager] ${year}년 공휴일 로드 시작`);
+      if (__DEV__) console.log(`[CalendarPager] ${year}년 공휴일 로드 시작`);
       const yearHolidays = await getAllHolidaysForYear(year);
       
       setHolidays(prev => ({
@@ -131,7 +141,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
       }));
       
       loadedYears.current.add(year);
-      console.log(`[CalendarPager] ${year}년 공휴일 로드 완료:`, Object.keys(yearHolidays).length, '개');
+      if (__DEV__) console.log(`[CalendarPager] ${year}년 공휴일 로드 완료:`, Object.keys(yearHolidays).length, '개');
     } catch (error) {
       console.error(`[CalendarPager] ${year}년 공휴일 로드 오류:`, error);
       // 오류 시 정적 데이터 사용
@@ -147,7 +157,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
       loadingYears.current.delete(year);
     }
   }, []);
-  
+
   // 🔥 추가: 현재 보이는 월들의 연도 공휴일 로드
   const loadHolidaysForVisibleMonths = useCallback(async (centerMonth: Date, forceReload: boolean = false) => {
     const years = new Set<number>();
@@ -158,20 +168,22 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
       years.add(month.getFullYear());
     }
     
-    // 각 연도의 공휴일 로드
-    for (const year of years) {
-      await loadHolidaysForYear(year, forceReload);
-    }
+    // 각 연도의 공휴일 병렬 로드
+    await Promise.all(
+      Array.from(years).map(year => loadHolidaysForYear(year, forceReload))
+    );
   }, [loadHolidaysForYear]);
   
   // 🔥 수정: 초기 공휴일 로드 + 새로고침
   useEffect(() => {
     // refreshHolidaysKey가 변경되면 캐시 초기화
     if (refreshHolidaysKey && refreshHolidaysKey > 0) {
-      console.log('[CalendarPager] 공휴일 새로고침 트리거:', refreshHolidaysKey);
+      if (__DEV__) console.log('[CalendarPager] 공휴일 새로고침 트리거:', refreshHolidaysKey);
       loadedYears.current.clear(); // 캐시 초기화!
       loadingYears.current.clear(); // 로딩 상태도 초기화
-      setHolidays({}); // 기존 공휴일 초기화
+      // 정적 공휴일로 리셋 (임시 공휴일만 제거, 화면 깜빡임 방지)
+      const baseYear = currentMonth.getFullYear();
+      setHolidays(getHolidaysForYear(baseYear));
       
       // 즉시 새로고침
       loadHolidaysForVisibleMonths(currentMonth, true);
@@ -333,7 +345,52 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
       }, 50);
     }
   };
-  
+
+  // 년/월 선택 모달에서 특정 월로 이동
+  const navigateToMonth = useCallback((year: number, month: number) => {
+    const targetDate = new Date(year, month, 1);
+
+    log(`Month picker navigation to: ${format(targetDate, 'yyyy-MM')}`);
+
+    updateSourceRef.current = 'button';
+
+    // 현재 월 상태 업데이트
+    setCurrentMonth(targetDate);
+
+    // 주변 월 프리로드
+    preloadMonth(addMonths(targetDate, -1));
+    preloadMonth(addMonths(targetDate, 1));
+
+    // 월 배열 재생성
+    setMonths(generateMonths(targetDate));
+
+    // 스크롤 위치 중앙으로 설정
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToIndex({
+            index: initialIndex,
+            animated: false
+          });
+        }
+      }, 100);
+    });
+
+    // 월 변경 콜백 호출
+    if (onMonthChange) {
+      onMonthChange(targetDate);
+    }
+
+    // 모달 닫기
+    setMonthPickerVisible(false);
+  }, [onMonthChange, preloadMonth]);
+
+  // 헤더 터치 시 년/월 선택 모달 열기
+  const handleHeaderPress = useCallback(() => {
+    setPickerYear(currentMonth.getFullYear());
+    setMonthPickerVisible(true);
+  }, [currentMonth]);
+
   // highlightDate가 변경될 때 해당 월로 이동
   // highlightKey를 의존성에 추가하여 같은 날짜도 재클릭 시 이동
   useEffect(() => {
@@ -358,18 +415,16 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     // 월 배열 업데이트
     setMonths(generateMonths(newMonth));
 
-    // 스크롤 위치 중앙으로 설정 - 렌더링 완료 후 실행되도록 충분한 딜레이
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        if (flatListRef.current) {
-          log(`Scrolling to index: ${initialIndex}`);
-          flatListRef.current.scrollToIndex({
-            index: initialIndex,
-            animated: false
-          });
-        }
-      }, 100);
-    });
+    // 스크롤 위치 중앙으로 설정 - 렌더링 최소 시간만 확보
+    setTimeout(() => {
+      if (flatListRef.current) {
+        log(`Scrolling to index: ${initialIndex}`);
+        flatListRef.current.scrollToIndex({
+          index: initialIndex,
+          animated: false
+        });
+      }
+    }, 50);
   }, [highlightDate, highlightKey]);
   
   // 🔥 수정: 현재 보이는 아이템이 변경될 때 - 공휴일 로드 추가
@@ -464,6 +519,7 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
             highlightEndDate={highlightEndDate}
             bottomInset={bottomInset}
             containerHeight={containerHeightProp}
+            onHeaderPress={handleHeaderPress}
           />
         </View>
       </View>
@@ -492,6 +548,20 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
     }
   }, [preloadMonth]);
   
+  const isDark = colorScheme === 'dark';
+  const pickerColors = {
+    background: isDark ? '#1e1e1e' : '#ffffff',
+    text: isDark ? '#ffffff' : '#333333',
+    subText: isDark ? '#aaaaaa' : '#666666',
+    border: isDark ? '#333333' : '#eeeeee',
+    tint: isDark ? '#4e7bd4' : '#3c66af',
+    selectedBg: isDark ? '#4e7bd4' : '#3c66af',
+    overlay: 'rgba(0, 0, 0, 0.5)',
+    yearBg: isDark ? '#2c2c2c' : '#f5f5f5',
+  };
+
+  const MONTH_LABELS = ['1월', '2월', '3월', '4월', '5월', '6월', '7월', '8월', '9월', '10월', '11월', '12월'];
+
   return (
     <View style={styles.container}>
       <FlatList
@@ -526,18 +596,101 @@ const CalendarPager: React.FC<CalendarPagerProps> = ({
         scrollEventThrottle={16}
         contentContainerStyle={styles.flatListContent}
       />
+
+      {/* 년/월 선택 모달 */}
+      <Modal
+        visible={monthPickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMonthPickerVisible(false)}
+      >
+        <TouchableOpacity
+          style={[styles.modalOverlay, { backgroundColor: pickerColors.overlay }]}
+          activeOpacity={1}
+          onPress={() => setMonthPickerVisible(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => {}}
+            style={[styles.pickerContainer, { backgroundColor: pickerColors.background }]}
+          >
+            {/* 년도 선택 */}
+            <View style={[styles.yearSection, { borderBottomColor: pickerColors.border }]}>
+              <TouchableOpacity
+                onPress={() => setPickerYear(prev => prev - 1)}
+                style={styles.yearArrow}
+              >
+                <Text style={[styles.yearArrowText, { color: pickerColors.tint }]}>◀</Text>
+              </TouchableOpacity>
+              <Text style={[styles.yearText, { color: pickerColors.text }]}>
+                {pickerYear}년
+              </Text>
+              <TouchableOpacity
+                onPress={() => setPickerYear(prev => prev + 1)}
+                style={styles.yearArrow}
+              >
+                <Text style={[styles.yearArrowText, { color: pickerColors.tint }]}>▶</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* 월 선택 그리드 (3x4) */}
+            <View style={styles.monthGrid}>
+              {MONTH_LABELS.map((label, index) => {
+                const isSelected = pickerYear === currentMonth.getFullYear() && index === currentMonth.getMonth();
+                const isToday = pickerYear === new Date().getFullYear() && index === new Date().getMonth();
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.monthCell,
+                      isSelected && { backgroundColor: pickerColors.selectedBg },
+                      isToday && !isSelected && { borderColor: pickerColors.tint, borderWidth: 1 },
+                    ]}
+                    onPress={() => navigateToMonth(pickerYear, index)}
+                    activeOpacity={0.6}
+                  >
+                    <Text
+                      style={[
+                        styles.monthCellText,
+                        { color: pickerColors.text },
+                        isSelected && { color: '#ffffff', fontWeight: '700' },
+                        isToday && !isSelected && { color: pickerColors.tint, fontWeight: '600' },
+                      ]}
+                    >
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* 오늘로 이동 버튼 */}
+            <TouchableOpacity
+              style={[styles.todayButton, { borderTopColor: pickerColors.border }]}
+              onPress={() => {
+                const now = new Date();
+                navigateToMonth(now.getFullYear(), now.getMonth());
+              }}
+              activeOpacity={0.6}
+            >
+              <Text style={[styles.todayButtonText, { color: pickerColors.tint }]}>
+                오늘로 이동
+              </Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1, // ✅ 부모 컨테이너의 전체 높이를 차지하도록 설정
+    flex: 1,
     width: '100%',
     backgroundColor: 'transparent',
   },
   flatListContent: {
-    // 스크롤 컨텐츠 스타일
   },
   pageContainer: {
     alignItems: 'center',
@@ -547,7 +700,75 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     paddingHorizontal: 0
-  }
+  },
+  // 년/월 선택 모달 스타일
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerContainer: {
+    width: 300,
+    borderRadius: 16,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.25,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  yearSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  yearArrow: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  yearArrowText: {
+    fontSize: 16,
+  },
+  yearText: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  monthGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 12,
+  },
+  monthCell: {
+    width: '25%',
+    paddingVertical: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 10,
+  },
+  monthCellText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  todayButton: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  todayButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });
 
-export default CalendarPager;
+export default React.memo(CalendarPager);

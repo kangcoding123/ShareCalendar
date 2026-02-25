@@ -146,7 +146,7 @@ const AdMobBanner = memo(({ size = 'banner' }: AdMobBannerProps) => {
 
   try {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { height: 60 }]}>
         <BannerAd
           unitId={unitId}
           size={BannerAdSize?.ANCHORED_ADAPTIVE_BANNER || 'ANCHORED_ADAPTIVE_BANNER'}

@@ -18,6 +18,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import PrivacyPolicyModal from '../../components/PrivacyPolicyModal';
+import TermsOfServiceModal from '../../components/TermsOfServiceModal';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -45,6 +46,7 @@ export default function RegisterScreen() {
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [ageAgreed, setAgeAgreed] = useState(false);
   const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+  const [termsModalVisible, setTermsModalVisible] = useState(false);
 
   const validate = () => {
     const newErrors: {
@@ -257,7 +259,12 @@ export default function RegisterScreen() {
                   {termsAgreed && <Text style={{ color: colors.tint }}>✓</Text>}
                 </View>
                 <Text style={[styles.agreementText, { color: colors.text }]}>
-                  [필수] 이용약관에 동의합니다
+                  [필수] <Text
+                    style={{ color: colors.tint, textDecorationLine: 'underline' }}
+                    onPress={() => setTermsModalVisible(true)}
+                  >
+                    이용약관
+                  </Text>에 동의합니다
                 </Text>
               </TouchableOpacity>
 
@@ -321,6 +328,11 @@ export default function RegisterScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
       
+      {/* 이용약관 모달 */}
+      <TermsOfServiceModal
+        visible={termsModalVisible}
+        onClose={() => setTermsModalVisible(false)}
+      />
       {/* 개인정보처리방침 모달 */}
       <PrivacyPolicyModal
         visible={privacyModalVisible}

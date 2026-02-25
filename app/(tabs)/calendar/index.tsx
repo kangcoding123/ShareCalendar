@@ -1,5 +1,5 @@
 // app/(tabs)/calendar/index.tsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -26,6 +26,9 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { format } from 'date-fns';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const CALENDAR_HEIGHT_KEY = '@calendar_area_height';
 
 // 컴포넌트
 import CalendarPager from '../../../components/calendar/CalendarPager';
@@ -38,14 +41,11 @@ function CalendarScreen() {
   const insets = useSafeAreaInsets();
   const { highlightDate, highlightEndDate, highlightKey } = useLocalSearchParams<{ highlightDate?: string; highlightEndDate?: string; highlightKey?: string }>();
 
-  // 디버깅: insets 값 확인
-  console.log(`[CalendarScreen] insets: top=${insets.top}, bottom=${insets.bottom}`);
-
   const { groupedEvents, groups, isFromCache, refreshAll } = useEvents();
   
   // 색상 테마 설정
   const colorScheme = useColorScheme();
-  const colors = Colors[colorScheme || 'light'];
+  const colors = useMemo(() => Colors[colorScheme || 'light'], [colorScheme]);
   
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,12 +72,22 @@ function CalendarScreen() {
   // 모달 상태 추적
   const isModalOpenRef = useRef(false);
 
-  // ✅ 캘린더 영역 높이 측정 - 화면 높이 기반 초기값 설정 (깜빡임 방지)
-  const { height: screenHeight } = Dimensions.get('window');
-  const [calendarAreaHeight, setCalendarAreaHeight] = useState(() => {
-    // 광고 배너(약 60px) + 탭바(약 80px) + SafeArea 여백 제외한 초기값
-    return screenHeight - 150;
-  });
+  // 캘린더 영역 높이 - 저장된 높이를 사용하여 출렁임 방지
+  const [calendarAreaHeight, setCalendarAreaHeight] = useState(0);
+  const [heightReady, setHeightReady] = useState(false);
+
+  // AsyncStorage에서 저장된 높이 불러오기
+  useEffect(() => {
+    AsyncStorage.getItem(CALENDAR_HEIGHT_KEY).then(saved => {
+      if (saved) {
+        const savedHeight = parseFloat(saved);
+        if (savedHeight > 0) {
+          setCalendarAreaHeight(savedHeight);
+        }
+      }
+      setHeightReady(true);
+    });
+  }, []);
 
   // highlightDate 파라미터가 있으면 해당 월로 이동하고 하이라이트 설정
   // highlightKey를 의존성에 추가하여 같은 날짜를 다시 클릭해도 애니메이션 재실행
@@ -111,18 +121,17 @@ function CalendarScreen() {
   // 공휴일 변경 감지 리스너 - Native SDK 사용
   useEffect(() => {
     let isFirstSnapshot = true;
-    
+
     const unsubscribe = nativeDb.collection('temporary_holidays').onSnapshot(
       (snapshot) => {
         if (isFirstSnapshot) {
           isFirstSnapshot = false;
           return;
         }
-        
+
         if (!snapshot.empty) {
-          console.log('[CalendarScreen] 공휴일 변경 감지 - 새로고침');
-          console.log('변경 타입:', snapshot.docChanges().map(change => change.type));
-          
+          if (__DEV__) console.log('[CalendarScreen] 공휴일 변경 감지 - 새로고침');
+
           setTimeout(() => {
             setHolidaysRefreshKey(prev => prev + 1);
           }, 500);
@@ -132,7 +141,7 @@ function CalendarScreen() {
         console.error('[CalendarScreen] 공휴일 리스너 오류:', error);
       }
     );
-    
+
     return () => unsubscribe();
   }, []);
 
@@ -143,7 +152,7 @@ function CalendarScreen() {
         return prev;
       }
       
-      console.log(`[CalendarScreen] 월 변경: ${format(month, 'yyyy-MM')}`);
+      if (__DEV__) console.log(`[CalendarScreen] 월 변경: ${format(month, 'yyyy-MM')}`);
       return month;
     });
   }, []);
@@ -152,18 +161,15 @@ function CalendarScreen() {
   useFocusEffect(
     useCallback(() => {
       if (isModalOpenRef.current) {
-        console.log('모달 열려있음 - 포커스 이벤트 무시');
         return;
       }
-      
-      console.log('캘린더 화면 포커스');
       return () => {};
     }, [])
   );
 
   // 디버깅용 정보 로그
   useEffect(() => {
-    console.log(`[디버깅] Platform: ${Platform.OS}, isEmulator: ${__DEV__}, colorScheme: ${colorScheme}`);
+    if (__DEV__) console.log(`[디버깅] Platform: ${Platform.OS}, colorScheme: ${colorScheme}`);
   }, [colorScheme]);
   
   // 새로고침 핸들러
@@ -173,17 +179,22 @@ function CalendarScreen() {
     setRefreshing(false);
   }, [refreshAll]);
   
-  // groupedEvents가 변경되면 selectedDateEvents도 업데이트
+  // groupedEvents가 변경되면 selectedDateEvents도 업데이트 (실제 변경 시에만)
   useEffect(() => {
     if (selectedDate && modalVisible) {
       const dateEvents = groupedEvents[selectedDate.formattedDate] || [];
-      setSelectedDateEvents(dateEvents);
+      setSelectedDateEvents(prev => {
+        if (prev.length !== dateEvents.length) return dateEvents;
+        const prevIds = prev.map(e => e.id).join(',');
+        const newIds = dateEvents.map(e => e.id).join(',');
+        return prevIds === newIds ? prev : dateEvents;
+      });
     }
   }, [groupedEvents, selectedDate, modalVisible]);
 
   // 날짜 선택 핸들러
   const handleDayPress = useCallback((day: CalendarDay, dayEvents: CalendarEvent[]) => {
-    console.log('[handleDayPress] 날짜 선택:', day.formattedDate);
+    if (__DEV__) console.log('[handleDayPress] 날짜 선택:', day.formattedDate);
     setSelectedDate(day);
 
     // groupedEvents에서 해당 날짜 이벤트 가져오기
@@ -191,15 +202,12 @@ function CalendarScreen() {
     setSelectedDateEvents(dateEvents);
 
     isModalOpenRef.current = true;
-
-    requestAnimationFrame(() => {
-      setModalVisible(true);
-    });
+    setModalVisible(true);
   }, [groupedEvents]);
   
   // 이벤트 업데이트 핸들러
   const handleEventUpdated = useCallback((action: string, eventData: any) => {
-    console.log('Event updated:', action, eventData);
+    if (__DEV__) console.log('Event updated:', action, eventData);
     
     if (action === 'delete') {
       setModalVisible(false);
@@ -259,7 +267,7 @@ function CalendarScreen() {
       </View>
       
       <View
-        style={styles.calendarWrapper}
+        style={[styles.calendarWrapper, { opacity: heightReady ? 1 : 0 }]}
         onLayout={(event) => {
           // 모달이 열려있는 동안에는 높이 업데이트 무시 (깜빡임 방지)
           if (isModalOpenRef.current) {
@@ -268,8 +276,8 @@ function CalendarScreen() {
 
           const { height } = event.nativeEvent.layout;
           if (height > 0 && Math.abs(height - calendarAreaHeight) > 1) {
-            console.log(`[CalendarScreen] calendarWrapper height: ${height}`);
             setCalendarAreaHeight(height);
+            AsyncStorage.setItem(CALENDAR_HEIGHT_KEY, height.toString());
           }
         }}
       >
@@ -328,20 +336,18 @@ function CalendarScreen() {
         </View>
       )}
       
-      {selectedDate && (
-        <EventDetailModal
-          visible={modalVisible}
-          selectedDate={selectedDate}
-          events={selectedDateEvents}
-          groups={groups}
-          userId={user?.uid || ''}
-          user={user}
-          onClose={handleCloseModal}
-          onEventUpdated={handleEventUpdated}
-          colorScheme={colorScheme}
-          colors={colors}
-        />
-      )}
+      <EventDetailModal
+        visible={modalVisible}
+        selectedDate={selectedDate}
+        events={selectedDateEvents}
+        groups={groups}
+        userId={user?.uid || ''}
+        user={user}
+        onClose={handleCloseModal}
+        onEventUpdated={handleEventUpdated}
+        colorScheme={colorScheme}
+        colors={colors}
+      />
     </SafeAreaView>
   );
 }

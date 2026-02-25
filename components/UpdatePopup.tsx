@@ -1,14 +1,14 @@
 // components/UpdatePopup.tsx
 import React from 'react';
-import { 
-  Modal, 
-  View, 
-  Text, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  TouchableOpacity,
   StyleSheet,
   Platform,
   ScrollView
 } from 'react-native';
+import AppModal from './AppModal';
 import { openUpdateLink, downloadAndInstallApk } from '../services/updateService';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Colors } from '@/constants/Colors';
@@ -53,7 +53,7 @@ const UpdatePopup = ({ visible, versionInfo, isRequired, onClose }: UpdatePopupP
   }
 
   return (
-    <Modal
+    <AppModal
       visible={visible}
       transparent={true}
       animationType="fade"
@@ -107,7 +107,7 @@ const UpdatePopup = ({ visible, versionInfo, isRequired, onClose }: UpdatePopupP
           )}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 };
 

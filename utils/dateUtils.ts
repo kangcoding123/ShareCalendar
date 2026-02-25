@@ -1,7 +1,26 @@
 // utils/dateUtils.ts
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay } from 'date-fns';
 import { ko } from 'date-fns/locale';
+import KoreanLunarCalendar from 'korean-lunar-calendar';
 import { CalendarEvent } from '../services/calendarService';
+
+// 음력 변환 싱글톤 인스턴스 + 캐시 (매번 new 생성 방지)
+const lunarCalInstance = new KoreanLunarCalendar();
+const lunarCache = new Map<string, { month: number; day: number }>();
+
+function getLunarData(date: Date): { month: number; day: number } {
+  const y = date.getFullYear();
+  const m = date.getMonth() + 1;
+  const d = date.getDate();
+  const key = `${y}-${m}-${d}`;
+  const cached = lunarCache.get(key);
+  if (cached) return cached;
+  lunarCalInstance.setSolarDate(y, m, d);
+  const lunar = lunarCalInstance.getLunarCalendar();
+  const result = { month: lunar.month, day: lunar.day };
+  lunarCache.set(key, result);
+  return result;
+}
 
 // 타입 정의
 export interface CalendarDay {
@@ -124,6 +143,36 @@ export const getDatesBetween = (startDate: string, endDate: string): string[] =>
   }
   
   return dates;
+};
+
+/**
+ * 양력 날짜를 음력 문자열로 변환 (짧은 형태)
+ * @param date - 양력 날짜
+ * @returns "음 12.15" 형태의 문자열
+ */
+export const getLunarDateShort = (date: Date): string => {
+  const lunar = getLunarData(date);
+  return `음 ${lunar.month}.${lunar.day}`;
+};
+
+/**
+ * 양력 날짜를 음력 문자열로 변환 (숫자만)
+ * @param date - 양력 날짜
+ * @returns "12.15" 형태의 문자열
+ */
+export const getLunarDateCompact = (date: Date): string => {
+  const lunar = getLunarData(date);
+  return `${lunar.month}.${lunar.day}`;
+};
+
+/**
+ * 양력 날짜를 음력 문자열로 변환 (긴 형태)
+ * @param date - 양력 날짜
+ * @returns "음력 12월 15일" 형태의 문자열
+ */
+export const getLunarDateLong = (date: Date): string => {
+  const lunar = getLunarData(date);
+  return `음력 ${lunar.month}월 ${lunar.day}일`;
 };
 
 /**

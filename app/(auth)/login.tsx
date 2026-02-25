@@ -11,8 +11,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Modal
 } from 'react-native';
+import AppModal from '../../components/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '../../context/AuthContext';
@@ -261,7 +261,7 @@ const handleLogin = async () => {
       </KeyboardAvoidingView>
       
       {/* 비밀번호 재설정 모달 */}
-      <Modal
+      <AppModal
         visible={forgotPasswordVisible}
         transparent
         animationType="fade"
@@ -332,7 +332,7 @@ const handleLogin = async () => {
             </View>
           </View>
         </View>
-      </Modal>
+      </AppModal>
       
       {/* 개인정보처리방침 모달 추가 */}
       <PrivacyPolicyModal

@@ -1,5 +1,5 @@
 // app/(tabs)/board/index.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,11 +17,12 @@ import { Feather } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useAuth } from '@/context/AuthContext';
+import { useEvents } from '@/context/EventContext';
 import { Post } from '@/types/board';
 import { checkGroupOwnership, updateBoardLastViewed, getUnreadCommentCounts, getUnreadPostCounts } from '@/services/boardService';
 import { nativeDb } from '@/config/firebase';
 import PostItem from '@/components/board/PostItem';
-import { Group, getUserGroups } from '@/services/groupService';
+import { Group } from '@/services/groupService';
 
 export default function BoardListScreen() {
   const router = useRouter();
@@ -29,6 +30,7 @@ export default function BoardListScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
   const { user } = useAuth();
+  const { groups: eventGroups } = useEvents();
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,47 +55,54 @@ export default function BoardListScreen() {
     }
   }, [paramGroupId, paramGroupName]);
 
-  // 그룹 목록 로드 함수
+  // 그룹 목록 로드 함수 (EventContext에서 이미 로드된 데이터 재사용)
   const loadGroups = useCallback(async () => {
     if (selectedGroupId || !user?.uid) {
       setGroupsLoading(false);
       return;
     }
 
-    setGroupsLoading(true);
+    const startTime = Date.now();
     try {
-      const result = await getUserGroups(user.uid);
-      if (result.success && result.groups) {
-        const userGroups = result.groups as Group[];
+      // EventContext에서 이미 로드된 그룹 데이터 재사용
+      if (eventGroups && eventGroups.length > 0) {
+        const userGroups: Group[] = eventGroups.map((g: any) => ({
+          id: g.id,
+          name: g.name || '',
+          createdBy: g.createdBy || '',
+          description: g.description || '',
+          memberCount: g.memberCount || 0,
+          createdAt: g.createdAt || '',
+          role: g.role || 'member',
+          color: g.color || '#4CAF50',
+        }));
+        console.log(`[Board] 그룹 로드 (EventContext 재사용): ${Date.now() - startTime}ms`);
         setGroups(userGroups);
+        setGroupsLoading(false); // 그룹 목록 즉시 표시
 
-        // 읽지 않은 게시글 수 로드
-        if (userGroups.length > 0) {
-          const groupIds = userGroups.map(g => g.id);
-          const counts = await getUnreadPostCounts(user.uid, groupIds);
-          setUnreadPostCounts(counts);
-        }
+        // 읽지 않은 게시글 수는 백그라운드에서 로드 (스피너 없이)
+        const groupIds = userGroups.map(g => g.id);
+        const t2 = Date.now();
+        const counts = await getUnreadPostCounts(user.uid, groupIds);
+        console.log(`[Board] 읽지않은 게시글 카운트: ${Date.now() - t2}ms`);
+        setUnreadPostCounts(counts);
+      } else {
+        setGroupsLoading(false);
       }
     } catch (error) {
       console.error('그룹 로드 오류:', error);
-    } finally {
       setGroupsLoading(false);
     }
-  }, [selectedGroupId, user?.uid]);
+  }, [selectedGroupId, user?.uid, eventGroups]);
 
-  // 초기 로드
+  // selectedGroupId 변경 또는 eventGroups 로드 시 그룹 목록 로드
   useEffect(() => {
-    loadGroups();
-  }, [loadGroups]);
-
-  // 화면 포커스 시 그룹 목록 새로고침 (새 그룹 생성 후 게시판 탭 이동 시 반영)
-  useFocusEffect(
-    useCallback(() => {
-      if (!selectedGroupId && user?.uid) {
-        loadGroups();
-      }
-    }, [selectedGroupId, user?.uid, loadGroups])
-  );
+    if (!selectedGroupId && user?.uid) {
+      loadGroups();
+    } else if (!user?.uid) {
+      setGroupsLoading(false);
+    }
+  }, [selectedGroupId, user?.uid, loadGroups]);
 
   // 그룹 선택 핸들러
   const handleSelectGroup = (gId: string, gName: string) => {
@@ -111,7 +120,6 @@ export default function BoardListScreen() {
     setSelectedGroupName(null);
     setPosts([]);
     setLoading(true);
-    setGroupsLoading(true);
   }, [user?.uid, selectedGroupId]);
 
   // 실시간 리스너로 게시글 감지
@@ -167,7 +175,9 @@ export default function BoardListScreen() {
     if (!user?.uid || !selectedGroupId) return;
 
     try {
+      const t = Date.now();
       const counts = await getUnreadCommentCounts(user.uid, [selectedGroupId]);
+      console.log(`[Board] 읽지않은 댓글 카운트: ${Date.now() - t}ms`);
       setUnreadCommentCounts(counts);
     } catch (error) {
       console.error('새 댓글 수 로드 오류:', error);
@@ -178,7 +188,8 @@ export default function BoardListScreen() {
     loadUnreadCommentCounts();
   }, [loadUnreadCommentCounts]);
 
-  // 댓글 실시간 리스너 - 댓글 변경 시 새 댓글 수 재확인
+  // 댓글 실시간 리스너 - 댓글 변경 시 새 댓글 수 재확인 (디바운스 적용)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!selectedGroupId) return;
 
@@ -187,34 +198,21 @@ export default function BoardListScreen() {
       .where('groupId', '==', selectedGroupId)
       .onSnapshot(
         () => {
-          loadUnreadCommentCounts();
+          if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+          debounceTimerRef.current = setTimeout(() => {
+            loadUnreadCommentCounts();
+          }, 500);
         },
         (error) => {
           console.error('댓글 실시간 리스너 오류:', error);
         }
       );
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
   }, [selectedGroupId, loadUnreadCommentCounts]);
-
-  // 사용자 문서 변경 감지 - postLastViewedAt 업데이트 시 새 댓글 수 재확인
-  useEffect(() => {
-    if (!user?.uid) return;
-
-    const unsubscribe = nativeDb
-      .collection('users')
-      .doc(user.uid)
-      .onSnapshot(
-        () => {
-          loadUnreadCommentCounts();
-        },
-        (error) => {
-          console.error('사용자 문서 리스너 오류:', error);
-        }
-      );
-
-    return () => unsubscribe();
-  }, [user?.uid, loadUnreadCommentCounts]);
 
   // 게시판 나갈 때 마지막 조회 시간 업데이트 + 뒤로가기 버튼 처리
   useFocusEffect(
@@ -247,7 +245,8 @@ export default function BoardListScreen() {
         postId: post.id,
         groupId: selectedGroupId,
         groupName: selectedGroupName,
-        isOwner: isOwner ? 'true' : 'false'
+        isOwner: isOwner ? 'true' : 'false',
+        postData: JSON.stringify(post),
       }
     });
   };

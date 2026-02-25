@@ -6,7 +6,6 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  Modal,
   TextInput,
   ActivityIndicator,
   Alert,
@@ -14,8 +13,9 @@ import {
   Platform,
   useWindowDimensions,
   Keyboard,
-  KeyboardAvoidingView  // ✅ 이미 import 되어 있음
+  KeyboardAvoidingView
 } from 'react-native';
+import AppModal from '../../../components/AppModal';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../../context/AuthContext';
@@ -125,7 +125,7 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
   };
 
   return (
-    <Modal
+    <AppModal
       visible={visible}
       transparent
       animationType="none"
@@ -200,7 +200,7 @@ const CreateGroupModal = ({ visible, onClose, onSubmit, loading, colors }: Creat
           </View>
         </View>
       </KeyboardAvoidingView>
-    </Modal>
+    </AppModal>
   );
 };
 
@@ -452,7 +452,7 @@ export default function GroupListScreen() {
           </View>
           
           {/* ✅ 초대 모달도 수정 */}
-          <Modal
+          <AppModal
             visible={inviteModalVisible}
             transparent
             animationType="slide"
@@ -515,7 +515,7 @@ export default function GroupListScreen() {
                 </View>
               </View>
             </KeyboardAvoidingView>
-          </Modal>
+          </AppModal>
         </View>
       )}
       

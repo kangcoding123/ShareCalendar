@@ -1,4 +1,4 @@
-// components/PrivacyPolicyModal.tsx
+// components/TermsOfServiceModal.tsx
 import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
@@ -17,17 +17,17 @@ import { WebView } from 'react-native-webview';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
-// 개인정보처리방침 URL
-const PRIVACY_POLICY_URL = 'https://kangcoding123.github.io/wein-privacy-policy/';
+// 이용약관 URL
+const TERMS_OF_SERVICE_URL = 'https://kangcoding123.github.io/wein-privacy-policy/terms/';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-interface PrivacyPolicyModalProps {
+interface TermsOfServiceModalProps {
   visible: boolean;
   onClose: () => void;
 }
 
-const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({ visible, onClose }) => {
+const TermsOfServiceModal: React.FC<TermsOfServiceModalProps> = ({ visible, onClose }) => {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme || 'light'];
 
@@ -102,7 +102,7 @@ const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({ visible, onClos
     >
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-          <Text style={[styles.headerTitle, { color: colors.text }]}>개인정보처리방침</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>이용약관</Text>
           <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
             <Text style={[styles.closeButtonText, { color: colors.tint }]}>닫기</Text>
           </TouchableOpacity>
@@ -117,7 +117,7 @@ const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({ visible, onClos
         {error ? (
           <View style={styles.errorContainer}>
             <Text style={[styles.errorText, { color: colors.text }]}>
-              개인정보처리방침을 불러올 수 없습니다.
+              이용약관을 불러올 수 없습니다.
             </Text>
             <TouchableOpacity
               style={[styles.retryButton, { backgroundColor: colors.tint }]}
@@ -129,7 +129,7 @@ const PrivacyPolicyModal: React.FC<PrivacyPolicyModalProps> = ({ visible, onClos
         ) : (
           <WebView
             key={webViewKey}
-            source={{ uri: PRIVACY_POLICY_URL }}
+            source={{ uri: TERMS_OF_SERVICE_URL }}
             style={styles.webview}
             onLoad={handleLoadEnd}
             onLoadEnd={handleLoadEnd}
@@ -238,4 +238,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default PrivacyPolicyModal;
+export default TermsOfServiceModal;

@@ -449,43 +449,32 @@ export const getUserGroups = async (userId: string): Promise<GroupResult> => {
     
     console.log(`[getUserGroups] 사용자가 속한 그룹 멤버십 개수: ${membersSnapshot.size}`);
     
-    // 각 그룹의 상세 정보 가져오기
-    for (const memberDoc of membersSnapshot.docs) {
-      const memberData = memberDoc.data();
-      console.log(`[getUserGroups] 멤버십 데이터:`, {
-        groupId: memberData.groupId,
-        role: memberData.role,
-        color: memberData.color
-      });
-      
-      const groupDoc = await nativeDb.collection('groups').doc(memberData.groupId).get();
-      
-      if ((groupDoc as any).exists) {
-        const groupData = groupDoc.data();
-        
-        // 명시적으로 그룹 객체 생성 및 역할 추가
-        const group: Group = {
-          id: groupDoc.id,
-          name: groupData?.name || '',
-          createdBy: groupData?.createdBy || '',
-          description: groupData?.description || '',
-          memberCount: groupData?.memberCount || 0,
-          createdAt: groupData?.createdAt || '',
-          role: memberData.role || 'member',
-          color: memberData.color || '#4CAF50', // 사용자가 선택한 색상 또는 기본값
-        };
-        
-        console.log(`[getUserGroups] 로드된 그룹:`, {
-          id: group.id,
-          name: group.name,
-          role: group.role,
-          color: group.color
-        });
-        
-        groups.push(group);
-      } else {
-        console.log(`[getUserGroups] 그룹 문서 없음: ${memberData.groupId}`);
-      }
+    // 각 그룹의 상세 정보 병렬로 가져오기
+    const groupResults = await Promise.all(
+      membersSnapshot.docs.map(async (memberDoc) => {
+        const memberData = memberDoc.data();
+        const groupDoc = await nativeDb.collection('groups').doc(memberData.groupId).get();
+
+        if ((groupDoc as any).exists) {
+          const groupData = groupDoc.data();
+          const group: Group = {
+            id: groupDoc.id,
+            name: groupData?.name || '',
+            createdBy: groupData?.createdBy || '',
+            description: groupData?.description || '',
+            memberCount: groupData?.memberCount || 0,
+            createdAt: groupData?.createdAt || '',
+            role: memberData.role || 'member',
+            color: memberData.color || '#4CAF50',
+          };
+          return group;
+        }
+        return null;
+      })
+    );
+
+    for (const group of groupResults) {
+      if (group) groups.push(group);
     }
     
     // 그룹명 정렬: 한글 먼저 (가→ㅎ), 그 다음 영문/숫자 (A→Z)

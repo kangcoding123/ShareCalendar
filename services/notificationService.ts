@@ -564,18 +564,22 @@ export async function sendGroupNotification(
 
       const result = await response.json();
       console.log('그룹 알림 전송 결과:', result);
-      
-      // 알림 기록 저장
-      await nativeDb.collection('notificationLogs').add({
-        groupId,
-        title,
-        body,
-        data,
-        sentBy: excludeUserId,
-        sentTo: tokens.length,
-        createdAt: new Date().toISOString(),
-        result: result,
-      });
+
+      // 알림 기록 저장 (실패해도 알림 전송에 영향 없음)
+      try {
+        await nativeDb.collection('notificationLogs').add({
+          groupId,
+          title,
+          body,
+          data,
+          sentBy: excludeUserId,
+          sentTo: tokens.length,
+          createdAt: new Date().toISOString(),
+          result: result,
+        });
+      } catch (logError) {
+        console.warn('알림 기록 저장 실패 (알림은 정상 전송됨):', logError);
+      }
     }
   } catch (error) {
     console.error('그룹 알림 전송 오류:', error);
