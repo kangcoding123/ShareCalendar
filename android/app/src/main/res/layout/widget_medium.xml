@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_medium_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@drawable/widget_background">
+
+    <!-- 상단: 좌우 분할 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="horizontal">
+
+        <!-- 왼쪽: 미니 캘린더 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <!-- 월 헤더 -->
+            <TextView
+                android:id="@+id/tv_month_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#1A1A1A"
+                android:layout_marginBottom="4dp"
+                android:text="3월" />
+
+            <!-- 요일 헤더 -->
+            <LinearLayout
+                android:id="@+id/weekday_header"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal" />
+
+            <!-- 캘린더 그리드 -->
+            <LinearLayout
+                android:id="@+id/calendar_grid"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical" />
+
+        </LinearLayout>
+
+        <!-- 구분선 -->
+        <ImageView
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp"
+            android:src="@color/widget_divider"
+            android:importantForAccessibility="no" />
+
+        <!-- 오른쪽: 오늘 일정 -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <!-- 오늘 날짜 -->
+            <TextView
+                android:id="@+id/tv_today_header"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textColor="#1A1A1A"
+                android:layout_marginBottom="6dp"
+                android:text="오늘" />
+
+            <!-- 일정 컨테이너 -->
+            <LinearLayout
+                android:id="@+id/event_container"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:orientation="vertical" />
+
+            <!-- 일정 없음 -->
+            <TextView
+                android:id="@+id/tv_no_events"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="일정 없음"
+                android:textSize="14sp"
+                android:textColor="#999999"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- 마지막 업데이트 시간 -->
+    <TextView
+        android:id="@+id/tv_last_updated"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="end"
+        android:textSize="10sp"
+        android:textColor="#888888"
+        android:layout_marginTop="2dp"
+        android:text=""
+        android:visibility="gone" />
+
+</LinearLayout>

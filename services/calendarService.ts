@@ -14,6 +14,7 @@ import { cacheService } from './cacheService';
 import { Platform } from 'react-native';
 import { incrementEventCreatedCount } from './reviewService';
 import { logger } from '../utils/logger';
+import { updateWidgetData } from './widgetService';
 
 // 반복 유형 정의
 export type RecurrenceType = 'none' | 'weekly' | 'monthly' | 'yearly';
@@ -92,6 +93,8 @@ const notifyCallbacksDebounced = () => {
         logger.error('[GlobalEvents] 콜백 오류:', error);
       }
     });
+    // iOS 위젯 데이터 갱신
+    updateWidgetData(globalEventState.events);
     globalEventState.callbackDebounceTimer = null;
   }, 500);
 };
@@ -261,6 +264,11 @@ const loadUserGroupColors = async (userId: string, groupIds: string[]) => {
   } catch (error) {
     logger.error('[loadUserGroupColors] 그룹 색상 로드 실패:', error);
   }
+};
+
+// 현재 이벤트 데이터로 위젯 즉시 갱신 (포그라운드 복귀 시 사용)
+export const refreshWidgetData = () => {
+  updateWidgetData(globalEventState.events);
 };
 
 // 사용자가 속한 그룹의 모든 이벤트를 실시간으로 구독
@@ -578,7 +586,8 @@ export const addEvent = async (eventData: Partial<CalendarEvent>): Promise<Event
         logger.error('[addEvent] 낙관적 업데이트 콜백 오류:', error);
       }
     });
-    
+    updateWidgetData(globalEventState.events);
+
     if (!cacheService.getIsOnline()) {
       const offlineId = `offline_${Date.now()}_${Math.random()}`;
       const offlineEvent = {
@@ -689,6 +698,7 @@ export const updateEvent = async (eventId: string, eventData: CalendarEvent): Pr
           logger.error('[updateEvent] 낙관적 업데이트 콜백 오류:', error);
         }
       });
+      updateWidgetData(globalEventState.events);
     }
     
     if (!cacheService.getIsOnline()) {
@@ -799,8 +809,9 @@ export const deleteEvent = async (eventId: string): Promise<EventResult> => {
           logger.error('[deleteEvent] 낙관적 업데이트 콜백 오류:', error);
         }
       });
+      updateWidgetData(globalEventState.events);
     }
-    
+
     if (!cacheService.getIsOnline()) {
       await cacheService.addToOfflineQueue({
         type: 'delete',

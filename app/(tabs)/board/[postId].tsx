@@ -73,25 +73,6 @@ export default function PostDetailScreen() {
   const [isGroupOwner, setIsGroupOwner] = useState(isOwner === 'true');
   const [menuVisible, setMenuVisible] = useState(false);
 
-  // postId 변경 시 이전 데이터 초기화 (잔상 방지)
-  useEffect(() => {
-    if (postData) {
-      try {
-        const parsed = JSON.parse(postData) as Post;
-        setPost(parsed);
-        setLoading(false);
-      } catch {
-        setPost(null);
-        setLoading(true);
-      }
-    } else {
-      setPost(null);
-      setLoading(true);
-    }
-    setComments([]);
-    setIsGroupOwner(isOwner === 'true');
-  }, [postId, postData, isOwner]);
-
   // 게시글 작성자인지 확인
   const isPostAuthor = post?.authorId === user?.uid;
 
@@ -104,19 +85,26 @@ export default function PostDetailScreen() {
       }
     } catch (error) {
       console.error('게시글 로드 오류:', error);
+    } finally {
+      setLoading(false);
     }
   }, [postId, user?.uid]);
 
-  // params에 post 데이터가 없을 때만 Firestore에서 로드
+  // postData가 있으면 즉시 표시, 없으면 서버에서 로드
   useEffect(() => {
-    if (!post) {
-      const load = async () => {
-        await loadPost();
+    setComments([]);
+    setIsGroupOwner(isOwner === 'true');
+    if (postData) {
+      try {
+        setPost(JSON.parse(postData) as Post);
         setLoading(false);
-      };
-      load();
+      } catch {
+        loadPost();
+      }
+    } else {
+      loadPost();
     }
-  }, [postId]);
+  }, [postId, postData, isOwner]);
 
   // 화면을 나갈 때 postLastViewedAt 업데이트 (댓글 읽음 처리)
   // Android 하드웨어 뒤로가기 버튼 처리

@@ -5,4 +5,14 @@
   <color name="colorPrimaryDark">#ffffff</color>
   <color name="notification_icon_color">#ffffff</color>
   <color name="windowBg">#ffffff</color>
+  <color name="widget_background">#ffffff</color>
+  <color name="widget_holiday_red">#F44336</color>
+  <color name="widget_sunday_red">#F44336</color>
+  <color name="widget_saturday_blue">#2196F3</color>
+  <color name="widget_today_bg">#023c69</color>
+  <color name="widget_text_primary">#1A1A1A</color>
+  <color name="widget_text_secondary">#666666</color>
+  <color name="widget_text_tertiary">#999999</color>
+  <color name="widget_event_dot">#4CAF50</color>
+  <color name="widget_divider">#E0E0E0</color>
 </resources>

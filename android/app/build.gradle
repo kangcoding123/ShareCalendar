@@ -92,8 +92,8 @@ android {
         applicationId 'com.kangcoding.sharecalendar'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 98
-        versionName "1.2.53"
+        versionCode 104
+        versionName "1.2.55"
     }
     signingConfigs {
         debug {
@@ -181,6 +181,9 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+
+
 
 
 apply plugin: 'com.google.gms.google-services'

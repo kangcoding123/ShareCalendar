@@ -7,7 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import * as SplashScreen from 'expo-splash-screen';
 import { router } from 'expo-router';
-import { Platform, Alert, AppState, AppStateStatus, useColorScheme } from 'react-native';
+import { Platform, Alert, AppState, AppStateStatus, useColorScheme, Linking } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -19,7 +19,7 @@ import {
 import { checkForUpdates } from '../services/updateService';
 import { checkAdminStatus } from '../services/adminService';
 // import { initializeAnalytics } from '../services/analyticsService';
-import { subscribeToUserEvents } from '../services/calendarService';
+import { subscribeToUserEvents, refreshWidgetData } from '../services/calendarService';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { nativeDb } from '../config/firebase';
@@ -123,6 +123,38 @@ function RootLayoutNav() {
     }
   };
 
+  // 위젯 딥링크 처리
+  useEffect(() => {
+    const handleDeepLink = (event: { url: string }) => {
+      const { url } = event;
+      if (!url?.startsWith('weincalendar://')) return;
+
+      const path = url.replace('weincalendar://', '');
+      if (path === 'calendar') {
+        router.push('/(tabs)/calendar');
+      } else if (path === 'create') {
+        router.push({
+          pathname: '/(tabs)/calendar',
+          params: { openCreate: 'true' }
+        });
+      } else if (path.startsWith('event/')) {
+        const eventId = path.replace('event/', '');
+        router.push({
+          pathname: '/(tabs)/calendar',
+          params: { highlightEventId: eventId }
+        });
+      }
+    };
+
+    const subscription = Linking.addEventListener('url', handleDeepLink);
+    // 앱이 종료 상태에서 위젯으로 열린 경우
+    Linking.getInitialURL().then(url => {
+      if (url) handleDeepLink({ url });
+    });
+
+    return () => subscription.remove();
+  }, []);
+
   // 네트워크 상태 모니터링
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
@@ -159,6 +191,9 @@ function RootLayoutNav() {
         if (user?.uid) {
           checkForUpdates().catch(logger.error);
         }
+
+        // 위젯 데이터 갱신 (백그라운드에서 변경된 그룹 일정 반영)
+        refreshWidgetData();
 
         // 배지 초기화
         await Notifications.setBadgeCountAsync(0);

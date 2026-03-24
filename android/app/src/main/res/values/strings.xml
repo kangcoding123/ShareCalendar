@@ -3,4 +3,10 @@
   <string name="expo_system_ui_user_interface_style" translatable="false">automatic</string>
   <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
   <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>
+  <string name="widget_name_small">WE:IN 오늘 일정</string>
+  <string name="widget_name_medium">WE:IN 캘린더</string>
+  <string name="widget_name_large">WE:IN 캘린더 (대형)</string>
+  <string name="widget_description">오늘의 일정을 한눈에 확인하세요</string>
+  <string name="widget_description_medium">캘린더와 오늘 일정을 함께 확인하세요</string>
+  <string name="widget_description_large">월간 캘린더에서 일정을 한눈에 확인하세요</string>
 </resources>

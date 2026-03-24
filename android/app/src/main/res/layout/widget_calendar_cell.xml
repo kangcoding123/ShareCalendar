@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="0dp"
+    android:layout_height="match_parent"
+    android:layout_weight="1"
+    android:orientation="vertical"
+    android:gravity="center">
+
+    <!-- 날짜 + 오늘 배경 -->
+    <FrameLayout
+        android:layout_width="20dp"
+        android:layout_height="18dp">
+
+        <!-- 오늘 배경 (원형) -->
+        <ImageView
+            android:id="@+id/today_bg"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:layout_gravity="center"
+            android:src="@drawable/widget_today_circle"
+            android:importantForAccessibility="no"
+            android:visibility="gone" />
+
+        <!-- 날짜 텍스트 -->
+        <TextView
+            android:id="@+id/tv_day"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:textSize="10sp"
+            android:text="" />
+
+    </FrameLayout>
+
+    <!-- 이벤트 도트 -->
+    <ImageView
+        android:id="@+id/event_dot"
+        android:layout_width="3dp"
+        android:layout_height="3dp"
+        android:layout_marginTop="1dp"
+        android:src="@drawable/widget_event_dot"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
+</LinearLayout>

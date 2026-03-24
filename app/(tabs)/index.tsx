@@ -487,16 +487,9 @@ export default function HomeScreen() {
     Linking.openURL('https://sharecalendar-c8a9b.web.app/');
   };
 
-  const handleReportBug = () => {
+  const handleOpenCommunity = () => {
     setMenuVisible(false);
-    const subject = encodeURIComponent('[WE:IN 버그신고]');
-    const body = encodeURIComponent(`앱 버전: v${appVersion}\n\n[버그 내용을 작성해주세요]\n\n`);
-    Linking.openURL(`mailto:gangseogju106@gmail.com?subject=${subject}&body=${body}`);
-  };
-
-  const handleOpenBlog = () => {
-    setMenuVisible(false);
-    Linking.openURL('https://blog.naver.com/sjkang912');
+    router.push('/(tabs)/community');
   };
 
   const handleOpenGuide = () => {
@@ -998,14 +991,9 @@ const handleConfirmDeleteAccount = async () => {
               <Text style={[styles.menuItemText, { color: colors.text }]}>공식 홈페이지</Text>
             </TouchableOpacity>
             <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-            <TouchableOpacity style={styles.menuItem} onPress={handleOpenBlog}>
-              <Feather name="book-open" size={18} color={colors.text} />
-              <Text style={[styles.menuItemText, { color: colors.text }]}>개발자 이야기</Text>
-            </TouchableOpacity>
-            <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
-            <TouchableOpacity style={styles.menuItem} onPress={handleReportBug}>
-              <Feather name="mail" size={18} color={colors.text} />
-              <Text style={[styles.menuItemText, { color: colors.text }]}>버그/오류 신고</Text>
+            <TouchableOpacity style={styles.menuItem} onPress={handleOpenCommunity}>
+              <Feather name="message-circle" size={18} color={colors.text} />
+              <Text style={[styles.menuItemText, { color: colors.text }]}>커뮤니티</Text>
             </TouchableOpacity>
             <View style={[styles.menuDivider, { backgroundColor: colors.border }]} />
             <View style={styles.menuItem}>

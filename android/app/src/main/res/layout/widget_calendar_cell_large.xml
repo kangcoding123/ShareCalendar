@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="0dp"
+    android:layout_height="match_parent"
+    android:layout_weight="1"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:paddingTop="2dp"
+    android:paddingBottom="1dp">
+
+    <!-- 날짜 + 오늘 배경 -->
+    <FrameLayout
+        android:layout_width="22dp"
+        android:layout_height="20dp">
+
+        <ImageView
+            android:id="@+id/today_bg"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_gravity="center"
+            android:src="@drawable/widget_today_circle"
+            android:importantForAccessibility="no"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tv_day"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:textSize="11sp"
+            android:text="" />
+
+    </FrameLayout>
+
+    <!-- 일정 1 -->
+    <TextView
+        android:id="@+id/tv_event1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="9sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:paddingStart="1dp"
+        android:paddingEnd="1dp"
+        android:layout_marginTop="1dp"
+        android:visibility="gone"
+        android:text="" />
+
+    <!-- 일정 2 -->
+    <TextView
+        android:id="@+id/tv_event2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="9sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:paddingStart="1dp"
+        android:paddingEnd="1dp"
+        android:layout_marginTop="1dp"
+        android:visibility="gone"
+        android:text="" />
+
+    <!-- 일정 3 -->
+    <TextView
+        android:id="@+id/tv_event3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="9sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:paddingStart="1dp"
+        android:paddingEnd="1dp"
+        android:layout_marginTop="1dp"
+        android:visibility="gone"
+        android:text="" />
+
+    <!-- 일정 4 -->
+    <TextView
+        android:id="@+id/tv_event4"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="9sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:paddingStart="1dp"
+        android:paddingEnd="1dp"
+        android:layout_marginTop="1dp"
+        android:visibility="gone"
+        android:text="" />
+
+    <!-- 일정 5 -->
+    <TextView
+        android:id="@+id/tv_event5"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="9sp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:paddingStart="1dp"
+        android:paddingEnd="1dp"
+        android:layout_marginTop="1dp"
+        android:visibility="gone"
+        android:text="" />
+
+</LinearLayout>

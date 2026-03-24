@@ -552,16 +552,6 @@ const EventDetailModal = ({
             </View>
           )}
         </ScrollView>
-
-        {/* 하단 고정 버튼 */}
-        <View style={[styles.bottomButtonContainer, { backgroundColor: colors.card }]}>
-          <TouchableOpacity
-            style={[styles.addButton, { backgroundColor: colors.buttonBackground }]}
-            onPress={handleAddEvent}
-          >
-            <Text style={[styles.addButtonText, { color: colors.buttonText }]}>일정 추가</Text>
-          </TouchableOpacity>
-        </View>
       </View>
     );
   };
@@ -612,6 +602,18 @@ const EventDetailModal = ({
           </View>
 
           {renderContent()}
+
+          {/* 하단 고정 버튼 - 로그인 상태에서만 표시 */}
+          {user && !isEditing && (
+            <View style={[styles.bottomButtonContainer, { backgroundColor: colors.card }]}>
+              <TouchableOpacity
+                style={[styles.addButton, { backgroundColor: colors.buttonBackground }]}
+                onPress={handleAddEvent}
+              >
+                <Text style={[styles.addButtonText, { color: colors.buttonText }]}>일정 추가</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* 삭제 확인 오버레이 (모달 내부에 표시) */}
@@ -710,7 +712,7 @@ const styles = StyleSheet.create({
   modalContent: {
     borderTopLeftRadius: 15,
     borderTopRightRadius: 15,
-    height: '90%',
+    height: SCREEN_HEIGHT * 0.9,
     paddingBottom: 0
   },
   header: {
@@ -732,6 +734,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    flexShrink: 1,
     padding: 15
   },
   contentContainer: {
@@ -782,13 +785,15 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   contentWrapper: {
-    flex: 1
+    flex: 1,
+    overflow: 'hidden',
   },
   bottomButtonContainer: {
     padding: 15,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.1)'
+    borderTopColor: 'rgba(0,0,0,0.1)',
+    flexShrink: 0,
   },
   // 삭제 확인 오버레이 스타일 (모달 내부에 절대 위치로 표시)
   deleteModalOverlay: {

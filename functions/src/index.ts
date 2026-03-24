@@ -33,8 +33,26 @@ export const sendScheduledNotifications = functions
 
       console.log(`${snapshot.size}개의 알림을 처리합니다.`);
 
+      // 같은 eventId 중복 발송 방지: eventId별로 첫 번째 문서만 처리, 나머지는 cancelled
+      const processedEventIds = new Set<string>();
+
       for (const doc of snapshot.docs) {
         const task = doc.data();
+
+        // 같은 eventId가 이미 처리되었으면 중복 문서를 cancelled로 표시하고 스킵
+        if (task.eventId && processedEventIds.has(task.eventId)) {
+          console.log(`중복 알림 스킵: ${task.eventTitle} (eventId: ${task.eventId})`);
+          await doc.ref.update({
+            status: 'cancelled',
+            cancelReason: 'duplicate_eventId',
+            cancelledAt: admin.firestore.Timestamp.now()
+          });
+          continue;
+        }
+
+        if (task.eventId) {
+          processedEventIds.add(task.eventId);
+        }
 
         try {
           // 그룹 멤버들의 푸시 토큰 조회

@@ -49,13 +49,13 @@ const DatePicker = ({
   return (
     <View style={styles.datePickerContainer}>
       <View style={styles.dateField}>
-        <Text style={[styles.dateLabel, { color: colors.lightGray }]}>시작일</Text>
+        <Text style={[styles.dateLabel, { color: colors.lightGray }]} allowFontScaling={false}>시작일</Text>
         <View style={styles.dateControlRow}>
           <TouchableOpacity
             style={[styles.dateControlButton, { backgroundColor: colors.secondary }]}
             onPress={() => onStartDateChange(incrementDate(startDate, -1))}
           >
-            <Text style={{ color: colors.text }}>-</Text>
+            <Text style={{ color: colors.text }} allowFontScaling={false}>-</Text>
           </TouchableOpacity>
           
           <View
@@ -63,7 +63,7 @@ const DatePicker = ({
           >
             <Text
               style={[styles.dateButtonText, { color: colors.text }]}
-              adjustsFontSizeToFit
+              allowFontScaling={false}
               numberOfLines={1}
             >
               {formatDate(parseDateString(startDate), 'yyyy년 MM월 dd일')}
@@ -74,17 +74,17 @@ const DatePicker = ({
             style={[styles.dateControlButton, { backgroundColor: colors.secondary }]}
             onPress={() => onStartDateChange(incrementDate(startDate, 1))}
           >
-            <Text style={{ color: colors.text }}>+</Text>
+            <Text style={{ color: colors.text }} allowFontScaling={false}>+</Text>
           </TouchableOpacity>
         </View>
-        <Text style={[styles.lunarDateText, { color: colors.lightGray }]}>
+        <Text style={[styles.lunarDateText, { color: colors.lightGray }]} allowFontScaling={false}>
           {getLunarDateLong(parseDateString(startDate))}
         </Text>
       </View>
       
       {isMultiDay && (
         <View style={styles.dateField}>
-          <Text style={[styles.dateLabel, { color: colors.lightGray }]}>종료일</Text>
+          <Text style={[styles.dateLabel, { color: colors.lightGray }]} allowFontScaling={false}>종료일</Text>
           <View style={styles.dateControlRow}>
             <TouchableOpacity
               style={[styles.dateControlButton, { backgroundColor: colors.secondary }]}
@@ -95,7 +95,7 @@ const DatePicker = ({
                 }
               }}
             >
-              <Text style={{ color: colors.text }}>-</Text>
+              <Text style={{ color: colors.text }} allowFontScaling={false}>-</Text>
             </TouchableOpacity>
 
             <View
@@ -103,7 +103,7 @@ const DatePicker = ({
             >
               <Text
                 style={[styles.dateButtonText, { color: colors.text }]}
-                adjustsFontSizeToFit
+                allowFontScaling={false}
                 numberOfLines={1}
               >
                 {formatDate(parseDateString(endDate), 'yyyy년 MM월 dd일')}
@@ -114,10 +114,10 @@ const DatePicker = ({
               style={[styles.dateControlButton, { backgroundColor: colors.secondary }]}
               onPress={() => onEndDateChange(incrementDate(endDate, 1))}
             >
-              <Text style={{ color: colors.text }}>+</Text>
+              <Text style={{ color: colors.text }} allowFontScaling={false}>+</Text>
             </TouchableOpacity>
           </View>
-          <Text style={[styles.lunarDateText, { color: colors.lightGray }]}>
+          <Text style={[styles.lunarDateText, { color: colors.lightGray }]} allowFontScaling={false}>
             {getLunarDateLong(parseDateString(endDate))}
           </Text>
         </View>

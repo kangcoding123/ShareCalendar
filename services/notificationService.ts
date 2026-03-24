@@ -301,10 +301,11 @@ export async function scheduleEventNotification(event: CalendarEvent, creatorUse
       });
     }
 
-    // 2. 그룹 일정인 경우: Firestore에 예약 알림 저장 (Cloud Functions가 그룹 멤버들에게 푸시)
-    if (event.groupId && event.groupId !== 'personal' && event.id) {
-      await saveScheduledNotificationForGroup(event, notificationTime, creatorUserId);
-    }
+    // 2. 그룹 일정인 경우: 서버 Cloud Function(onEventCreated)이 scheduledNotifications 문서를 생성하므로
+    //    클라이언트에서는 생성하지 않음 (중복 알림 방지)
+    // if (event.groupId && event.groupId !== 'personal' && event.id) {
+    //   await saveScheduledNotificationForGroup(event, notificationTime, creatorUserId);
+    // }
 
     return notificationId;
   } catch (error) {
@@ -707,16 +708,15 @@ export async function syncGroupEventNotifications(userId: string): Promise<numbe
     for (const event of futureEvents) {
       if (!event.id) continue;
 
-      // 이미 예약된 알림이 있는지 확인
+      // 이미 알림이 있는지 확인 (scheduled 또는 sent 모두 체크)
       const existingSnapshot = await nativeDb
         .collection('scheduledNotifications')
         .where('eventId', '==', event.id)
-        .where('status', '==', 'scheduled')
         .limit(1)
         .get();
 
       if (!existingSnapshot.empty) {
-        // 이미 예약되어 있음
+        // 이미 알림 문서가 존재함 (scheduled 또는 sent)
         continue;
       }
 
